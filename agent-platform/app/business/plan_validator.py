@@ -4,6 +4,7 @@ from collections import defaultdict, deque
 import re
 
 from app.domain.orchestration import LogicalPlan, PlanValidation
+from app.domain.tool import Tool
 
 
 _STEP_REFERENCE = re.compile(r"^\$\{steps\.([^.}]+)(?:\.|})")
@@ -18,7 +19,7 @@ class PlanValidator:
         plan: LogicalPlan,
         *,
         agent_names: set[str],
-        tool_names: set[str],
+        tools_by_name: dict[str, Tool],
         knowledge_base_names: set[str],
     ) -> PlanValidation:
         errors: list[str] = []
@@ -74,11 +75,34 @@ class PlanValidator:
             if step.type == "TOOL":
                 if not step.tool_name:
                     errors.append(f"TOOL step '{step.id}' requires tool")
-                elif step.tool_name not in tool_names:
+                elif step.tool_name not in tools_by_name:
                     errors.append(
                         f"TOOL step '{step.id}' references unknown/disabled tool "
                         f"'{step.tool_name}'"
                     )
+                else:
+                    tool = tools_by_name[step.tool_name]
+                    policy = tool.approval_policy.upper()
+                    if policy == "REQUIRED" and not step.requires_approval:
+                        errors.append(
+                            f"TOOL step '{step.id}' must require human approval "
+                            f"because tool '{tool.name}' approvalPolicy is REQUIRED"
+                        )
+                    if policy == "NEVER" and step.requires_approval:
+                        errors.append(
+                            f"TOOL step '{step.id}' cannot require human approval "
+                            f"because tool '{tool.name}' approvalPolicy is NEVER"
+                        )
+                    if step.tool_side_effect != tool.side_effect:
+                        errors.append(
+                            f"TOOL step '{step.id}' side-effect snapshot does not match "
+                            f"tool '{tool.name}'"
+                        )
+                    if step.tool_approval_policy != tool.approval_policy:
+                        errors.append(
+                            f"TOOL step '{step.id}' approval policy snapshot does not match "
+                            f"tool '{tool.name}'"
+                        )
                 for referenced_step in self._step_references(step.tool_arguments):
                     if referenced_step not in id_set:
                         errors.append(
