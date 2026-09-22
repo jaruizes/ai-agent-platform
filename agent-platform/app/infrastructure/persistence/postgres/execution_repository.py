@@ -362,23 +362,52 @@ class PostgresExecutionRepository:
         status: str,
         reason: str | None,
     ) -> bool:
-        async with self._db.require_pool().acquire() as conn:
-            result = await conn.execute(
-                """
-                UPDATE executions
-                SET control_action=$2,status=$3,control_reason=$4,updated_at=now()
-                WHERE id=$1
-                  AND status IN (
-                    'ACCEPTED','RUNNING','RETRYING','PAUSING','CANCELLING',
-                    'PAUSED','WAITING_APPROVAL'
-                  )
-                """,
-                execution_id,
-                action,
-                status,
-                reason,
-            )
-            return result == "UPDATE 1"
+        pool = self._db.require_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    SELECT * FROM executions
+                    WHERE id=$1
+                      AND status IN (
+                        'ACCEPTED','RUNNING','RETRYING','PAUSING','CANCELLING',
+                        'PAUSED','WAITING_APPROVAL'
+                      )
+                    FOR UPDATE
+                    """,
+                    execution_id,
+                )
+                if not row:
+                    return False
+                await conn.execute(
+                    """
+                    UPDATE executions
+                    SET control_action=$2,status=$3,control_reason=$4,updated_at=now()
+                    WHERE id=$1
+                    """,
+                    execution_id,
+                    action,
+                    status,
+                    reason,
+                )
+                event = lifecycle_event(
+                    execution_id=execution_id,
+                    correlation_id=row["correlation_id"],
+                    causation_id=row["request_message_id"],
+                    command_name=row["command_name"],
+                    status=status,
+                    event_type=(
+                        "EXECUTION_PAUSE_REQUESTED"
+                        if action == "PAUSE"
+                        else "EXECUTION_CANCEL_REQUESTED"
+                    ),
+                    sequence=2,
+                    detail={"reason": reason},
+                )
+                await self._insert_outbox(
+                    conn, execution_id, LIFECYCLE_SUBJECT, event
+                )
+                return True
 
     async def complete(
         self,
@@ -970,6 +999,23 @@ class PostgresExecutionRepository:
                 await self._insert_outbox(
                     conn, execution_id, ORCHESTRATION_SUBJECT, event
                 )
+                if not approved:
+                    cancelled = lifecycle_event(
+                        execution_id=execution_id,
+                        correlation_id=execution["correlation_id"],
+                        causation_id=event["messageId"],
+                        command_name=execution["command_name"],
+                        status="CANCELLED",
+                        event_type="EXECUTION_CANCELLED",
+                        sequence=3,
+                        detail={
+                            "reason": comment
+                            or f"Approval rejected for step {step_id}"
+                        },
+                    )
+                    await self._insert_outbox(
+                        conn, execution_id, LIFECYCLE_SUBJECT, cancelled
+                    )
                 return True
 
     async def get_orchestration(self, execution_id: UUID) -> dict[str, Any] | None:
