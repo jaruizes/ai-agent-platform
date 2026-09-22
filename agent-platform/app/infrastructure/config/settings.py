@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     service_name: str = "agent-platform"
-    service_version: str = "0.6.0"
+    service_version: str = "0.6.1"
 
     database_url: str = "postgresql://agent:agent@postgres:5432/agent_platform"
 
