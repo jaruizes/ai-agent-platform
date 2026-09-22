@@ -940,6 +940,11 @@ class PostgresExecutionRepository:
                     ),
                     execution["id"],
                 )
+                if execution.get("session_id"):
+                    await conn.execute(
+                        "UPDATE sessions SET updated_at=now() WHERE id=$1",
+                        execution["session_id"],
+                    )
                 event = orchestration_event(
                     execution_id=execution["id"],
                     correlation_id=execution["correlation_id"],
