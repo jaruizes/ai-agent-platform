@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     bootstrap_skills_dir: str = "/app/bootstrap/skills"
     bootstrap_agents_dir: str = "/app/bootstrap/agents"
     bootstrap_prompts_dir: str = "/app/bootstrap/prompts"
+    bootstrap_tools_dir: str = "/app/bootstrap/tools"
+    bootstrap_mcp_servers_dir: str = "/app/bootstrap/mcp-servers"
+    mcp_timeout_seconds: float = 60.0
 
     otel_exporter_otlp_endpoint: str = "http://otel-collector:4317"
 
