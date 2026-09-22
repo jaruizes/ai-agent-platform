@@ -3337,3 +3337,6 @@ Este ADR mantiene separadas dos responsabilidades:
 LLM      -> descubre candidatos
 Platform -> decide qué se recuerda
 ```
+
+
+> If inferred persistence is disabled, automatic extraction is skipped entirely, avoiding an unnecessary model call.
