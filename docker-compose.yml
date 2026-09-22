@@ -39,7 +39,8 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-anthropic/claude-sonnet-4-5-20250929}
+      ANTHROPIC_ROUTER_MODEL: ${ANTHROPIC_ROUTER_MODEL:-anthropic/claude-haiku-4-5-20251001}
+      ANTHROPIC_EXECUTION_MODEL: ${ANTHROPIC_EXECUTION_MODEL:-anthropic/claude-sonnet-4-5-20250929}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-key}
     volumes:
       - ./litellm/litellm-config.yaml:/app/config.yaml:ro
@@ -101,7 +102,8 @@ services:
       NATS_URL: nats://nats:4222
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-key}
-      DEFAULT_MODEL: platform-default
+      ROUTER_MODEL_PROFILE: router-fast
+      EXECUTION_MODEL_PROFILE: reasoning-default
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     ports:
       - "8080:8080"
