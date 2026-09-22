@@ -82,8 +82,17 @@ class ExecutionService:
             )
 
             try:
-                plan = self._resolver.resolve(command)
+                plan = await self._resolver.resolve(command)
+                span.set_attribute("execution.strategy", plan.strategy)
+                if plan.agent_name:
+                    span.set_attribute("execution.agent", plan.agent_name)
+
                 result = await self._model_gateway.execute(plan)
+                result.setdefault("data", {})
+                result["data"]["strategy"] = plan.strategy
+                if plan.agent_name:
+                    result["data"]["agent"] = plan.agent_name
+
                 await self._repository.complete(
                     execution,
                     normalized_intent=command.intent.strip(),
