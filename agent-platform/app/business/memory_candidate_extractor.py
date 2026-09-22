@@ -22,10 +22,12 @@ class MemoryCandidateExtractor:
         *,
         model_profile: str,
         max_candidates: int = 8,
+        max_input_chars: int = 50000,
     ):
         self._model_gateway = model_gateway
         self._model_profile = model_profile
         self._max_candidates = max(1, max_candidates)
+        self._max_input_chars = max(1000, max_input_chars)
 
     async def extract_for_session(
         self,
@@ -46,16 +48,17 @@ class MemoryCandidateExtractor:
                 "tokens, transient runtime state, retries, IDs or timestamps. "
                 f"Return at most {self._max_candidates} items."
             ),
-            user_prompt=json.dumps(
+            user_prompt=self._bounded_payload(
                 {
                     "intent": command.intent,
                     "input": command.input,
                     "context": command.context,
                     "instructions": command.instructions,
-                    "result": result,
-                },
-                ensure_ascii=False,
-                default=str,
+                    "resultSummary": result.get("summary"),
+                    "resultType": result.get("type"),
+                    "planObjective": (result.get("data") or {}).get("planObjective"),
+                    "finalStepId": (result.get("data") or {}).get("finalStepId"),
+                }
             ),
             model_profile=self._model_profile,
             temperature=0.0,
@@ -97,3 +100,9 @@ class MemoryCandidateExtractor:
                 )
             )
         return candidates
+
+    def _bounded_payload(self, value: dict[str, Any]) -> str:
+        payload = json.dumps(value, ensure_ascii=False, default=str)
+        if len(payload) <= self._max_input_chars:
+            return payload
+        return payload[: self._max_input_chars] + "\n...[truncated by memory extractor budget]"
