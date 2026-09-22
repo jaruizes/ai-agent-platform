@@ -74,6 +74,14 @@ class ModelGatewayPort(Protocol):
         model_profile: str,
         temperature: float = 0.2,
     ) -> str: ...
+    async def complete_detailed(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model_profile: str,
+        temperature: float = 0.2,
+    ) -> dict[str, Any]: ...
     async def execute(self, plan: ExecutionPlan) -> dict[str, Any]: ...
     async def close(self) -> None: ...
 
