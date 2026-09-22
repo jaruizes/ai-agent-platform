@@ -7,7 +7,7 @@ import logging
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from uuid import UUID, uuid4
 
 from app.business.ports import KnowledgeRepositoryPort, ModelGatewayPort
@@ -168,7 +168,7 @@ class KnowledgeService:
         kb_id: UUID,
         *,
         name: str,
-        content: bytes,
+        stream: BinaryIO,
         mime_type: str | None,
         metadata: dict[str, Any] | None = None,
     ) -> KnowledgeDocument:
@@ -181,8 +181,7 @@ class KnowledgeService:
         directory = self._storage_root / str(kb_id) / str(document_id)
         directory.mkdir(parents=True, exist_ok=True)
         destination = directory / name
-        await asyncio.to_thread(destination.write_bytes, content)
-        checksum = hashlib.sha256(content).hexdigest()
+        checksum = await asyncio.to_thread(self._write_stream, stream, destination)
         return await self._repository.create_document(
             KnowledgeDocument(
                 id=document_id,
@@ -242,7 +241,7 @@ class KnowledgeService:
         document_id: UUID,
         *,
         name: str,
-        content: bytes,
+        stream: BinaryIO,
         mime_type: str | None,
         metadata: dict[str, Any] | None = None,
     ) -> KnowledgeDocument | None:
@@ -257,14 +256,14 @@ class KnowledgeService:
         directory = self._storage_root / str(existing.knowledge_base_id) / str(document_id)
         directory.mkdir(parents=True, exist_ok=True)
         destination = directory / name
-        await asyncio.to_thread(destination.write_bytes, content)
+        checksum = await asyncio.to_thread(self._write_stream, stream, destination)
         if existing.storage_path and existing.storage_path != str(destination):
             await self._delete_storage(existing.storage_path)
         return await self._repository.update_document_content(
             document_id,
             name=name,
             mime_type=mime_type,
-            checksum=hashlib.sha256(content).hexdigest(),
+            checksum=checksum,
             storage_path=str(destination),
             metadata=metadata or existing.metadata,
         )
@@ -512,6 +511,19 @@ class KnowledgeService:
                 f"Embedding profile '{self._embedding_model_profile}' returned "
                 f"{len(vector)} dimensions; M3 storage expects 768"
             )
+
+    @staticmethod
+    def _write_stream(stream: BinaryIO, destination: Path) -> str:
+        digest = hashlib.sha256()
+        stream.seek(0)
+        with destination.open("wb") as target:
+            while True:
+                block = stream.read(1024 * 1024)
+                if not block:
+                    break
+                digest.update(block)
+                target.write(block)
+        return digest.hexdigest()
 
     async def _delete_storage(self, storage_path: str | None) -> None:
         if not storage_path:
