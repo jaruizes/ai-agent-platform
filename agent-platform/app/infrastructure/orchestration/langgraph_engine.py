@@ -64,16 +64,15 @@ class LangGraphOrchestrationEngine:
 
         try:
             state = await compiled.ainvoke({"results": {}})
+            final = state.get("results", {}).get(plan.final_step_id)
+            if not final:
+                raise RuntimeError(
+                    f"Final plan step '{plan.final_step_id}' did not produce a result"
+                )
             await self._repository.mark_plan_completed(execution)
         except Exception:
             await self._repository.mark_plan_failed(execution)
             raise
-
-        final = state.get("results", {}).get(plan.final_step_id)
-        if not final:
-            raise RuntimeError(
-                f"Final plan step '{plan.final_step_id}' did not produce a result"
-            )
         return {
             "final": final,
             "stepResults": state.get("results", {}),
