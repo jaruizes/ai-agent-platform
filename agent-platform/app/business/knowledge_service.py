@@ -1,0 +1,521 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+import shutil
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+from uuid import UUID, uuid4
+
+from app.business.ports import KnowledgeRepositoryPort, ModelGatewayPort
+from app.business.tool_service import ToolService
+from app.domain.knowledge import (
+    KnowledgeBase,
+    KnowledgeChunk,
+    KnowledgeDocument,
+    ParsedDocument,
+    ParsedSegment,
+    RetrievalHit,
+)
+from app.infrastructure.knowledge.parsers import DocumentParser
+
+
+logger = logging.getLogger(__name__)
+
+
+class KnowledgeService:
+    GOOGLE_TOOLS = {
+        "GOOGLE_DOCS": "google-docs-get-text",
+        "GOOGLE_SLIDES": "google-slides-get-text",
+        "GOOGLE_SHEETS": "google-sheets-get-text",
+    }
+
+    def __init__(
+        self,
+        repository: KnowledgeRepositoryPort,
+        model_gateway: ModelGatewayPort,
+        tool_service: ToolService,
+        parser: DocumentParser,
+        *,
+        storage_root: str,
+        embedding_model_profile: str,
+        chunk_size_chars: int,
+        chunk_overlap_chars: int,
+        embedding_batch_size: int,
+        worker_poll_seconds: float,
+        cleanup_poll_seconds: float,
+    ):
+        self._repository = repository
+        self._model_gateway = model_gateway
+        self._tool_service = tool_service
+        self._parser = parser
+        self._storage_root = Path(storage_root)
+        self._embedding_model_profile = embedding_model_profile
+        self._chunk_size_chars = chunk_size_chars
+        self._chunk_overlap_chars = chunk_overlap_chars
+        self._embedding_batch_size = embedding_batch_size
+        self._worker_poll_seconds = worker_poll_seconds
+        self._cleanup_poll_seconds = cleanup_poll_seconds
+        self._stop = asyncio.Event()
+        self._storage_root.mkdir(parents=True, exist_ok=True)
+
+    async def list_knowledge_bases(self, enabled_only: bool = False) -> list[KnowledgeBase]:
+        return await self._repository.list_knowledge_bases(enabled_only)
+
+    async def get_knowledge_base(self, kb_id: UUID) -> KnowledgeBase | None:
+        return await self._repository.get_knowledge_base(kb_id)
+
+    async def create_knowledge_base(
+        self,
+        *,
+        name: str,
+        description: str = "",
+        scope: str = "TENANT",
+        retention_policy: str = "PERSISTENT",
+        ttl_seconds: int | None = None,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> KnowledgeBase:
+        if await self._repository.get_knowledge_base_by_name(name):
+            raise ValueError(f"Knowledge base '{name}' already exists")
+        scope = scope.upper()
+        retention_policy = retention_policy.upper()
+        if scope not in {"EXECUTION", "SESSION", "USER", "TENANT", "GLOBAL"}:
+            raise ValueError(f"Unsupported knowledge scope '{scope}'")
+        if retention_policy not in {"PERSISTENT", "TTL"}:
+            raise ValueError(f"Unsupported retention policy '{retention_policy}'")
+        if retention_policy == "TTL" and (ttl_seconds is None or ttl_seconds <= 0):
+            raise ValueError("ttlSeconds must be greater than zero for TTL retention")
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+            if retention_policy == "TTL"
+            else None
+        )
+        return await self._repository.create_knowledge_base(
+            KnowledgeBase(
+                id=uuid4(),
+                name=name,
+                description=description,
+                scope=scope,
+                retention_policy=retention_policy,
+                expires_at=expires_at,
+                enabled=enabled,
+                metadata=metadata or {},
+            )
+        )
+
+    async def update_knowledge_base(
+        self,
+        kb_id: UUID,
+        *,
+        name: str,
+        description: str,
+        scope: str,
+        retention_policy: str,
+        ttl_seconds: int | None,
+        enabled: bool,
+        metadata: dict[str, Any] | None = None,
+    ) -> KnowledgeBase | None:
+        existing = await self._repository.get_knowledge_base(kb_id)
+        if not existing:
+            return None
+        scope = scope.upper()
+        retention_policy = retention_policy.upper()
+        if scope not in {"EXECUTION", "SESSION", "USER", "TENANT", "GLOBAL"}:
+            raise ValueError(f"Unsupported knowledge scope '{scope}'")
+        if retention_policy not in {"PERSISTENT", "TTL"}:
+            raise ValueError(f"Unsupported retention policy '{retention_policy}'")
+        expires_at = existing.expires_at
+        if retention_policy == "TTL":
+            if ttl_seconds is not None:
+                if ttl_seconds <= 0:
+                    raise ValueError("ttlSeconds must be greater than zero")
+                expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+            elif expires_at is None:
+                raise ValueError("ttlSeconds is required when switching to TTL retention")
+        else:
+            expires_at = None
+        return await self._repository.update_knowledge_base(
+            KnowledgeBase(
+                id=existing.id,
+                name=name,
+                description=description,
+                scope=scope,
+                retention_policy=retention_policy,
+                expires_at=expires_at,
+                enabled=enabled,
+                metadata=metadata or {},
+            )
+        )
+
+    async def delete_knowledge_base(self, kb_id: UUID) -> bool:
+        documents = await self._repository.list_documents(kb_id)
+        deleted = await self._repository.delete_knowledge_base(kb_id)
+        if deleted:
+            for document in documents:
+                await self._delete_storage(document.storage_path)
+            shutil.rmtree(self._storage_root / str(kb_id), ignore_errors=True)
+        return deleted
+
+    async def list_documents(self, kb_id: UUID) -> list[KnowledgeDocument]:
+        return await self._repository.list_documents(kb_id)
+
+    async def create_uploaded_document(
+        self,
+        kb_id: UUID,
+        *,
+        name: str,
+        content: bytes,
+        mime_type: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> KnowledgeDocument:
+        if not await self._repository.get_knowledge_base(kb_id):
+            raise LookupError("Knowledge base not found")
+        suffix = Path(name).suffix.lower()
+        if suffix not in self._parser.SUPPORTED_EXTENSIONS:
+            raise ValueError(f"Unsupported file extension '{suffix}'")
+        document_id = uuid4()
+        directory = self._storage_root / str(kb_id) / str(document_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        destination = directory / name
+        await asyncio.to_thread(destination.write_bytes, content)
+        checksum = hashlib.sha256(content).hexdigest()
+        return await self._repository.create_document(
+            KnowledgeDocument(
+                id=document_id,
+                knowledge_base_id=kb_id,
+                name=name,
+                source_type="UPLOAD",
+                source_id=None,
+                source_uri=None,
+                mime_type=mime_type,
+                status="PENDING",
+                version=1,
+                checksum=checksum,
+                storage_path=str(destination),
+                metadata=metadata or {},
+            )
+        )
+
+    async def create_google_document(
+        self,
+        kb_id: UUID,
+        *,
+        source_type: str,
+        source_id: str,
+        name: str | None = None,
+        source_uri: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> KnowledgeDocument:
+        source_type = source_type.upper()
+        if source_type not in self.GOOGLE_TOOLS:
+            raise ValueError(
+                "sourceType must be one of GOOGLE_DOCS, GOOGLE_SLIDES or GOOGLE_SHEETS"
+            )
+        if not await self._repository.get_knowledge_base(kb_id):
+            raise LookupError("Knowledge base not found")
+        existing = await self._repository.get_document_by_source(kb_id, source_type, source_id)
+        if existing:
+            raise ValueError(
+                f"Source '{source_type}:{source_id}' already exists in this knowledge base"
+            )
+        return await self._repository.create_document(
+            KnowledgeDocument(
+                id=uuid4(),
+                knowledge_base_id=kb_id,
+                name=name or source_id,
+                source_type=source_type,
+                source_id=source_id,
+                source_uri=source_uri,
+                mime_type=None,
+                status="PENDING",
+                version=1,
+                metadata=metadata or {},
+            )
+        )
+
+    async def update_uploaded_document(
+        self,
+        document_id: UUID,
+        *,
+        name: str,
+        content: bytes,
+        mime_type: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> KnowledgeDocument | None:
+        existing = await self._repository.get_document(document_id)
+        if not existing:
+            return None
+        if existing.source_type != "UPLOAD":
+            raise ValueError("Binary content can only replace UPLOAD documents")
+        suffix = Path(name).suffix.lower()
+        if suffix not in self._parser.SUPPORTED_EXTENSIONS:
+            raise ValueError(f"Unsupported file extension '{suffix}'")
+        directory = self._storage_root / str(existing.knowledge_base_id) / str(document_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        destination = directory / name
+        await asyncio.to_thread(destination.write_bytes, content)
+        if existing.storage_path and existing.storage_path != str(destination):
+            await self._delete_storage(existing.storage_path)
+        return await self._repository.update_document_content(
+            document_id,
+            name=name,
+            mime_type=mime_type,
+            checksum=hashlib.sha256(content).hexdigest(),
+            storage_path=str(destination),
+            metadata=metadata or existing.metadata,
+        )
+
+    async def reindex_document(self, document_id: UUID) -> bool:
+        return await self._repository.mark_document_pending(document_id)
+
+    async def delete_document(self, document_id: UUID) -> bool:
+        existing = await self._repository.get_document(document_id)
+        if not existing:
+            return False
+        deleted = await self._repository.delete_document(document_id)
+        if deleted:
+            await self._delete_storage(existing.storage_path)
+            shutil.rmtree(
+                self._storage_root / str(existing.knowledge_base_id) / str(document_id),
+                ignore_errors=True,
+            )
+        return deleted
+
+    async def retrieve(
+        self,
+        *,
+        query: str,
+        knowledge_base_names: list[str],
+        top_k: int = 8,
+    ) -> list[RetrievalHit]:
+        if not query.strip():
+            return []
+        kbs: list[KnowledgeBase] = []
+        for name in knowledge_base_names:
+            kb = await self._repository.get_knowledge_base_by_name(name)
+            if kb and kb.enabled:
+                kbs.append(kb)
+        if not kbs:
+            return []
+        embeddings = await self._model_gateway.embed(
+            [query],
+            model_profile=self._embedding_model_profile,
+        )
+        self._validate_embedding(embeddings[0])
+        return await self._repository.retrieve(
+            [kb.id for kb in kbs],
+            query=query,
+            query_embedding=embeddings[0],
+            limit=max(1, min(top_k, 50)),
+        )
+
+    async def replace_agent_knowledge_bases(
+        self,
+        agent_id: UUID,
+        assignments: list[dict[str, str]],
+    ) -> None:
+        resolved: list[tuple[UUID, str]] = []
+        for assignment in assignments:
+            name = assignment["name"]
+            mode = assignment.get("usageMode", "REFERENCE").upper()
+            if mode not in {"REFERENCE", "GUARDRAIL"}:
+                raise ValueError(f"Unsupported knowledge usage mode '{mode}'")
+            kb = await self._repository.get_knowledge_base_by_name(name)
+            if not kb:
+                raise ValueError(f"Unknown knowledge base '{name}'")
+            resolved.append((kb.id, mode))
+        await self._repository.replace_agent_knowledge_bases(agent_id, resolved)
+
+    async def list_agent_knowledge_bases(self, agent_id: UUID) -> list[dict[str, Any]]:
+        return await self._repository.list_agent_knowledge_bases(agent_id)
+
+    async def worker_loop(self) -> None:
+        while not self._stop.is_set():
+            document = await self._repository.claim_next_document()
+            if not document:
+                await asyncio.sleep(self._worker_poll_seconds)
+                continue
+            await self._index_document(document)
+
+    async def cleanup_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                for kb in await self._repository.list_expired_knowledge_bases():
+                    logger.info("Deleting expired knowledge base id=%s name=%s", kb.id, kb.name)
+                    await self.delete_knowledge_base(kb.id)
+            except Exception:
+                logger.exception("Knowledge retention cleanup failed")
+            await asyncio.sleep(self._cleanup_poll_seconds)
+
+    async def stop(self) -> None:
+        self._stop.set()
+
+    async def _index_document(self, document: KnowledgeDocument) -> None:
+        try:
+            parsed = await self._extract(document)
+            chunks = self._chunk(parsed, document)
+            if not chunks:
+                raise ValueError("Document produced no indexable text")
+            embeddings: list[list[float]] = []
+            texts = [chunk["content"] for chunk in chunks]
+            for start in range(0, len(texts), self._embedding_batch_size):
+                batch = texts[start:start + self._embedding_batch_size]
+                batch_vectors = await self._model_gateway.embed(
+                    batch,
+                    model_profile=self._embedding_model_profile,
+                )
+                for vector in batch_vectors:
+                    self._validate_embedding(vector)
+                embeddings.extend(batch_vectors)
+            rows = [
+                KnowledgeChunk(
+                    id=uuid4(),
+                    document_id=document.id,
+                    knowledge_base_id=document.knowledge_base_id,
+                    ordinal=index,
+                    content=item["content"],
+                    token_estimate=max(1, len(item["content"]) // 4),
+                    metadata=item["metadata"],
+                    embedding=embeddings[index],
+                )
+                for index, item in enumerate(chunks)
+            ]
+            await self._repository.complete_document(
+                document.id,
+                rows,
+                parsed_metadata={
+                    "parsed": parsed.metadata,
+                    "chunkCount": len(rows),
+                    "embeddingModel": self._embedding_model_profile,
+                },
+            )
+            logger.info(
+                "Knowledge document indexed document_id=%s chunks=%s source_type=%s",
+                document.id,
+                len(rows),
+                document.source_type,
+            )
+        except Exception as exc:
+            logger.exception("Knowledge indexing failed document_id=%s", document.id)
+            await self._repository.fail_document(
+                document.id,
+                {
+                    "type": type(exc).__name__,
+                    "message": str(exc)[:4000],
+                },
+            )
+
+    async def _extract(self, document: KnowledgeDocument) -> ParsedDocument:
+        if document.source_type == "UPLOAD":
+            if not document.storage_path:
+                raise ValueError("Uploaded document has no storage path")
+            return await asyncio.to_thread(
+                self._parser.parse,
+                document.storage_path,
+                name=document.name,
+                mime_type=document.mime_type,
+            )
+        if document.source_type in self.GOOGLE_TOOLS:
+            if not document.source_id:
+                raise ValueError("Google source has no sourceId")
+            tool_name = self.GOOGLE_TOOLS[document.source_type]
+            argument_name = {
+                "GOOGLE_DOCS": "documentId",
+                "GOOGLE_SLIDES": "presentationId",
+                "GOOGLE_SHEETS": "spreadsheetId",
+            }[document.source_type]
+            result = await self._tool_service.execute(
+                tool_name,
+                {argument_name: document.source_id},
+            )
+            output = result.get("output")
+            if not isinstance(output, dict):
+                raise ValueError(f"{tool_name} returned a non-object semantic result")
+            text = str(output.get("text", "")).strip()
+            if not text:
+                raise ValueError(f"{tool_name} returned no text")
+            return ParsedDocument(
+                title=str(output.get("title") or document.name),
+                segments=[ParsedSegment(text, {"sourceType": document.source_type})],
+                metadata={
+                    "format": document.source_type.lower(),
+                    "sourceMetadata": {
+                        key: value for key, value in output.items() if key != "text"
+                    },
+                },
+            )
+        raise ValueError(f"Unsupported knowledge source type '{document.source_type}'")
+
+    def _chunk(
+        self,
+        parsed: ParsedDocument,
+        document: KnowledgeDocument,
+    ) -> list[dict[str, Any]]:
+        chunks: list[dict[str, Any]] = []
+        for segment_index, segment in enumerate(parsed.segments):
+            text = segment.text.strip()
+            if not text:
+                continue
+            start = 0
+            while start < len(text):
+                end = min(len(text), start + self._chunk_size_chars)
+                if end < len(text):
+                    boundary = max(
+                        text.rfind("\n\n", start, end),
+                        text.rfind("\n", start, end),
+                        text.rfind(". ", start, end),
+                        text.rfind(" ", start, end),
+                    )
+                    if boundary > start + self._chunk_size_chars // 2:
+                        end = boundary + 1
+                content = text[start:end].strip()
+                if content:
+                    chunks.append(
+                        {
+                            "content": content,
+                            "metadata": {
+                                **segment.metadata,
+                                "documentName": document.name,
+                                "segment": segment_index,
+                                "charStart": start,
+                                "charEnd": end,
+                            },
+                        }
+                    )
+                if end >= len(text):
+                    break
+                start = max(start + 1, end - self._chunk_overlap_chars)
+        return chunks
+
+    @staticmethod
+    def format_context(hits: list[RetrievalHit]) -> str:
+        if not hits:
+            return "No relevant knowledge was retrieved."
+        blocks = []
+        for index, hit in enumerate(hits, start=1):
+            blocks.append(
+                f"[Knowledge {index}]\n"
+                f"Document: {hit.document_name}\n"
+                f"Score: {hit.score:.4f}\n"
+                f"Metadata: {json.dumps(hit.metadata, ensure_ascii=False)}\n"
+                f"Content:\n{hit.content}"
+            )
+        return "\n\n".join(blocks)
+
+    def _validate_embedding(self, vector: list[float]) -> None:
+        if len(vector) != 768:
+            raise RuntimeError(
+                f"Embedding profile '{self._embedding_model_profile}' returned "
+                f"{len(vector)} dimensions; M3 storage expects 768"
+            )
+
+    async def _delete_storage(self, storage_path: str | None) -> None:
+        if not storage_path:
+            return
+        path = Path(storage_path)
+        if path.exists():
+            await asyncio.to_thread(path.unlink)
