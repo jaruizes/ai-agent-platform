@@ -143,7 +143,7 @@ flowchart TB
             OP["OrchestrationEngine Port"]
             LG["LangGraph Engine"]
             SE["Step Executor"]
-            CE["Context Engineering"]
+            CE["Context Engine<br/>(M7.3 pending)"]
             DE["Durable Execution<br/>Leases / Recovery / Controls"]
         end
 
@@ -169,11 +169,15 @@ flowchart TB
             KG["Knowledge Graph"]
         end
 
-        subgraph State["MEMORY & EXECUTION STATE"]
-            WM["Working Memory"]
-            PM["Persistent Memory"]
+        subgraph State["CONTEXT, MEMORY & EXECUTION STATE"]
+            SESS["Sessions<br/>M7.1"]
+            WC["Working Context<br/>M7.1"]
+            PM["Persistent Memory<br/>M7.2"]
+            MP["Memory Policy Engine<br/>M7.2"]
             RS["Durable Execution State<br/>Execution + Plan + Step Checkpoints"]
             CACHE["Caches"]
+            MP --> PM
+            SESS --> WC
         end
 
         subgraph Models["MODEL LAYER"]
@@ -235,6 +239,8 @@ flowchart TB
     VS --> MG
     MS --> MG
     SE --> CE
+    CG --> SESS
+    Runtime --> WC
     Runtime --> State
     SEC --> PE
     Runtime --> Cross
@@ -2725,4 +2731,543 @@ El puerto local por defecto es:
 
 ```text
 http://localhost:8081
+```
+
+
+---
+
+## 19. M7.1 / M7.2 — Sessions, Working Context y Persistent Memory
+
+M7 introduce una separación explícita entre **estado de ejecución**, **contexto de trabajo**, **sesión**, **memoria persistente** y **knowledge**.
+
+En esta rama se implementan únicamente:
+
+```text
+M7.1  Sessions + Working Context       ✅
+M7.2  Persistent Memory + Policies     ✅
+M7.3  Context Engine + Budget Manager  pendiente
+M7.4  Context snapshots + UI           pendiente
+```
+
+La decisión más importante es que implementar memoria **no significa todavía inyectarla automáticamente en los prompts**. M7.1 y M7.2 crean el modelo, persistencia, lifecycle, contratos y políticas. M7.3 decidirá qué contexto y qué memorias se recuperan y entran realmente en cada llamada al modelo.
+
+### M7.1 — Sessions
+
+Una `Session` agrupa ejecuciones relacionadas y proporciona una frontera de continuidad:
+
+```text
+Session
+  |
+  +-- Execution A
+  |     +-- Working Context
+  |
+  +-- Execution B
+  |     +-- Working Context
+  |
+  +-- Execution C
+        +-- Working Context
+```
+
+El contrato público de ejecución incorpora un identificador opcional:
+
+```json
+{
+  "sessionId": "0ecb...",
+  "command": {
+    "name": "refine-architecture",
+    "intent": "Sustituye Kafka por NATS en la solución anterior."
+  }
+}
+```
+
+El mismo campo existe tanto en REST como en el envelope NATS.
+
+Si no se envía `sessionId`, la ejecución sigue siendo completamente independiente, manteniendo compatibilidad con M0-M6.
+
+Una sesión tiene:
+
+```text
+id
+name
+status = ACTIVE | CLOSED
+scope = USER | TEAM | TENANT
+ownerKey
+metadata
+expiresAt
+createdAt
+updatedAt
+closedAt
+```
+
+Una sesión `CLOSED` o expirada no admite nuevas ejecuciones.
+
+Las ejecuciones ya iniciadas antes del cierre pueden terminar normalmente.
+
+APIs:
+
+```text
+POST /v1/sessions
+GET  /v1/sessions
+GET  /v1/sessions/{sessionId}
+PUT  /v1/sessions/{sessionId}
+POST /v1/sessions/{sessionId}/close
+
+GET  /v1/sessions/{sessionId}/executions
+GET  /v1/sessions/{sessionId}/context
+```
+
+### Working Context
+
+El Working Context registra qué información ha producido realmente una ejecución.
+
+No es memoria a largo plazo y no es el checkpoint durable de M5.
+
+```text
+Execution State
+  = dónde está el workflow
+
+Working Context
+  = información producida/recibida durante la ejecución
+
+Persistent Memory
+  = información retenida para reutilización futura
+```
+
+Se persiste en:
+
+```text
+execution_context_entries
+```
+
+Cada entrada contiene:
+
+```text
+execution_id
+session_id
+step_id
+entry_type
+entry_key
+content
+priority
+token_estimate
+source_type
+source_ref
+provenance
+created_at
+```
+
+Tipos iniciales:
+
+```text
+COMMAND
+INSTRUCTION
+PLAN
+STEP_RESULT
+TOOL_RESULT
+KNOWLEDGE
+FACT
+ARTIFACT
+SUMMARY
+```
+
+La persistencia de Working Context es **transaccional respecto al estado funcional que la genera**:
+
+```text
+create execution
+    |
+    +-- persist Execution
+    +-- persist COMMAND context
+    +-- persist INSTRUCTION context
+    +-- outbox EXECUTION_ACCEPTED
+
+save plan
+    |
+    +-- persist LogicalPlan
+    +-- persist PLAN context
+    +-- outbox PLAN_CREATED
+
+complete step
+    |
+    +-- checkpoint step COMPLETED
+    +-- persist STEP_RESULT / TOOL_RESULT / KNOWLEDGE
+    +-- outbox STEP_COMPLETED
+
+complete execution
+    |
+    +-- Execution COMPLETED
+    +-- persist SUMMARY
+    +-- result/lifecycle outbox
+```
+
+Esto evita una segunda operación best-effort que pudiera dejar un step completado pero sin su contexto asociado.
+
+Cada entrada almacena además una estimación inicial de tokens. En M7.3 esa métrica será utilizada por el Context Budget Manager.
+
+API:
+
+```text
+GET /v1/executions/{executionId}/context
+```
+
+### M7.2 — Persistent Memory
+
+Persistent Memory es una entidad distinta de Knowledge/RAG.
+
+```text
+Knowledge
+  "¿Qué sabe la organización o dominio?"
+
+Memory
+  "¿Qué se ha decidido, aprendido o retenido en interacciones previas?"
+
+Working Context
+  "¿Qué información existe en esta ejecución concreta?"
+```
+
+La persistencia utiliza:
+
+```text
+memory_entries
+```
+
+Scopes soportados:
+
+```text
+SESSION
+USER
+TEAM
+TENANT
+AGENT
+```
+
+Tipos:
+
+```text
+FACT
+PREFERENCE
+DECISION
+CONSTRAINT
+SUMMARY
+LEARNED_CONTEXT
+```
+
+Estados:
+
+```text
+ACTIVE
+SUPERSEDED
+REVOKED
+EXPIRED
+```
+
+Una memoria contiene:
+
+```text
+scopeType / scopeId
+memoryType
+key
+content
+metadata
+confidence
+importance
+explicit
+sourceExecutionId / sourceStepId
+policyDecision
+expiresAt
+supersedesMemoryId
+```
+
+### Memoria explícita e inferida
+
+Existen dos vías:
+
+```text
+Explicit memory
+  -> POST /v1/memories
+  -> confidence = 1.0
+  -> Memory Policy
+  -> persist / reject
+
+Inferred candidate
+  -> POST /v1/memory-candidates/evaluate
+  -> confidence supplied by producer
+  -> Memory Policy
+  -> persist / reject
+```
+
+M7.2 proporciona el contrato para candidatos inferidos, pero **no ejecuta todavía un extractor LLM automático al final de cada ejecución**. Los productores futuros de candidatos pueden ser un extractor dedicado, un Agent o lógica de aplicación. La decisión de persistencia seguirá siendo siempre de plataforma.
+
+### Memory Policy Engine
+
+Toda escritura de Persistent Memory, incluida una memoria explícita, pasa por una política determinista:
+
+```text
+MemoryCandidate
+      |
+      v
+MemoryPolicyEngine
+      |
+   +--+---------+
+   |            |
+ REJECT       PERSIST
+                 |
+                 v
+          memory_entries
+```
+
+La configuración inicial incluye:
+
+```text
+MEMORY_ALLOW_INFERRED_PERSISTENCE=true
+MEMORY_MIN_INFERRED_CONFIDENCE=0.80
+MEMORY_MAX_CONTENT_CHARS=8000
+```
+
+Reglas implementadas:
+
+- scopes y tipos permitidos;
+- contenido no vacío;
+- tamaño máximo;
+- confidence e importance entre 0 y 1;
+- candidatos inferidos por debajo del threshold son rechazados;
+- opcionalmente puede deshabilitarse toda persistencia inferida;
+- contenido con apariencia de secretos se rechaza determinísticamente;
+- la detección se aplica tanto al contenido como a metadata;
+- una memoria `SESSION` sólo puede escribirse sobre una sesión existente y `ACTIVE`.
+
+La protección de secretos incluye inicialmente detección de patrones para private keys, bearer tokens, passwords, API/access keys, AWS access keys y JWTs.
+
+Esto es una **safety rail de persistencia**, no un sistema DLP completo. Governance más avanzada permanece en M8.
+
+### Policy Audit
+
+Cada evaluación queda registrada en:
+
+```text
+memory_policy_audit
+```
+
+incluyendo decisiones aceptadas y rechazadas.
+
+Para evitar que el propio audit se convierta en una fuga de secretos, **el contenido del candidato no se almacena en el audit**. Se conserva:
+
+```text
+contentLength
+contentSha256
+metadataKeys
+scope/type/key
+confidence
+importance
+decision
+```
+
+API:
+
+```text
+GET /v1/memory-policy
+GET /v1/memory-policy/audit
+```
+
+### Conflictos y supersession
+
+Si existe una memoria activa con:
+
+```text
+same scopeType
+same scopeId
+same key
+```
+
+una nueva memoria aceptada no crea dos verdades activas.
+
+```text
+old memory
+ACTIVE
+   |
+   | new accepted memory with same key
+   v
+SUPERSEDED
+      \
+       -> new memory ACTIVE
+          supersedesMemoryId = old.id
+```
+
+Las memorias sin `key` pueden coexistir.
+
+### TTL, revoke y lifecycle
+
+Las memorias pueden tener `expiresAt`.
+
+Un cleanup worker convierte:
+
+```text
+ACTIVE -> EXPIRED
+```
+
+cuando se supera el TTL.
+
+Las memorias pueden invalidarse explícitamente:
+
+```text
+POST /v1/memories/{memoryId}/revoke
+```
+
+que produce:
+
+```text
+ACTIVE -> REVOKED
+```
+
+Al cerrar o expirar una Session, las memorias con:
+
+```text
+scopeType=SESSION
+scopeId=<sessionId>
+```
+
+pasan automáticamente a `EXPIRED`.
+
+### APIs de memoria
+
+```text
+GET  /v1/memories
+GET  /v1/memories/{memoryId}
+POST /v1/memories
+POST /v1/memories/{memoryId}/revoke
+
+POST /v1/memory-candidates/evaluate
+
+GET  /v1/memory-policy
+GET  /v1/memory-policy/audit
+```
+
+La consulta soporta filtros por:
+
+```text
+scopeType
+scopeId
+memoryType
+status
+q
+limit
+```
+
+M7.2 no incorpora todavía semantic retrieval de memoria; se implementará cuando M7.3 necesite seleccionar contexto para un step.
+
+### Command metadata
+
+M7 corrige además una pérdida de información previa: `Command.metadata` formaba parte del contrato público pero no quedaba persistido en `executions`.
+
+Ahora se conserva como:
+
+```text
+executions.command_metadata
+```
+
+y se restaura al reconstruir el `Command` en el worker durable.
+
+### Frontera con M7.3
+
+Después de M7.1/M7.2:
+
+```text
+Session             ✅
+Working Context     ✅
+Persistent Memory   ✅
+Memory Policies     ✅
+
+Context selection   ❌
+Memory retrieval
+for model calls     ❌
+Context budgets     ❌
+Compression         ❌
+Context snapshots   ❌
+```
+
+Es deliberado.
+
+El `StepExecutor` continúa construyendo la entrada al modelo como en M4/M5. M7.3 introducirá el `ContextEngine` que seleccionará:
+
+```text
+Command
++ Current Step
++ Previous Results
++ Session Context
++ Persistent Memory
++ Knowledge
++ Policies
+        |
+        v
+Context Budget Manager
+        |
+        v
+EffectiveContext
+```
+
+### ADR-032 — Session es la frontera explícita de continuidad
+
+**Estado:** Accepted  
+**Contexto:** M7.1
+
+Una ejecución no adquiere implícitamente contexto de otras ejecuciones.
+
+Sólo existe continuidad cuando el consumidor suministra un `sessionId`.
+
+Esto evita correlacionar por heurísticas como `correlationId`, nombre de comando o proximidad temporal.
+
+### ADR-033 — Working Context no es Memory ni Execution State
+
+**Estado:** Accepted  
+**Contexto:** M7.1
+
+Working Context conserva inputs y outputs relevantes de una ejecución, con provenance y estimación de tokens.
+
+Execution State sigue controlando el workflow durable.
+
+Persistent Memory mantiene sólo información promovida explícita o inferida que haya pasado Memory Policy.
+
+### ADR-034 — Persistent Memory siempre está policy-gated
+
+**Estado:** Accepted  
+**Contexto:** M7.2
+
+Ni el usuario, ni un Agent ni un futuro extractor LLM escriben directamente en `memory_entries`.
+
+Toda entrada se normaliza como `MemoryCandidate` y pasa por `MemoryPolicyEngine`.
+
+La evaluación determinista es autoritativa.
+
+### ADR-035 — Los conflictos de memoria se resuelven por supersession
+
+**Estado:** Accepted  
+**Contexto:** M7.2
+
+Una `key` representa un hecho/preferencia/constraint lógicamente reemplazable dentro de un scope.
+
+Una nueva memoria con la misma key supersede la activa anterior en una transacción.
+
+No se borra la historia, permitiendo auditoría temporal.
+
+### ADR-036 — El audit de políticas no conserva contenido rechazado
+
+**Estado:** Accepted  
+**Contexto:** M7.2
+
+Persistir en un audit el secreto que una policy acaba de rechazar anularía la protección.
+
+Por ello el audit conserva hash SHA-256 y longitud, pero no el contenido ni valores de metadata.
+
+### ADR-037 — M7.1/M7.2 no inyectan Memory automáticamente en el modelo
+
+**Estado:** Accepted  
+**Contexto:** frontera M7.2/M7.3
+
+La existencia de Persistent Memory no implica que toda memoria se añada a todo prompt.
+
+La selección depende de relevancia, scope, prioridad, budget, provenance y políticas. Esa responsabilidad pertenece al futuro `ContextEngine` de M7.3.
+
+Este ADR evita volver a caer en el patrón:
+
+```text
+context = concatenate(everything)
 ```
