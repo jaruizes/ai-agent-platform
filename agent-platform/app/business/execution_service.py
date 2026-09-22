@@ -163,7 +163,7 @@ class ExecutionService:
             except Exception as exc:
                 if plan is not None:
                     try:
-                        await self._repository.mark_plan_failed(execution["id"])
+                        await self._repository.mark_plan_failed(execution)
                     except Exception:
                         logger.exception(
                             "Could not mark orchestration plan failed execution_id=%s",
