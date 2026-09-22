@@ -3,6 +3,8 @@ name: google-slides-get-text
 description: Read compact semantic text from a Google Slides presentation for analysis and RAG ingestion.
 implementationType: MCP
 enabled: true
+sideEffect: READ
+approvalPolicy: NEVER
 configuration:
   server: google-workspace
   tool: slides_get_text
