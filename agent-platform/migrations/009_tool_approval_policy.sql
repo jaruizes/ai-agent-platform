@@ -1,0 +1,8 @@
+ALTER TABLE tools
+    ADD COLUMN IF NOT EXISTS side_effect TEXT NOT NULL DEFAULT 'READ',
+    ADD COLUMN IF NOT EXISTS approval_policy TEXT NOT NULL DEFAULT 'NEVER';
+
+ALTER TABLE execution_plan_steps
+    ADD COLUMN IF NOT EXISTS approval_source TEXT NULL,
+    ADD COLUMN IF NOT EXISTS tool_side_effect TEXT NULL,
+    ADD COLUMN IF NOT EXISTS tool_approval_policy TEXT NULL;
