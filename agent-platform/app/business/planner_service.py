@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from app.business.knowledge_service import KnowledgeService
+from app.business.plan_policy_enricher import PlanPolicyEnricher
 from app.business.plan_validator import PlanValidator
 from app.business.ports import CatalogRepositoryPort, ModelGatewayPort
 from app.business.prompt_service import PromptService
@@ -21,6 +22,7 @@ class PlannerService:
         knowledge_service: KnowledgeService,
         model_gateway: ModelGatewayPort,
         validator: PlanValidator,
+        policy_enricher: PlanPolicyEnricher,
         *,
         planner_model_profile: str,
     ):
@@ -30,6 +32,7 @@ class PlannerService:
         self._knowledge_service = knowledge_service
         self._model_gateway = model_gateway
         self._validator = validator
+        self._policy_enricher = policy_enricher
         self._planner_model_profile = planner_model_profile
 
     async def plan(
@@ -89,6 +92,8 @@ class PlannerService:
                             "description": tool.description,
                             "instructions": tool.instructions,
                             "inputSchema": tool.input_schema,
+                            "sideEffect": tool.side_effect,
+                            "approvalPolicy": tool.approval_policy,
                         }
                         for tool in tools
                     ],
@@ -107,11 +112,14 @@ class PlannerService:
             model_profile=self._planner_model_profile,
             temperature=0.0,
         )
-        plan = self._parse_plan(detail["content"])
+        plan = self._policy_enricher.apply(
+            self._parse_plan(detail["content"]),
+            tools=tools,
+        )
         validation = self._validator.validate(
             plan,
             agent_names={agent.name for agent in agents},
-            tool_names={tool.name for tool in tools},
+            tools_by_name={tool.name: tool for tool in tools},
             knowledge_base_names={kb.name for kb in knowledge_bases},
         )
 
@@ -144,11 +152,14 @@ class PlannerService:
                 model_profile=self._planner_model_profile,
                 temperature=0.0,
             )
-            repaired_plan = self._parse_plan(repair["content"])
+            repaired_plan = self._policy_enricher.apply(
+                self._parse_plan(repair["content"]),
+                tools=tools,
+            )
             repaired_validation = self._validator.validate(
                 repaired_plan,
                 agent_names={agent.name for agent in agents},
-                tool_names={tool.name for tool in tools},
+                tools_by_name={tool.name: tool for tool in tools},
                 knowledge_base_names={kb.name for kb in knowledge_bases},
             )
             detail = {
