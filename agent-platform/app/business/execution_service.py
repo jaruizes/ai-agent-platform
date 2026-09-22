@@ -1,5 +1,6 @@
 import asyncio
 import json
+from dataclasses import replace
 from typing import Any
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from opentelemetry import trace
 
 from app.business.intent_resolver import IntentResolver
 from app.business.ports import EventPublisherPort, ExecutionRepositoryPort, ModelGatewayPort
+from app.business.tool_service import ToolService
 from app.domain.execution import Command, ExecutionSubmission
 
 
@@ -19,6 +21,7 @@ class ExecutionService:
         repository: ExecutionRepositoryPort,
         resolver: IntentResolver,
         model_gateway: ModelGatewayPort,
+        tool_service: ToolService,
         event_publisher: EventPublisherPort,
         *,
         worker_poll_seconds: float,
@@ -27,6 +30,7 @@ class ExecutionService:
         self._repository = repository
         self._resolver = resolver
         self._model_gateway = model_gateway
+        self._tool_service = tool_service
         self._event_publisher = event_publisher
         self._worker_poll_seconds = worker_poll_seconds
         self._outbox_poll_seconds = outbox_poll_seconds
@@ -52,7 +56,6 @@ class ExecutionService:
             if not events:
                 await asyncio.sleep(self._outbox_poll_seconds)
                 continue
-
             for event in events:
                 payload = event["payload"]
                 if isinstance(payload, str):
@@ -86,12 +89,45 @@ class ExecutionService:
                 span.set_attribute("execution.strategy", plan.strategy)
                 if plan.agent_name:
                     span.set_attribute("execution.agent", plan.agent_name)
+                if plan.tool_name:
+                    span.set_attribute("execution.tool", plan.tool_name)
 
-                result = await self._model_gateway.execute(plan)
-                result.setdefault("data", {})
-                result["data"]["strategy"] = plan.strategy
-                if plan.agent_name:
-                    result["data"]["agent"] = plan.agent_name
+                if plan.strategy == "TOOL":
+                    tool_result = await self._tool_service.execute(plan.tool_name, plan.tool_arguments)
+                    result = {
+                        "type": "tool-response",
+                        "summary": json.dumps(tool_result, ensure_ascii=False),
+                        "data": {
+                            "strategy": plan.strategy,
+                            "tool": plan.tool_name,
+                            "toolResult": tool_result,
+                        },
+                        "artifacts": [],
+                    }
+                else:
+                    execution_plan = plan
+                    tool_result = None
+
+                    if plan.strategy in {"TOOL_LLM", "AGENT_TOOL_LLM"}:
+                        tool_result = await self._tool_service.execute(plan.tool_name, plan.tool_arguments)
+                        execution_plan = replace(
+                            plan,
+                            user_prompt=(
+                                f"{plan.user_prompt}\n\n"
+                                f"Tool result from '{plan.tool_name}':\n"
+                                f"{json.dumps(tool_result, ensure_ascii=False)}"
+                            ),
+                        )
+
+                    result = await self._model_gateway.execute(execution_plan)
+                    result.setdefault("data", {})
+                    result["data"]["strategy"] = plan.strategy
+                    if plan.agent_name:
+                        result["data"]["agent"] = plan.agent_name
+                    if plan.tool_name:
+                        result["data"]["tool"] = plan.tool_name
+                    if tool_result is not None:
+                        result["data"]["toolUsed"] = True
 
                 await self._repository.complete(
                     execution,
