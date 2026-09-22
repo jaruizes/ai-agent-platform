@@ -1181,24 +1181,24 @@ embedding vector(768)
 search_vector tsvector
 ```
 
-La búsqueda combina similitud coseno y ranking lexical. El modelo de embeddings se accede mediante el perfil lógico `embedding-default`, igual que el resto de modelos se abstraen mediante LiteLLM.
+La búsqueda combina similitud coseno y ranking lexical. Los embeddings se obtienen mediante una abstracción independiente `EmbeddingProvider`, desacoplada del Model Gateway.
 
-Implementación local inicial:
+Implementación portable por defecto:
 
 ```text
 Knowledge Service
-      -> LiteLLM /v1/embeddings
-      -> embedding-default
-      -> Ollama
-      -> nomic-embed-text-v2-moe
+      -> EmbeddingProvider
+      -> HashEmbeddingProvider
+      -> vector(768)
 ```
 
 #### Consecuencias
 
-- El business code no depende de Ollama.
-- El modelo de embeddings puede sustituirse manteniendo el perfil lógico.
-- El retrieval funciona mejor que una búsqueda únicamente lexical para documentación de referencia.
-- La dimensión de embedding actual (768) forma parte del esquema de almacenamiento M3 y requerirá migración si cambia el modelo por otro de dimensión diferente.
+- El business code no depende de un proveedor/modelo concreto.
+- El runtime local no necesita Ollama ni descargar modelos.
+- El provider hash es válido para desarrollo/integración, no como garantía de calidad semántica productiva.
+- Un provider cloud/real puede sustituirlo manteniendo el contrato `EmbeddingProvider`.
+- La dimensión de embedding actual (768) forma parte del esquema de almacenamiento M3 y requerirá migración si cambia el provider por otro de dimensión diferente.
 
 ---
 
@@ -1342,10 +1342,10 @@ Google Docs/Slides/Sheets -> MCP semantic readers
                        ParsedDocument
                                |
                                v
-                    structure-aware chunking
+                 per-KB chunking policy
                                |
                                v
-                 LiteLLM embedding-default
+                    EmbeddingProvider
                                |
                                v
                   PostgreSQL + pgvector + FTS
