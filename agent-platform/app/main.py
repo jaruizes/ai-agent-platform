@@ -22,6 +22,7 @@ from app.infrastructure.config.settings import get_settings
 from app.infrastructure.externalservices.litellm.model_gateway import LiteLLMModelGateway
 from app.infrastructure.externalservices.mcp.stdio_client import McpStdioClient
 from app.infrastructure.externalservices.mcp.tool_executor import InfrastructureToolExecutor
+from app.infrastructure.knowledge.embeddings import HashEmbeddingProvider
 from app.infrastructure.knowledge.parsers import DocumentParser
 from app.infrastructure.observability.telemetry import configure_telemetry
 from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
@@ -51,15 +52,21 @@ tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
 tool_service = ToolService(tool_repository, tool_executor)
 model_gateway = LiteLLMModelGateway(settings)
 knowledge_repository = PostgresKnowledgeRepository(database)
+if settings.knowledge_embedding_provider.lower() != "hash":
+    raise ValueError(
+        "Unsupported KNOWLEDGE_EMBEDDING_PROVIDER. "
+        "Current portable runtime supports 'hash'; add another EmbeddingProvider adapter for cloud embeddings."
+    )
+embedding_provider = HashEmbeddingProvider(
+    dimensions=settings.knowledge_embedding_dimensions,
+    model=settings.knowledge_embedding_model,
+)
 knowledge_service = KnowledgeService(
     repository=knowledge_repository,
-    model_gateway=model_gateway,
+    embedding_provider=embedding_provider,
     tool_service=tool_service,
     parser=DocumentParser(),
     storage_root=settings.knowledge_storage_root,
-    embedding_model_profile=settings.embedding_model_profile,
-    chunk_size_chars=settings.knowledge_chunk_size_chars,
-    chunk_overlap_chars=settings.knowledge_chunk_overlap_chars,
     embedding_batch_size=settings.knowledge_embedding_batch_size,
     worker_poll_seconds=settings.knowledge_worker_poll_seconds,
     cleanup_poll_seconds=settings.knowledge_cleanup_poll_seconds,
