@@ -208,6 +208,10 @@ class PostgresMemoryRepository:
             async with conn.transaction():
                 superseded_id = None
                 if memory.memory_key:
+                    await conn.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext($1))",
+                        f"{memory.scope_type}:{memory.scope_id}:{memory.memory_key}",
+                    )
                     existing = await conn.fetchrow(
                         """
                         SELECT id FROM memory_entries
