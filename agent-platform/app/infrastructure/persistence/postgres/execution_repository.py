@@ -1451,7 +1451,6 @@ class PostgresExecutionRepository:
             )
 
     @staticmethod
-    @staticmethod
     def _estimate_tokens(value: Any) -> int:
         if isinstance(value, str):
             text = value
