@@ -65,6 +65,8 @@ def create_router(service: ExecutionService) -> APIRouter:
                 "plan": None,
                 "steps": [],
                 "activeAgents": [],
+                "waitingApprovals": [],
+                "retryingSteps": [],
                 "usage": {
                     "promptTokens": 0,
                     "completionTokens": 0,
