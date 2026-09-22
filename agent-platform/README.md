@@ -1041,3 +1041,6 @@ Automatic candidates are always `scopeType=SESSION`. Cross-session scopes such a
 Extraction is best-effort and runs after the execution result is already durable. An extraction/model failure never changes a successful execution into FAILED.
 
 This does **not** mean memory is automatically injected into future model calls. Retrieval and context composition remain M7.3.
+
+
+> If inferred persistence is disabled, automatic extraction is skipped entirely, avoiding an unnecessary model call.
