@@ -48,7 +48,7 @@ class LiteLLMModelGateway:
         content = body["choices"][0]["message"]["content"]
 
         return {
-            "type": "agent-response" if plan.strategy == "AGENT" else "direct-llm-response",
+            "type": "agent-response" if plan.strategy in {"AGENT", "AGENT_TOOL_LLM"} else "direct-llm-response",
             "summary": content,
             "data": {
                 "model": body.get("model", plan.model_profile),
