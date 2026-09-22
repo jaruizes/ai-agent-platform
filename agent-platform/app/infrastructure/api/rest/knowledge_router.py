@@ -185,6 +185,13 @@ def create_knowledge_router(service: KnowledgeService) -> APIRouter:
             raise HTTPException(status_code=404, detail="Knowledge document not found")
         return _document_response(document)
 
+    @router.get("/knowledge-documents/{document_id}", response_model=KnowledgeDocumentResponse)
+    async def get_document(document_id: UUID) -> KnowledgeDocumentResponse:
+        document = await service._repository.get_document(document_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Knowledge document not found")
+        return _document_response(document)
+
     @router.post("/knowledge-documents/{document_id}/reindex", status_code=status.HTTP_202_ACCEPTED)
     async def reindex_document(document_id: UUID) -> dict:
         if not await service.reindex_document(document_id):
