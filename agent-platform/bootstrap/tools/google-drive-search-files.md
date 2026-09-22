@@ -3,6 +3,8 @@ name: google-drive-search-files
 description: Search files and folders accessible in Google Drive.
 implementationType: MCP
 enabled: true
+sideEffect: READ
+approvalPolicy: NEVER
 configuration:
   server: google-workspace
   tool: drive_search_files
