@@ -245,6 +245,69 @@ class PostgresExecutionRepository:
                 )
                 return True
 
+    async def retry_failed_execution(
+        self,
+        execution_id: UUID,
+        *,
+        reason: str | None,
+    ) -> bool:
+        pool = self._db.require_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    SELECT * FROM executions
+                    WHERE id=$1 AND status='FAILED'
+                    FOR UPDATE
+                    """,
+                    execution_id,
+                )
+                if not row:
+                    return False
+                await conn.execute(
+                    """
+                    UPDATE executions
+                    SET status='ACCEPTED',error=NULL,completed_at=NULL,
+                        control_action='NONE',control_reason=$2,
+                        lease_owner=NULL,lease_expires_at=NULL,
+                        resumed_at=now(),updated_at=now()
+                    WHERE id=$1
+                    """,
+                    execution_id,
+                    reason,
+                )
+                await conn.execute(
+                    """
+                    UPDATE execution_plans
+                    SET status='PLANNED',completed_at=NULL,updated_at=now()
+                    WHERE execution_id=$1
+                    """,
+                    execution_id,
+                )
+                await conn.execute(
+                    """
+                    UPDATE execution_plan_steps
+                    SET status='PENDING',error=NULL,completed_at=NULL,
+                        attempt_count=0,next_retry_at=NULL,last_attempt_at=NULL
+                    WHERE execution_id=$1 AND status='FAILED'
+                    """,
+                    execution_id,
+                )
+                event = lifecycle_event(
+                    execution_id=execution_id,
+                    correlation_id=row["correlation_id"],
+                    causation_id=row["request_message_id"],
+                    command_name=row["command_name"],
+                    status="ACCEPTED",
+                    event_type="EXECUTION_RETRY_REQUESTED",
+                    sequence=2,
+                    detail={"reason": reason},
+                )
+                await self._insert_outbox(
+                    conn, execution_id, LIFECYCLE_SUBJECT, event
+                )
+                return True
+
     async def mark_suspended(
         self,
         execution: dict[str, Any],
