@@ -8,19 +8,24 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from app.business.catalog_service import CatalogService
 from app.business.execution_service import ExecutionService
 from app.business.prompt_service import PromptService
+from app.business.tool_service import ToolService
 from app.business.intent_resolver import IntentResolver
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
 from app.infrastructure.api.rest.prompt_router import create_prompt_router
+from app.infrastructure.api.rest.tool_router import create_tool_router
 from app.infrastructure.api.rest.router import create_router
 from app.infrastructure.bootstrap.markdown_loader import MarkdownCatalogLoader
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.externalservices.litellm.model_gateway import LiteLLMModelGateway
+from app.infrastructure.externalservices.mcp.stdio_client import McpStdioClient
+from app.infrastructure.externalservices.mcp.tool_executor import InfrastructureToolExecutor
 from app.infrastructure.observability.telemetry import configure_telemetry
 from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
 from app.infrastructure.persistence.postgres.database import Database
 from app.infrastructure.persistence.postgres.execution_repository import PostgresExecutionRepository
 from app.infrastructure.persistence.postgres.prompt_repository import PostgresPromptRepository
+from app.infrastructure.persistence.postgres.tool_repository import PostgresToolRepository
 
 
 settings = get_settings()
@@ -33,10 +38,15 @@ catalog_repository = PostgresCatalogRepository(database)
 catalog_service = CatalogService(catalog_repository)
 prompt_repository = PostgresPromptRepository(database)
 prompt_service = PromptService(prompt_repository)
+tool_repository = PostgresToolRepository(database)
+mcp_client = McpStdioClient(settings.mcp_timeout_seconds)
+tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
+tool_service = ToolService(tool_repository, tool_executor)
 model_gateway = LiteLLMModelGateway(settings)
 intent_resolver = IntentResolver(
     catalog_repository,
     prompt_service,
+    tool_service,
     model_gateway,
     router_model_profile=settings.router_model_profile,
     execution_model_profile=settings.execution_model_profile,
@@ -47,6 +57,7 @@ execution_service = ExecutionService(
     repository=execution_repository,
     resolver=intent_resolver,
     model_gateway=model_gateway,
+    tool_service=tool_service,
     event_publisher=nats_adapter,
     worker_poll_seconds=settings.worker_poll_seconds,
     outbox_poll_seconds=settings.outbox_poll_seconds,
@@ -55,9 +66,12 @@ execution_service = ExecutionService(
 bootstrap_loader = MarkdownCatalogLoader(
     catalog_service,
     prompt_service,
+    tool_service,
     skills_dir=settings.bootstrap_skills_dir,
     agents_dir=settings.bootstrap_agents_dir,
     prompts_dir=settings.bootstrap_prompts_dir,
+    tools_dir=settings.bootstrap_tools_dir,
+    mcp_servers_dir=settings.bootstrap_mcp_servers_dir,
 )
 
 
@@ -90,6 +104,7 @@ app = FastAPI(
 app.include_router(create_router(execution_service))
 app.include_router(create_catalog_router(catalog_service))
 app.include_router(create_prompt_router(prompt_service))
+app.include_router(create_tool_router(tool_service))
 FastAPIInstrumentor.instrument_app(app)
 
 
