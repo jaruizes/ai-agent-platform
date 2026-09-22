@@ -81,3 +81,27 @@ def result_event(
     payload["status"] = "COMPLETED"
     payload["result"] = result
     return event
+
+
+def orchestration_event(
+    *,
+    execution_id: UUID,
+    correlation_id: str,
+    causation_id: str | None,
+    command_name: str | None,
+    event_type: str,
+    detail: dict[str, Any],
+) -> dict[str, Any]:
+    event = _base(
+        message_type="execution.orchestration",
+        execution_id=execution_id,
+        correlation_id=correlation_id,
+        causation_id=causation_id,
+        command_name=command_name,
+    )
+    payload = event["data"]["execution"]
+    payload["event"] = {
+        "type": event_type,
+        "detail": detail,
+    }
+    return event
