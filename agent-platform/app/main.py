@@ -11,6 +11,7 @@ from app.business.prompt_service import PromptService
 from app.business.intent_resolver import IntentResolver
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
+from app.infrastructure.api.rest.prompt_router import create_prompt_router
 from app.infrastructure.api.rest.router import create_router
 from app.infrastructure.bootstrap.markdown_loader import MarkdownCatalogLoader
 from app.infrastructure.config.settings import get_settings
@@ -88,6 +89,7 @@ app = FastAPI(
 )
 app.include_router(create_router(execution_service))
 app.include_router(create_catalog_router(catalog_service))
+app.include_router(create_prompt_router(prompt_service))
 FastAPIInstrumentor.instrument_app(app)
 
 
