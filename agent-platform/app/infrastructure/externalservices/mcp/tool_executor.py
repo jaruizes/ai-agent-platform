@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from app.business.ports import ToolRepositoryPort
@@ -24,10 +25,38 @@ class InfrastructureToolExecutor:
         if not server:
             raise LookupError(f"MCP server '{server_name}' does not exist")
 
-        result = await self._mcp_client.call_tool(server, remote_tool_name, arguments)
+        raw = await self._mcp_client.call_tool(server, remote_tool_name, arguments)
         return {
             "implementation": "MCP",
             "server": server.name,
             "tool": remote_tool_name,
-            "result": result,
+            "output": self._normalize_mcp_result(raw),
         }
+
+    @classmethod
+    def _normalize_mcp_result(cls, result: dict[str, Any]) -> Any:
+        structured = result.get("structuredContent")
+        if structured is not None:
+            return structured
+
+        content = result.get("content") or []
+        text_items = [
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        text_items = [item for item in text_items if item]
+
+        if len(text_items) == 1:
+            return cls._decode_text_payload(text_items[0])
+        if text_items:
+            return [cls._decode_text_payload(item) for item in text_items]
+
+        return content
+
+    @staticmethod
+    def _decode_text_payload(value: str) -> Any:
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
