@@ -11,6 +11,7 @@ from app.domain.execution import Command
 from app.domain.memory import (
     CONTEXT_ENTRY_TYPES,
     MEMORY_STATUSES,
+    SESSION_SCOPES,
     SESSION_STATUSES,
     MemoryCandidate,
     MemoryEntry,
@@ -45,10 +46,15 @@ class MemoryService:
         metadata: dict[str, Any],
         expires_at: datetime | None,
     ) -> Session:
+        normalized_scope = scope.upper()
+        if normalized_scope not in SESSION_SCOPES:
+            raise ValueError(
+                "Session scope must be one of USER, TEAM or TENANT"
+            )
         return await self._repository.create_session(
             Session(
                 name=name,
-                scope=scope.upper(),
+                scope=normalized_scope,
                 owner_key=owner_key,
                 metadata=metadata,
                 expires_at=expires_at,
@@ -94,10 +100,15 @@ class MemoryService:
         metadata: dict[str, Any],
         expires_at: datetime | None,
     ) -> Session | None:
+        normalized_scope = scope.upper()
+        if normalized_scope not in SESSION_SCOPES:
+            raise ValueError(
+                "Session scope must be one of USER, TEAM or TENANT"
+            )
         return await self._repository.update_session(
             session_id,
             name=name,
-            scope=scope.upper(),
+            scope=normalized_scope,
             owner_key=owner_key,
             metadata=metadata,
             expires_at=expires_at,
@@ -258,7 +269,38 @@ class MemoryService:
                 )
 
         decision = self._policy.evaluate(candidate)
+        candidate_snapshot = {
+            "scopeType": candidate.scope_type,
+            "scopeId": candidate.scope_id,
+            "memoryType": candidate.memory_type,
+            "key": candidate.memory_key,
+            "content": candidate.content,
+            "metadata": candidate.metadata,
+            "confidence": candidate.confidence,
+            "importance": candidate.importance,
+            "explicit": candidate.explicit,
+            "sourceExecutionId": (
+                str(candidate.source_execution_id)
+                if candidate.source_execution_id
+                else None
+            ),
+            "sourceStepId": candidate.source_step_id,
+            "expiresAt": (
+                candidate.expires_at.isoformat()
+                if candidate.expires_at
+                else None
+            ),
+        }
         if not decision.allowed:
+            from uuid import uuid4
+
+            await self._repository.record_policy_audit(
+                candidate=candidate_snapshot,
+                decision=decision.as_dict(),
+                memory_id=None,
+                source_execution_id=candidate.source_execution_id,
+                audit_id=uuid4(),
+            )
             return None, decision
 
         memory = MemoryEntry(
@@ -281,6 +323,15 @@ class MemoryService:
             expires_at=candidate.expires_at,
         )
         persisted = await self._repository.create_memory(memory)
+        from uuid import uuid4
+
+        await self._repository.record_policy_audit(
+            candidate=candidate_snapshot,
+            decision=decision.as_dict(),
+            memory_id=persisted.id,
+            source_execution_id=candidate.source_execution_id,
+            audit_id=uuid4(),
+        )
         return persisted, decision
 
     async def list_memories(
@@ -316,6 +367,7 @@ class MemoryService:
 
     async def cleanup_loop(self) -> None:
         while not self._stop.is_set():
+            await self._repository.expire_sessions()
             await self._repository.expire_memories()
             try:
                 await asyncio.wait_for(
