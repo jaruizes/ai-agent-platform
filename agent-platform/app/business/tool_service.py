@@ -18,6 +18,9 @@ class ToolService:
     async def get_tool(self, tool_id: UUID) -> Tool | None:
         return await self._repository.get_tool(tool_id)
 
+    async def get_tool_by_name(self, name: str) -> Tool | None:
+        return await self._repository.get_tool_by_name(name)
+
     async def create_tool(
         self,
         *,
