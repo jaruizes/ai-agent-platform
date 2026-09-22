@@ -23,6 +23,29 @@ class PostgresExecutionRepository:
 
         async with pool.acquire() as conn:
             async with conn.transaction():
+                if submission.session_id:
+                    session = await conn.fetchrow(
+                        """
+                        SELECT status,expires_at,(expires_at IS NOT NULL AND expires_at <= now()) AS expired
+                        FROM sessions
+                        WHERE id=$1
+                        FOR SHARE
+                        """,
+                        submission.session_id,
+                    )
+                    if not session:
+                        raise LookupError(
+                            f"Session '{submission.session_id}' does not exist"
+                        )
+                    if session["status"] != "ACTIVE":
+                        raise ValueError(
+                            f"Session '{submission.session_id}' is not ACTIVE"
+                        )
+                    if session["expired"]:
+                        raise ValueError(
+                            f"Session '{submission.session_id}' has expired"
+                        )
+
                 row = await conn.fetchrow(
                     """
                     INSERT INTO executions (
