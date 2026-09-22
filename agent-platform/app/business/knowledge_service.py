@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from uuid import UUID, uuid4
 
-from app.business.ports import KnowledgeRepositoryPort, ModelGatewayPort
+from app.business.embeddings import EmbeddingProvider
+from app.business.ports import KnowledgeRepositoryPort
 from app.business.tool_service import ToolService
 from app.domain.knowledge import (
     KnowledgeBase,
@@ -20,6 +21,7 @@ from app.domain.knowledge import (
     ParsedSegment,
     RetrievalHit,
 )
+from app.infrastructure.knowledge.chunking import build_chunker, normalize_chunking_policy
 from app.infrastructure.knowledge.parsers import DocumentParser
 
 
@@ -36,26 +38,20 @@ class KnowledgeService:
     def __init__(
         self,
         repository: KnowledgeRepositoryPort,
-        model_gateway: ModelGatewayPort,
+        embedding_provider: EmbeddingProvider,
         tool_service: ToolService,
         parser: DocumentParser,
         *,
         storage_root: str,
-        embedding_model_profile: str,
-        chunk_size_chars: int,
-        chunk_overlap_chars: int,
         embedding_batch_size: int,
         worker_poll_seconds: float,
         cleanup_poll_seconds: float,
     ):
         self._repository = repository
-        self._model_gateway = model_gateway
+        self._embedding_provider = embedding_provider
         self._tool_service = tool_service
         self._parser = parser
         self._storage_root = Path(storage_root)
-        self._embedding_model_profile = embedding_model_profile
-        self._chunk_size_chars = chunk_size_chars
-        self._chunk_overlap_chars = chunk_overlap_chars
         self._embedding_batch_size = embedding_batch_size
         self._worker_poll_seconds = worker_poll_seconds
         self._cleanup_poll_seconds = cleanup_poll_seconds
@@ -77,6 +73,7 @@ class KnowledgeService:
         retention_policy: str = "PERSISTENT",
         ttl_seconds: int | None = None,
         enabled: bool = True,
+        chunking_policy: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> KnowledgeBase:
         if await self._repository.get_knowledge_base_by_name(name):
@@ -103,6 +100,7 @@ class KnowledgeService:
                 retention_policy=retention_policy,
                 expires_at=expires_at,
                 enabled=enabled,
+                chunking_policy=normalize_chunking_policy(chunking_policy),
                 metadata=metadata or {},
             )
         )
@@ -117,6 +115,7 @@ class KnowledgeService:
         retention_policy: str,
         ttl_seconds: int | None,
         enabled: bool,
+        chunking_policy: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> KnowledgeBase | None:
         existing = await self._repository.get_knowledge_base(kb_id)
@@ -147,6 +146,9 @@ class KnowledgeService:
                 retention_policy=retention_policy,
                 expires_at=expires_at,
                 enabled=enabled,
+                chunking_policy=normalize_chunking_policy(
+                    chunking_policy if chunking_policy is not None else existing.chunking_policy
+                ),
                 metadata=metadata or {},
             )
         )
@@ -304,10 +306,8 @@ class KnowledgeService:
         if not kbs:
             return []
         retrieval_query = query[:1600]
-        embeddings = await self._model_gateway.embed(
-            [f"search_query: {retrieval_query}"],
-            model_profile=self._embedding_model_profile,
-        )
+        embedding_result = await self._embedding_provider.embed([retrieval_query])
+        embeddings = embedding_result.vectors
         self._validate_embedding(embeddings[0])
         return await self._repository.retrieve(
             [kb.id for kb in kbs],
@@ -361,21 +361,32 @@ class KnowledgeService:
 
     async def _index_document(self, document: KnowledgeDocument) -> None:
         try:
+            kb = await self._repository.get_knowledge_base(document.knowledge_base_id)
+            if not kb:
+                raise LookupError("Knowledge base not found during indexing")
+
             parsed = await self._extract(document)
-            chunks = self._chunk(parsed, document)
+            chunks = self._chunk(parsed, document, kb.chunking_policy)
             if not chunks:
                 raise ValueError("Document produced no indexable text")
-            embeddings: list[list[float]] = []
-            texts = [chunk["content"] for chunk in chunks]
-            for start in range(0, len(texts), self._embedding_batch_size):
-                batch = texts[start:start + self._embedding_batch_size]
-                batch_vectors = await self._model_gateway.embed(
-                    [f"search_document: {value}" for value in batch],
-                    model_profile=self._embedding_model_profile,
+
+            embeddable_indices = [
+                index for index, chunk in enumerate(chunks) if chunk["embed"]
+            ]
+            embeddings_by_index: dict[int, list[float]] = {}
+            for start in range(0, len(embeddable_indices), self._embedding_batch_size):
+                batch_indices = embeddable_indices[start:start + self._embedding_batch_size]
+                result = await self._embedding_provider.embed(
+                    [chunks[index]["content"] for index in batch_indices]
                 )
-                for vector in batch_vectors:
+                if len(result.vectors) != len(batch_indices):
+                    raise RuntimeError(
+                        "Embedding provider returned an unexpected vector count"
+                    )
+                for index, vector in zip(batch_indices, result.vectors, strict=True):
                     self._validate_embedding(vector)
-                embeddings.extend(batch_vectors)
+                    embeddings_by_index[index] = vector
+
             rows = [
                 KnowledgeChunk(
                     id=uuid4(),
@@ -385,7 +396,7 @@ class KnowledgeService:
                     content=item["content"],
                     token_estimate=max(1, len(item["content"]) // 4),
                     metadata=item["metadata"],
-                    embedding=embeddings[index],
+                    embedding=embeddings_by_index.get(index),
                 )
                 for index, item in enumerate(chunks)
             ]
@@ -395,14 +406,21 @@ class KnowledgeService:
                 parsed_metadata={
                     "parsed": parsed.metadata,
                     "chunkCount": len(rows),
-                    "embeddingModel": self._embedding_model_profile,
+                    "embeddedChunkCount": len(embeddable_indices),
+                    "embeddingProvider": self._embedding_provider.provider_key,
+                    "embeddingModel": self._embedding_provider.model,
+                    "chunkingPolicy": normalize_chunking_policy(kb.chunking_policy),
                 },
             )
             logger.info(
-                "Knowledge document indexed document_id=%s chunks=%s source_type=%s",
+                "Knowledge document indexed document_id=%s chunks=%s embedded=%s "
+                "source_type=%s chunking=%s embedding_provider=%s",
                 document.id,
                 len(rows),
+                len(embeddable_indices),
                 document.source_type,
+                kb.chunking_policy.get("strategy"),
+                self._embedding_provider.provider_key,
             )
         except Exception as exc:
             logger.exception("Knowledge indexing failed document_id=%s", document.id)
@@ -459,41 +477,32 @@ class KnowledgeService:
         self,
         parsed: ParsedDocument,
         document: KnowledgeDocument,
+        chunking_policy: dict[str, Any],
     ) -> list[dict[str, Any]]:
+        policy = normalize_chunking_policy(chunking_policy)
+        chunker = build_chunker(policy)
         chunks: list[dict[str, Any]] = []
+
         for segment_index, segment in enumerate(parsed.segments):
             text = segment.text.strip()
             if not text:
                 continue
-            start = 0
-            while start < len(text):
-                end = min(len(text), start + self._chunk_size_chars)
-                if end < len(text):
-                    boundary = max(
-                        text.rfind("\n\n", start, end),
-                        text.rfind("\n", start, end),
-                        text.rfind(". ", start, end),
-                        text.rfind(" ", start, end),
-                    )
-                    if boundary > start + self._chunk_size_chars // 2:
-                        end = boundary + 1
-                content = text[start:end].strip()
-                if content:
-                    chunks.append(
-                        {
-                            "content": content,
-                            "metadata": {
-                                **segment.metadata,
-                                "documentName": document.name,
-                                "segment": segment_index,
-                                "charStart": start,
-                                "charEnd": end,
-                            },
-                        }
-                    )
-                if end >= len(text):
-                    break
-                start = max(start + 1, end - self._chunk_overlap_chars)
+
+            for candidate in chunker.split(text):
+                chunks.append(
+                    {
+                        "content": candidate.content,
+                        "embed": candidate.embed,
+                        "metadata": {
+                            **segment.metadata,
+                            **candidate.metadata,
+                            "documentName": document.name,
+                            "segment": segment_index,
+                            "charStart": candidate.start,
+                            "charEnd": candidate.end,
+                        },
+                    }
+                )
         return chunks
 
     @staticmethod
@@ -512,10 +521,15 @@ class KnowledgeService:
         return "\n\n".join(blocks)
 
     def _validate_embedding(self, vector: list[float]) -> None:
+        if len(vector) != self._embedding_provider.dimensions:
+            raise RuntimeError(
+                f"Embedding provider '{self._embedding_provider.provider_key}' returned "
+                f"{len(vector)} dimensions; expected {self._embedding_provider.dimensions}"
+            )
         if len(vector) != 768:
             raise RuntimeError(
-                f"Embedding profile '{self._embedding_model_profile}' returned "
-                f"{len(vector)} dimensions; M3 storage expects 768"
+                f"Knowledge storage expects 768 dimensions, got {len(vector)}. "
+                "Change KNOWLEDGE_EMBEDDING_DIMENSIONS only together with a pgvector schema migration."
             )
 
     @staticmethod
