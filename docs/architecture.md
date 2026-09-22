@@ -120,14 +120,24 @@ flowchart TB
     end
 
     subgraph Platform["AI AGENT PLATFORM - No determinista"]
-        IR["Intent Resolver"]
+        IR["Intent Resolver / Normalizer"]
 
-        subgraph Runtime["AGENTIC RUNTIME"]
-            PL["Planner"]
-            OR["Orchestrator"]
-            EE["Execution Engine"]
+        subgraph Runtime["AGENTIC RUNTIME - M4"]
+            PL["LLM Planner<br/>planner-default"]
+            PV["Plan Validator / Feasibility<br/>determinista"]
+            OP["OrchestrationEngine Port"]
+            LG["LangGraph Engine"]
+            SE["Step Executor"]
             CE["Context Engineering"]
-            DE["Durable Execution"]
+            DE["Durable Execution<br/>(M5)"]
+        end
+
+        subgraph Steps["STEP TYPES"]
+            AS["Agent Step"]
+            TS["Tool Step"]
+            KS["Knowledge Step"]
+            VS["Validation Step"]
+            MS["Model Step"]
         end
 
         subgraph Capabilities["CAPABILITY LAYER"]
@@ -144,10 +154,10 @@ flowchart TB
             KG["Knowledge Graph"]
         end
 
-        subgraph State["MEMORY & STATE"]
+        subgraph State["MEMORY & EXECUTION STATE"]
             WM["Working Memory"]
             PM["Persistent Memory"]
-            RS["Execution State"]
+            RS["Execution + Plan + Step State"]
             CACHE["Caches"]
         end
 
@@ -170,7 +180,7 @@ flowchart TB
 
     subgraph Messaging["NATS JETSTREAM"]
         CMD["Command Subjects"]
-        EVT["Event Subjects"]
+        EVT["Lifecycle / Result / Orchestration Events"]
     end
 
     subgraph Persistence["PERSISTENCE"]
@@ -186,12 +196,25 @@ flowchart TB
     NATSIN --> CG
     CG --> IR
     IR --> PL
-    PL --> OR
-    OR --> EE
-    Runtime --> Capabilities
-    Runtime --> Knowledge
+    PL --> PV
+    PV --> OP
+    OP --> LG
+    LG --> SE
+    SE --> AS
+    SE --> TS
+    SE --> KS
+    SE --> VS
+    SE --> MS
+    AS --> AR
+    TS --> TR
+    TR --> MCP
+    KS --> RAG
+    VS --> RAG
+    AS --> MG
+    VS --> MG
+    MS --> MG
+    SE --> CE
     Runtime --> State
-    Runtime --> Models
     Runtime --> Cross
     Runtime --> DB
     Runtime --> ART
@@ -1514,3 +1537,310 @@ Los chunks mantienen metadata estructural procedente del parser (page, slide, sh
 - la metadata de ingestión registra la política efectiva;
 - la estrategia podrá evolucionar a token-aware/semantic chunking manteniendo el mismo modelo de configuración.
 
+
+
+---
+
+## 16. M4 — Agentic Orchestration con LangGraph
+
+M4 sustituye el modelo de selección de una única estrategia de M1-M3 por un plan lógico multi-step. Una ejecución simple puede seguir produciendo un plan de un solo paso; una intención compleja puede producir un grafo con pasos secuenciales o paralelos.
+
+Flujo implementado:
+
+```text
+ExecutionCommand
+      |
+      v
+Planner (LLM)
+      |
+      v
+LogicalPlan tipado
+      |
+      v
+Plan Validator / Feasibility
+      |
+      v
+OrchestrationEngine Port
+      |
+      v
+LangGraphOrchestrationEngine
+      |
+      v
+Step Executor
+      |
+      +--> AGENT
+      +--> TOOL
+      +--> KNOWLEDGE
+      +--> VALIDATE
+      +--> MODEL
+```
+
+### LogicalPlan
+
+El Planner devuelve exclusivamente un contrato estructurado:
+
+```json
+{
+  "objective": "Diseñar y validar una arquitectura",
+  "steps": [
+    {
+      "id": "design",
+      "type": "AGENT",
+      "description": "Diseñar la solución con las arquitecturas de referencia",
+      "agent": "solution-architect",
+      "knowledgeBases": ["architecture-reference"],
+      "dependsOn": []
+    },
+    {
+      "id": "validate",
+      "type": "VALIDATE",
+      "description": "Validar la solución contra perfiles aprobados",
+      "knowledgeBases": ["approved-technology-profiles"],
+      "knowledgeUsageMode": "GUARDRAIL",
+      "dependsOn": ["design"]
+    }
+  ],
+  "finalStepId": "validate"
+}
+```
+
+El plan es dominio de la plataforma. No contiene nodos, channels, Pregel tasks ni otros conceptos internos de LangGraph.
+
+### Tipos de step M4
+
+```text
+AGENT      -> agente registrado + skills + knowledge opcional + LLM
+TOOL       -> Tool Layer M2 (MCP/otros adapters)
+KNOWLEDGE  -> retrieval M3
+VALIDATE   -> retrieval de constraints + validación mediante modelo
+MODEL      -> razonamiento/síntesis genérico
+```
+
+Los argumentos de una Tool pueden referenciar datos del comando o outputs anteriores:
+
+```text
+${command.input.documentId}
+${steps.search.output.files.0.id}
+```
+
+Esto permite composición multi-step sin introducir adaptaciones específicas por proceso.
+
+### Validación determinista
+
+El LLM **propone** el plan. No decide si el plan es estructuralmente válido.
+
+Antes de compilar el grafo, `PlanValidator` comprueba de forma determinista:
+
+- número máximo de pasos;
+- IDs únicos;
+- dependencias existentes;
+- ausencia de ciclos;
+- existencia y estado enabled de agentes;
+- existencia y estado enabled de Tools;
+- existencia y estado enabled de Knowledge Bases;
+- requisitos obligatorios por tipo de step;
+- `finalStepId` válido;
+- modos de conocimiento `REFERENCE/GUARDRAIL`.
+
+La validación se persiste junto al plan.
+
+### Ejecución LangGraph
+
+`LangGraphOrchestrationEngine` implementa el puerto estable `OrchestrationEnginePort`.
+
+```text
+Domain LogicalPlan
+      |
+      v
+OrchestrationEnginePort
+      |
+      v
+LangGraphOrchestrationEngine
+      |
+      v
+StateGraph
+```
+
+Los steps sin dependencias pueden ser programados por LangGraph en paralelo. Cuando un step tiene varias dependencias, el edge conjunto actúa como join antes de continuar.
+
+La plataforma no expone LangGraph en sus contratos externos. En el futuro otra implementación podría usar un runtime cloud o un engine diferente sin cambiar `LogicalPlan`.
+
+### Observabilidad de primera clase para la UI
+
+M4 persiste dos nuevas entidades:
+
+```text
+execution_plans
+execution_plan_steps
+```
+
+Por ejecución se conserva:
+
+- objetivo del plan;
+- JSON completo del LogicalPlan;
+- resultado de validación;
+- modelo utilizado por el Planner;
+- tokens consumidos por el Planner;
+- estado global del plan;
+- timestamps de inicio/fin.
+
+Por step se conserva:
+
+- tipo;
+- descripción de la actividad;
+- agente activo;
+- tool activa;
+- Knowledge Bases;
+- dependencias;
+- estado `PENDING/RUNNING/COMPLETED/FAILED`;
+- timestamps;
+- output;
+- error;
+- consumo de tokens.
+
+Esto permite construir una UI tipo grafo:
+
+```text
+                    ┌───────────────┐
+                    │ design        │
+                    │ AGENT         │
+                    │ RUNNING       │
+                    │ 2,431 tokens  │
+                    └───────┬───────┘
+                            |
+                ┌───────────┴───────────┐
+                v                       v
+        ┌───────────────┐       ┌───────────────┐
+        │ security      │       │ cost          │
+        │ AGENT         │       │ AGENT         │
+        └───────┬───────┘       └───────┬───────┘
+                └───────────┬────────────┘
+                            v
+                    ┌───────────────┐
+                    │ validate      │
+                    │ VALIDATE      │
+                    └───────────────┘
+```
+
+La API preparada para esa UI es:
+
+```text
+GET /v1/executions/{executionId}/orchestration
+```
+
+La respuesta incluye:
+
+```text
+plan
+steps
+activeAgents
+usage.promptTokens
+usage.completionTokens
+usage.totalTokens
+```
+
+Además se publican en NATS:
+
+```text
+platform.events.execution.orchestration
+```
+
+con eventos:
+
+```text
+PLAN_CREATED
+PLAN_STARTED
+STEP_STARTED
+STEP_COMPLETED
+STEP_FAILED
+PLAN_COMPLETED
+PLAN_FAILED
+```
+
+Una UI futura podrá elegir polling REST, suscripción a un backend que consuma estos eventos, o una combinación de snapshot + eventos.
+
+### ADR-018 — LangGraph es implementación del OrchestrationEngine, no dominio de la plataforma
+
+**Estado:** Accepted  
+**Contexto:** M4
+
+#### Decisión
+
+Se utiliza LangGraph como motor de ejecución de grafos, detrás de `OrchestrationEnginePort`.
+
+```text
+Platform Domain
+    LogicalPlan
+        |
+        v
+OrchestrationEnginePort
+        |
+        +--> LangGraphOrchestrationEngine
+        +--> future cloud/runtime adapter
+```
+
+#### Consecuencias
+
+- los contratos externos no dependen de LangGraph;
+- Agents, Tools, Skills y Knowledge siguen siendo recursos de la plataforma;
+- sustituir LangGraph no exige cambiar `ExecutionCommand`;
+- evitamos reinventar scheduling de DAGs, joins y ejecución paralela;
+- LangGraph no se convierte en el modelo de negocio.
+
+### ADR-019 — El Planner LLM propone; el runtime determinista valida
+
+**Estado:** Accepted  
+**Contexto:** M4
+
+#### Decisión
+
+El Planner utiliza un perfil separado:
+
+```text
+planner-default
+```
+
+y devuelve un `LogicalPlan` tipado. El LLM no puede ejecutar directamente recursos ni saltarse el plan validator.
+
+Principio:
+
+> **LLM proposes the plan; deterministic platform code decides whether the plan is structurally valid and executable.**
+
+El plan y su validación quedan almacenados antes de iniciar LangGraph.
+
+### ADR-020 — El plan y cada step son observables antes de tener UI
+
+**Estado:** Accepted  
+**Contexto:** M4
+
+#### Decisión
+
+La observabilidad funcional de una ejecución no se limita a traces técnicos. Plan, steps, agentes activos, actividad y tokens son estado consultable de la plataforma.
+
+Esto permite que la futura UI sea una representación del estado ya existente y no requiera reconstruir el workflow desde logs.
+
+También facilita auditoría, debugging, cálculo de coste y futuras Evals por step.
+
+### ADR-021 — M4 no sustituye M5 Durable Runs
+
+**Estado:** Accepted  
+**Contexto:** frontera M4/M5
+
+LangGraph se utiliza actualmente sin checkpointer durable. PostgreSQL conserva el plan, el estado observable de cada step y sus resultados, pero **una caída de proceso durante el grafo no implica todavía resume automático desde el último checkpoint**.
+
+M5 añadirá:
+
+- checkpointing durable;
+- recovery/resume;
+- retries configurables por step;
+- timeout/cancel;
+- pause/resume;
+- human approval;
+- compensaciones/idempotencia avanzada.
+
+Por tanto:
+
+```text
+M4 = planning + graph orchestration + visible step state
+M5 = durable/recoverable execution semantics
+```
