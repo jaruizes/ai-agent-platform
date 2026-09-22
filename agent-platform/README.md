@@ -379,3 +379,49 @@ The resolver receives the currently enabled agents from the database. A successf
 ```
 
 The functional result and lifecycle continue to be emitted through the same generic NATS contracts used in M0.
+
+
+## M1.1 — Prompt Registry and Model Profiles
+
+Platform prompts are no longer hardcoded in Python. They are persisted in PostgreSQL and bootstrapped from:
+
+```text
+bootstrap/prompts/
+├── intent-router.md
+├── direct-executor.md
+└── agent-executor.md
+```
+
+The database is the source of truth at runtime. Bootstrap is **insert-if-missing** for skills, agents and prompts:
+
+```text
+Markdown exists + DB does not exist -> insert Markdown definition
+Markdown exists + DB already exists   -> keep DB definition unchanged
+```
+
+Therefore an agent, skill or prompt edited through the API is never overwritten by a restart.
+
+Prompt management API:
+
+```text
+GET    /v1/prompts
+POST   /v1/prompts
+PUT    /v1/prompts/{id}
+DELETE /v1/prompts/{id}
+```
+
+The resolver and execution use different LiteLLM aliases:
+
+```text
+router-fast       -> cheap/fast model used only for intent routing
+reasoning-default -> normal model used for DIRECT_LLM and AGENT execution
+```
+
+Configure the actual Anthropic models in `.env`:
+
+```env
+ANTHROPIC_ROUTER_MODEL=anthropic/claude-haiku-4-5-20251001
+ANTHROPIC_EXECUTION_MODEL=anthropic/claude-sonnet-4-5-20250929
+```
+
+The platform code only knows the profile names `router-fast` and `reasoning-default`, not the provider model IDs.
