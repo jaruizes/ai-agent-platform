@@ -768,3 +768,313 @@ La UI administrativa trabaja principalmente sobre el Control Plane.
 10. Añadir una nueva intención o caso de uso no implica añadir un nuevo contrato de integración ni un mapping de negocio dentro de la plataforma.
 11. La plataforma es intent-driven: decide dinámicamente si resolver una intención mediante tools, skills, agentes, RAG, múltiples recursos o una operación determinista.
 12. Los agents son mecanismos internos de ejecución, no la abstracción expuesta a los consumidores.
+
+---
+
+## 13. Architecture Decision Records (ADRs)
+
+Esta sección registra decisiones tomadas durante la evolución de la plataforma, incluyendo el problema que las originó, la decisión, alternativas y consecuencias. Su objetivo es preservar el razonamiento arquitectónico y servir como material de referencia para futuras evoluciones y documentación técnica.
+
+### ADR-001 — Tool es la abstracción; MCP es un mecanismo de integración
+
+**Estado:** Accepted  
+**Contexto:** M2 — Tools & MCP
+
+#### Contexto
+
+La plataforma necesita acceder a APIs, SDKs, servicios internos, Google Workspace y otros sistemas. Exponer MCP directamente al planner habría introducido conceptos técnicos como MCP server, JSON-RPC, stdio o tools/call dentro del modelo cognitivo.
+
+#### Decisión
+
+La abstracción estable del runtime es **Tool**. Una Tool representa una capacidad lógica ejecutable con nombre, descripción, instrucciones, input schema, políticas e implementación técnica. La implementación puede ser MCP, REST, SDK o código nativo.
+
+```text
+Planner / Agent
+      |
+      v
+     Tool
+      |
+      +--> MCP adapter
+      +--> REST adapter
+      +--> SDK adapter
+      +--> Native adapter
+```
+
+MCP queda encapsulado dentro de la Tool Layer y no forma parte del contrato externo de la plataforma.
+
+#### Consecuencias
+
+- El planner no depende de MCP.
+- Sustituir MCP por REST no cambia el contrato lógico de la tool.
+- Los consumidores externos no conocen el protocolo de integración.
+- Las políticas y observabilidad pueden aplicarse sobre Tools de forma homogénea.
+
+---
+
+### ADR-002 — Provider response no equivale a Tool Result
+
+**Estado:** Accepted  
+**Contexto:** M2 — Google Workspace  
+**Incidente:** resumen de un Google Docs.
+
+#### Contexto
+
+La primera integración usó docs_get_document y propagó el JSON completo de Google Docs API hasta el contexto del modelo. Ese JSON contiene índices, estilos, estructuras internas, metadatos y otros datos del proveedor que no aportan valor para un resumen.
+
+En una ejecución real, este diseño produjo:
+
+```text
+222227 tokens > 200000 maximum
+```
+
+El problema no era LiteLLM. Tampoco era simplemente el tamaño del transporte MCP. El problema era haber confundido el contrato del proveedor con el contrato semántico que necesita el runtime.
+
+#### Decisión
+
+Las Tools deben exponer resultados **semánticos, compactos y orientados a la intención**.
+
+Para Google Docs se mantienen dos capacidades:
+
+```text
+docs_get_document
+    -> representación estructurada completa
+    -> útil si se necesita estructura, layout o metadata
+
+docs_get_text
+    -> documentId + title + text + characterCount
+    -> preferida para summarization / analysis / LLM reasoning
+```
+
+La plataforma registra `google-docs-get-text` y el router M2 v2 debe preferirla para resumen y análisis.
+
+#### Regla general
+
+> **Provider response != Tool contract.**
+
+El adapter/tool decide qué información atraviesa la frontera hacia el runtime cognitivo.
+
+#### Consecuencias
+
+- menor consumo de tokens;
+- menor latencia y coste;
+- menor riesgo de superar la context window;
+- menos ruido semántico;
+- menor acoplamiento al proveedor;
+- pueden coexistir varias Tools sobre una misma API, cada una con un contrato distinto.
+
+#### Alternativas descartadas
+
+- Aumentar la ventana de contexto: desplaza el problema y aumenta coste/latencia.
+- Configurar sólo un context-window fallback en LiteLLM: útil como resiliencia, pero no corrige un contrato ineficiente.
+- Enviar siempre el JSON completo: descartado por coste, ruido y falta de control.
+
+---
+
+### ADR-003 — Separar límite de transporte de presupuesto de contexto
+
+**Estado:** Accepted  
+**Contexto:** M2
+
+#### Contexto
+
+Durante la misma prueba aparecieron dos fallos distintos. Primero el cliente MCP stdio alcanzó el límite interno de lectura de asyncio y produjo:
+
+```text
+Separator is not found, and chunk exceed the limit
+```
+
+Después de permitir mensajes MCP mayores, el modelo rechazó el prompt por superar su context window.
+
+#### Decisión
+
+Se consideran explícitamente dos presupuestos independientes:
+
+```text
+Transport Budget != Model Context Budget
+```
+
+`MCP_MAX_MESSAGE_BYTES` responde a si la plataforma puede transportar correctamente el resultado.
+
+`MAX_TOOL_RESULT_CHARS_FOR_MODEL` actúa como safety rail antes de inyectar un Tool Result en un prompt. No sustituye token accounting real; evita enviar resultados obviamente desproporcionados.
+
+#### Consecuencias
+
+Que un resultado pueda transportarse no significa que deba entrar completo en el contexto del modelo. Context Engineering deberá aplicar progresivamente selección, proyección, reducción, chunking, summarization intermedia, retrieval y token budgeting.
+
+En M3, documentos grandes evolucionarán hacia parsing/chunking/RAG en lugar de transportarse siempre completos.
+
+---
+
+### ADR-004 — El adapter MCP normaliza el resultado protocolario
+
+**Estado:** Accepted  
+**Contexto:** M2
+
+#### Contexto
+
+MCP devuelve una envolvente protocolaria, por ejemplo `content`, `structuredContent` e `isError`. Propagar esa envolvente directamente obliga al runtime a conocer MCP y añade datos sin valor al contexto.
+
+#### Decisión
+
+El adapter MCP normaliza el resultado antes de entregarlo como Tool Result:
+
+1. usar `structuredContent` cuando exista;
+2. si hay un único bloque de texto con JSON válido, parsearlo;
+3. si es texto plano, devolver texto;
+4. conservar otros contenidos únicamente cuando sean necesarios.
+
+```text
+MCP envelope -> MCP Adapter -> normalized Tool Result -> Runtime
+```
+
+#### Consecuencias
+
+- Business/runtime no conoce detalles del envelope MCP.
+- Se reducen tokens de infraestructura.
+- La metadata técnica queda separada del contenido semántico.
+- Cambiar de protocolo no debería cambiar el contrato lógico de la Tool.
+
+---
+
+### ADR-005 — La BBDD prevalece sobre bootstrap Markdown
+
+**Estado:** Accepted  
+**Contexto:** M1/M2
+
+Agents, Skills, Prompts, Tools y MCP Servers pueden declararse en Markdown, pero también modificarse desde API/UI.
+
+#### Decisión
+
+El bootstrap es **insert-if-missing**:
+
+```text
+Markdown existe + DB no existe -> INSERT
+Markdown existe + DB existe    -> KEEP DATABASE VERSION
+```
+
+La base de datos es la source of truth en runtime.
+
+#### Consecuencias
+
+- Un restart no revierte cambios administrativos.
+- Nuevos recursos bootstrap se incorporan sin alterar existentes.
+- Evolucionar un recurso bootstrap existente requiere versionado/nuevo nombre o promoción explícita.
+- Por ello el router actualizado se introduce como `intent-router-tools-v2` en vez de sobrescribir silenciosamente el prompt existente.
+
+---
+
+### ADR-006 — Separar modelo de routing y modelo de ejecución
+
+**Estado:** Accepted  
+**Contexto:** M1
+
+Resolver una intención suele requerir menos capacidad que ejecutar la tarea final.
+
+#### Decisión
+
+El runtime usa perfiles lógicos `router-fast` y `reasoning-default`, resueltos por LiteLLM hacia modelos físicos. La lógica de negocio no conoce identificadores concretos de proveedor/modelo.
+
+#### Consecuencias
+
+- routing más rápido y económico;
+- cambio de modelo/proveedor sin modificar business code;
+- base para futuros perfiles de razonamiento, visión o embeddings.
+
+---
+
+### ADR-007 — Los errores deben ser diagnósticos y correlacionables
+
+**Estado:** Accepted  
+**Contexto:** M2
+
+La primera versión persistía únicamente `reason: RuntimeError`, insuficiente para distinguir problemas de MCP, OAuth, Google API, validación, modelo, context window o persistencia.
+
+#### Decisión
+
+Los errores de ejecución incluyen `stage`, `exceptionType`, mensaje técnico acotado, `strategy`, `agent` y `tool`. Los logs conservan el stacktrace completo y OpenTelemetry registra la excepción asociada al `executionId`.
+
+Etapas iniciales:
+
+```text
+BUILD_COMMAND
+RESOLVE_INTENT
+EXECUTE_TOOL
+EXECUTE_MODEL
+PERSIST_RESULT
+```
+
+#### Consecuencias
+
+La API permite diagnóstico rápido sin exponer stacktraces completos; logs y traces preservan el detalle técnico.
+
+---
+
+### ADR-008 — Un documentId de Drive no implica Google Docs nativo
+
+**Estado:** Accepted  
+**Contexto:** M2; evolución prevista M3/M4
+
+Una prueba inicial utilizó un Word almacenado en Drive con `docs_get_document`. Google respondió que la operación no estaba soportada para un Office file.
+
+#### Decisión
+
+No ocultar diferencias importantes de formato detrás de una llamada incorrecta a Google Docs API.
+
+Para Google Docs nativo:
+
+```text
+docs_get_text
+```
+
+Para DOCX/PDF u otros binarios:
+
+```text
+Drive metadata -> download/export -> parser específico -> semantic document representation
+```
+
+La composición automática de varias Tools pertenece al Planner/Orchestrator multi-step de M4. La ingestión, parsing, chunking y retrieval documental a escala pertenece a M3 Knowledge/RAG.
+
+---
+
+## 14. Lecciones de M2 para Context Engineering
+
+La prueba de resumen de Google Drive establece esta frontera:
+
+```text
+External Provider
+      |
+      v
+Integration Protocol (MCP)
+      |
+      v
+Tool Adapter
+      |
+      v
+Semantic Tool Result
+      |
+      v
+Context Engineering
+      |
+      v
+Model Gateway
+      |
+      v
+LLM
+```
+
+Responsabilidades:
+
+- **Provider/API:** expone su modelo nativo.
+- **MCP:** transporta capacidades y resultados.
+- **Tool Adapter:** proyecta el modelo del proveedor a un contrato lógico.
+- **Context Engineering:** decide qué parte merece entrar en contexto.
+- **Model Gateway:** selecciona modelo y aplica routing, límites y coste.
+- **LLM:** razona únicamente sobre el contexto finalmente preparado.
+
+Reglas a preservar:
+
+> **Que un dato pueda transportarse no significa que deba entrar completo en la ventana de contexto.**
+
+> **Una integración técnicamente correcta puede ser arquitectónicamente incorrecta si propaga demasiado detalle hacia el modelo.**
+
+Estas decisiones serán base explícita de M3 (Knowledge/RAG) y M4 (Agentic Orchestration).
