@@ -28,6 +28,14 @@ class ExecutionSubmission:
 class ExecutionPlan:
     system_prompt: str
     user_prompt: str
-    strategy: Literal["DIRECT_LLM", "AGENT"] = "DIRECT_LLM"
+    strategy: Literal[
+        "DIRECT_LLM",
+        "AGENT",
+        "TOOL",
+        "TOOL_LLM",
+        "AGENT_TOOL_LLM",
+    ] = "DIRECT_LLM"
     agent_name: str | None = None
+    tool_name: str | None = None
+    tool_arguments: dict[str, Any] = field(default_factory=dict)
     model_profile: str = "reasoning-default"
