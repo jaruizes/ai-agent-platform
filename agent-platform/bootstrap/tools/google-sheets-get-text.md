@@ -3,6 +3,8 @@ name: google-sheets-get-text
 description: Read compact semantic text from all sheets in a Google Sheets spreadsheet for analysis and RAG ingestion.
 implementationType: MCP
 enabled: true
+sideEffect: READ
+approvalPolicy: NEVER
 configuration:
   server: google-workspace
   tool: sheets_get_text
