@@ -22,3 +22,14 @@ class RestExecutionAccepted(BaseModel):
     executionId: UUID
     correlationId: str
     status: Literal["ACCEPTED"] = "ACCEPTED"
+
+
+
+class ExecutionControlRequest(BaseModel):
+    reason: str | None = None
+
+
+class StepApprovalRequest(BaseModel):
+    approved: bool
+    actor: str = Field(min_length=1)
+    comment: str | None = None
