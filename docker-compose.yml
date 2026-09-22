@@ -96,7 +96,8 @@ services:
 
   agent-platform:
     build:
-      context: ./agent-platform
+      context: .
+      dockerfile: agent-platform/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent}@postgres:5432/${POSTGRES_DB:-agent_platform}
       NATS_URL: nats://nats:4222
@@ -104,7 +105,10 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-key}
       ROUTER_MODEL_PROFILE: router-fast
       EXECUTION_MODEL_PROFILE: reasoning-default
+      MCP_TIMEOUT_SECONDS: ${MCP_TIMEOUT_SECONDS:-60}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    volumes:
+      - ./.secrets:/run/secrets/google:ro
     ports:
       - "8080:8080"
     depends_on:
