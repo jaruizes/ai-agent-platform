@@ -32,7 +32,10 @@ class McpStdioClient:
                 "arguments": arguments,
             })
             if result.get("isError"):
-                raise RuntimeError(f"MCP tool '{remote_tool_name}' returned an error")
+                details = json.dumps(result, ensure_ascii=False)[:4000]
+                raise RuntimeError(
+                    f"MCP tool '{remote_tool_name}' returned an error: {details}"
+                )
             return result
         finally:
             if process.returncode is None:
