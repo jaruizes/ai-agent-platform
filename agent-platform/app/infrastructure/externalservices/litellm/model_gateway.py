@@ -22,34 +22,6 @@ class LiteLLMModelGateway:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def embed(
-        self,
-        texts: list[str],
-        *,
-        model_profile: str,
-    ) -> list[list[float]]:
-        if not texts:
-            return []
-        response = await self._client.post(
-            "/v1/embeddings",
-            json={"model": model_profile, "input": texts},
-        )
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            body = response.text[:4000]
-            raise RuntimeError(
-                f"LiteLLM embeddings request failed with HTTP {response.status_code}: {body}"
-            ) from exc
-        body = response.json()
-        rows = sorted(body.get("data", []), key=lambda item: item.get("index", 0))
-        embeddings = [row.get("embedding", []) for row in rows]
-        if len(embeddings) != len(texts):
-            raise RuntimeError(
-                f"Embedding gateway returned {len(embeddings)} vectors for {len(texts)} inputs"
-            )
-        return embeddings
-
     async def complete(
         self,
         *,
