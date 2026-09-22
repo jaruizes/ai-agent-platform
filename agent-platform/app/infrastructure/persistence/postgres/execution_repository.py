@@ -219,9 +219,7 @@ class PostgresExecutionRepository:
                     "SELECT * FROM executions WHERE id=$1 FOR UPDATE",
                     execution_id,
                 )
-                if not row or row["status"] not in {
-                    "PAUSED", "WAITING_APPROVAL"
-                }:
+                if not row or row["status"] != "PAUSED":
                     return False
                 await conn.execute(
                     """
