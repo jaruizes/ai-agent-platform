@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     service_name: str = "agent-platform"
-    service_version: str = "0.4.0"
+    service_version: str = "0.5.0"
 
     database_url: str = "postgresql://agent:agent@postgres:5432/agent_platform"
 
@@ -19,10 +19,12 @@ class Settings(BaseSettings):
     litellm_master_key: str = "sk-local-dev-key"
     router_model_profile: str = "router-fast"
     execution_model_profile: str = "reasoning-default"
+    planner_model_profile: str = "planner-default"
     model_timeout_seconds: float = 120.0
 
     worker_poll_seconds: float = 0.5
     outbox_poll_seconds: float = 0.25
+    orchestration_max_steps: int = 12
 
     bootstrap_skills_dir: str = "/app/bootstrap/skills"
     bootstrap_agents_dir: str = "/app/bootstrap/agents"
