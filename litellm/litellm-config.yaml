@@ -1,7 +1,12 @@
 model_list:
-  - model_name: platform-default
+  - model_name: router-fast
     litellm_params:
-      model: os.environ/ANTHROPIC_MODEL
+      model: os.environ/ANTHROPIC_ROUTER_MODEL
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: reasoning-default
+    litellm_params:
+      model: os.environ/ANTHROPIC_EXECUTION_MODEL
       api_key: os.environ/ANTHROPIC_API_KEY
 
 general_settings:
