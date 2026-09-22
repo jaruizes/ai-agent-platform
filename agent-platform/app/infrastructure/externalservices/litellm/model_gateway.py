@@ -22,7 +22,45 @@ class LiteLLMModelGateway:
     async def close(self) -> None:
         await self._client.aclose()
 
+    async def complete(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+    ) -> str:
+        body = await self._chat(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+        )
+        return body["choices"][0]["message"]["content"]
+
     async def execute(self, plan: ExecutionPlan) -> dict[str, Any]:
+        body = await self._chat(
+            system_prompt=plan.system_prompt,
+            user_prompt=plan.user_prompt,
+            temperature=0.2,
+        )
+        content = body["choices"][0]["message"]["content"]
+
+        return {
+            "type": "agent-response" if plan.strategy == "AGENT" else "direct-llm-response",
+            "summary": content,
+            "data": {
+                "model": body.get("model", self._settings.default_model),
+                "usage": body.get("usage", {}),
+            },
+            "artifacts": [],
+        }
+
+    async def _chat(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+    ) -> dict[str, Any]:
         with tracer.start_as_current_span("model_gateway.chat_completion") as span:
             span.set_attribute("gen_ai.system", "litellm")
             span.set_attribute("gen_ai.request.model", self._settings.default_model)
@@ -32,22 +70,11 @@ class LiteLLMModelGateway:
                 json={
                     "model": self._settings.default_model,
                     "messages": [
-                        {"role": "system", "content": plan.system_prompt},
-                        {"role": "user", "content": plan.user_prompt},
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
                     ],
-                    "temperature": 0.2,
+                    "temperature": temperature,
                 },
             )
             response.raise_for_status()
-            body = response.json()
-            content = body["choices"][0]["message"]["content"]
-
-            return {
-                "type": "direct-llm-response",
-                "summary": content,
-                "data": {
-                    "model": body.get("model", self._settings.default_model),
-                    "usage": body.get("usage", {}),
-                },
-                "artifacts": [],
-            }
+            return response.json()
