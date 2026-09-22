@@ -108,7 +108,7 @@ class PostgresExecutionRepository:
                     UPDATE executions
                     SET status='RUNNING',
                         lease_owner=$2,
-                        lease_expires_at=now() + ($3 * interval '1 second'),
+                        lease_expires_at=now() + ($3::double precision * interval '1 second'),
                         last_heartbeat_at=now(),
                         control_action=CASE
                             WHEN control_action='RESUME' THEN 'NONE'
@@ -160,7 +160,7 @@ class PostgresExecutionRepository:
             result = await conn.execute(
                 """
                 UPDATE executions
-                SET lease_expires_at=now() + ($3 * interval '1 second'),
+                SET lease_expires_at=now() + ($3::double precision * interval '1 second'),
                     last_heartbeat_at=now(),
                     updated_at=now()
                 WHERE id=$1 AND lease_owner=$2
@@ -903,7 +903,7 @@ class PostgresExecutionRepository:
                     """
                     UPDATE execution_plan_steps
                     SET status='RETRYING',error=$3::jsonb,
-                        next_retry_at=now() + ($4 * interval '1 second')
+                        next_retry_at=now() + ($4::double precision * interval '1 second')
                     WHERE execution_id=$1 AND step_id=$2
                     """,
                     execution["id"],
