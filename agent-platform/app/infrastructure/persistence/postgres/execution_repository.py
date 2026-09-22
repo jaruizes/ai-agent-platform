@@ -267,6 +267,15 @@ class PostgresExecutionRepository:
                     status,
                     reason,
                 )
+                await conn.execute(
+                    """
+                    UPDATE execution_plans
+                    SET status=$2,updated_at=now()
+                    WHERE execution_id=$1
+                    """,
+                    execution["id"],
+                    status,
+                )
                 event = lifecycle_event(
                     execution_id=execution["id"],
                     correlation_id=execution["correlation_id"],
