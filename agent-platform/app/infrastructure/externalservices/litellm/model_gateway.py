@@ -27,11 +27,13 @@ class LiteLLMModelGateway:
         *,
         system_prompt: str,
         user_prompt: str,
+        model_profile: str,
         temperature: float = 0.2,
     ) -> str:
         body = await self._chat(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            model_profile=model_profile,
             temperature=temperature,
         )
         return body["choices"][0]["message"]["content"]
@@ -40,6 +42,7 @@ class LiteLLMModelGateway:
         body = await self._chat(
             system_prompt=plan.system_prompt,
             user_prompt=plan.user_prompt,
+            model_profile=plan.model_profile,
             temperature=0.2,
         )
         content = body["choices"][0]["message"]["content"]
@@ -48,7 +51,8 @@ class LiteLLMModelGateway:
             "type": "agent-response" if plan.strategy == "AGENT" else "direct-llm-response",
             "summary": content,
             "data": {
-                "model": body.get("model", self._settings.default_model),
+                "model": body.get("model", plan.model_profile),
+                "modelProfile": plan.model_profile,
                 "usage": body.get("usage", {}),
             },
             "artifacts": [],
@@ -59,16 +63,17 @@ class LiteLLMModelGateway:
         *,
         system_prompt: str,
         user_prompt: str,
+        model_profile: str,
         temperature: float,
     ) -> dict[str, Any]:
         with tracer.start_as_current_span("model_gateway.chat_completion") as span:
             span.set_attribute("gen_ai.system", "litellm")
-            span.set_attribute("gen_ai.request.model", self._settings.default_model)
+            span.set_attribute("gen_ai.request.model", model_profile)
 
             response = await self._client.post(
                 "/v1/chat/completions",
                 json={
-                    "model": self._settings.default_model,
+                    "model": model_profile,
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
