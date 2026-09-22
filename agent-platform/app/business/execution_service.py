@@ -83,6 +83,17 @@ class ExecutionService:
             reason=reason,
         )
 
+    async def retry_execution(
+        self,
+        execution_id: UUID,
+        *,
+        reason: str | None = None,
+    ) -> bool:
+        return await self._repository.retry_failed_execution(
+            execution_id,
+            reason=reason,
+        )
+
     async def decide_step_approval(
         self,
         execution_id: UUID,
