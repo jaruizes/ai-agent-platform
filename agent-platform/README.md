@@ -605,3 +605,134 @@ or:
 ```
 
 The important M2 invariant is that the platform discovers/selects the declarative tool, invokes the Google Workspace MCP, obtains the Docs content and then uses the configured execution model to satisfy the intent.
+
+
+---
+
+# M4 — Agentic Orchestration with LangGraph
+
+M4 introduces an LLM Planner and a typed multi-step `LogicalPlan`.
+
+Runtime flow:
+
+```text
+ExecutionCommand
+      |
+      v
+LLM Planner (planner-default)
+      |
+      v
+LogicalPlan
+      |
+      v
+Deterministic PlanValidator
+      |
+      v
+OrchestrationEnginePort
+      |
+      v
+LangGraphOrchestrationEngine
+      |
+      v
+StepExecutor
+      |
+      +--> AGENT
+      +--> TOOL
+      +--> KNOWLEDGE
+      +--> VALIDATE
+      +--> MODEL
+```
+
+LangGraph is an implementation detail. The platform domain knows `LogicalPlan`, not LangGraph nodes or channels.
+
+The planner can create sequential or parallel DAGs. Steps without dependencies can run concurrently; steps with multiple dependencies wait for the dependency join.
+
+M4 persists plan and step state in PostgreSQL:
+
+```text
+execution_plans
+execution_plan_steps
+```
+
+The state is explicitly UI-ready:
+
+```text
+PENDING -> RUNNING -> COMPLETED
+                   -> FAILED
+```
+
+Each step exposes:
+
+- type and description;
+- assigned agent/tool/knowledge;
+- dependencies;
+- current status;
+- start/end timestamps;
+- output/error;
+- model token usage.
+
+The planner model usage is tracked separately and included in total execution usage.
+
+Inspect a running execution:
+
+```bash
+curl http://localhost:8080/v1/executions/<EXECUTION_ID>/orchestration | jq
+```
+
+The response contains:
+
+```json
+{
+  "status": "RUNNING",
+  "plan": {
+    "objective": "...",
+    "finalStepId": "...",
+    "logicalPlan": {},
+    "validation": {},
+    "planner": {
+      "model": "...",
+      "usage": {}
+    }
+  },
+  "steps": [
+    {
+      "id": "design",
+      "type": "AGENT",
+      "description": "Design the solution architecture",
+      "agent": "solution-architect",
+      "status": "RUNNING",
+      "usage": {}
+    }
+  ],
+  "activeAgents": [
+    {
+      "stepId": "design",
+      "agent": "solution-architect",
+      "activity": "Design the solution architecture"
+    }
+  ],
+  "usage": {
+    "promptTokens": 0,
+    "completionTokens": 0,
+    "totalTokens": 0
+  }
+}
+```
+
+Orchestration progress is also emitted through:
+
+```text
+platform.events.execution.orchestration
+```
+
+with `PLAN_CREATED`, `PLAN_STARTED`, `STEP_STARTED`, `STEP_COMPLETED`, `STEP_FAILED`, `PLAN_COMPLETED` and `PLAN_FAILED`.
+
+The model profile is:
+
+```text
+planner-default
+```
+
+and defaults to `ANTHROPIC_PLANNER_MODEL`.
+
+M4 intentionally does not add LangGraph durable checkpointing yet. Durable recovery, resume, human approval, configurable retries and cancellation remain M5.
