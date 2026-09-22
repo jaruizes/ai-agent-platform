@@ -3,6 +3,8 @@ name: google-docs-get-document
 description: Read the full structured content of a Google Docs document by document ID.
 implementationType: MCP
 enabled: true
+sideEffect: READ
+approvalPolicy: NEVER
 configuration:
   server: google-workspace
   tool: docs_get_document
