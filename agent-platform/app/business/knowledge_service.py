@@ -303,14 +303,15 @@ class KnowledgeService:
                 kbs.append(kb)
         if not kbs:
             return []
+        retrieval_query = query[:1600]
         embeddings = await self._model_gateway.embed(
-            [f"search_query: {query}"],
+            [f"search_query: {retrieval_query}"],
             model_profile=self._embedding_model_profile,
         )
         self._validate_embedding(embeddings[0])
         return await self._repository.retrieve(
             [kb.id for kb in kbs],
-            query=query,
+            query=retrieval_query,
             query_embedding=embeddings[0],
             limit=max(1, min(top_k, 50)),
         )
