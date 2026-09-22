@@ -5,17 +5,19 @@ from fastapi import FastAPI, HTTPException
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
+from app.business.catalog_service import CatalogService
 from app.business.execution_service import ExecutionService
 from app.business.intent_resolver import IntentResolver
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
+from app.infrastructure.api.rest.catalog_router import create_catalog_router
 from app.infrastructure.api.rest.router import create_router
+from app.infrastructure.bootstrap.markdown_loader import MarkdownCatalogLoader
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.externalservices.litellm.model_gateway import LiteLLMModelGateway
 from app.infrastructure.observability.telemetry import configure_telemetry
+from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
 from app.infrastructure.persistence.postgres.database import Database
-from app.infrastructure.persistence.postgres.execution_repository import (
-    PostgresExecutionRepository,
-)
+from app.infrastructure.persistence.postgres.execution_repository import PostgresExecutionRepository
 
 
 settings = get_settings()
@@ -23,13 +25,15 @@ configure_telemetry(settings)
 HTTPXClientInstrumentor().instrument()
 
 database = Database(settings.database_url)
-repository = PostgresExecutionRepository(database)
-intent_resolver = IntentResolver()
+execution_repository = PostgresExecutionRepository(database)
+catalog_repository = PostgresCatalogRepository(database)
+catalog_service = CatalogService(catalog_repository)
 model_gateway = LiteLLMModelGateway(settings)
+intent_resolver = IntentResolver(catalog_repository, model_gateway)
 nats_adapter = NatsAdapter(settings)
 
 execution_service = ExecutionService(
-    repository=repository,
+    repository=execution_repository,
     resolver=intent_resolver,
     model_gateway=model_gateway,
     event_publisher=nats_adapter,
@@ -37,21 +41,22 @@ execution_service = ExecutionService(
     outbox_poll_seconds=settings.outbox_poll_seconds,
 )
 
+bootstrap_loader = MarkdownCatalogLoader(
+    catalog_service,
+    skills_dir=settings.bootstrap_skills_dir,
+    agents_dir=settings.bootstrap_agents_dir,
+)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await database.connect()
+    await bootstrap_loader.load()
     await nats_adapter.connect()
     await nats_adapter.subscribe_commands(execution_service)
 
-    worker = asyncio.create_task(
-        execution_service.worker_loop(),
-        name="execution-worker",
-    )
-    outbox = asyncio.create_task(
-        execution_service.outbox_loop(),
-        name="outbox-publisher",
-    )
+    worker = asyncio.create_task(execution_service.worker_loop(), name="execution-worker")
+    outbox = asyncio.create_task(execution_service.outbox_loop(), name="outbox-publisher")
 
     try:
         yield
@@ -70,6 +75,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(create_router(execution_service))
+app.include_router(create_catalog_router(catalog_service))
 FastAPIInstrumentor.instrument_app(app)
 
 
