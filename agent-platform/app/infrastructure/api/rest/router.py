@@ -163,6 +163,24 @@ def create_router(service: ExecutionService) -> APIRouter:
             "status": "ACCEPTED",
         }
 
+    @router.post("/executions/{execution_id}/retry")
+    async def retry_execution(
+        execution_id: UUID,
+        request: ExecutionControlRequest,
+    ) -> dict:
+        execution = await service.get_execution(execution_id)
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        if not await service.retry_execution(execution_id, reason=request.reason):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Execution cannot be retried from status {execution['status']}",
+            )
+        return {
+            "executionId": str(execution_id),
+            "status": "ACCEPTED",
+        }
+
     @router.post("/executions/{execution_id}/cancel")
     async def cancel_execution(
         execution_id: UUID,
