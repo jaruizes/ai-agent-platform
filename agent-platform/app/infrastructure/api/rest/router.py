@@ -102,6 +102,11 @@ def create_router(service: ExecutionService) -> APIRouter:
                     "dependsOn": step["depends_on"],
                     "status": step["status"],
                     "requiresApproval": step.get("requires_approval", False),
+                    "approvalSource": step.get("approval_source"),
+                    "toolPolicy": {
+                        "sideEffect": step.get("tool_side_effect"),
+                        "approvalPolicy": step.get("tool_approval_policy"),
+                    },
                     "approval": {
                         "status": step.get("approval_status"),
                         "reason": step.get("approval_reason"),
