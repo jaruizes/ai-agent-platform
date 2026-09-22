@@ -8,9 +8,11 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from app.business.catalog_service import CatalogService
 from app.business.execution_service import ExecutionService
 from app.business.knowledge_service import KnowledgeService
+from app.business.plan_validator import PlanValidator
+from app.business.planner_service import PlannerService
 from app.business.prompt_service import PromptService
+from app.business.step_executor import StepExecutor
 from app.business.tool_service import ToolService
-from app.business.intent_resolver import IntentResolver
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
 from app.infrastructure.api.rest.prompt_router import create_prompt_router
@@ -24,6 +26,7 @@ from app.infrastructure.externalservices.mcp.stdio_client import McpStdioClient
 from app.infrastructure.externalservices.mcp.tool_executor import InfrastructureToolExecutor
 from app.infrastructure.knowledge.embeddings import HashEmbeddingProvider
 from app.infrastructure.knowledge.parsers import DocumentParser
+from app.infrastructure.orchestration.langgraph_engine import LangGraphOrchestrationEngine
 from app.infrastructure.observability.telemetry import configure_telemetry
 from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
 from app.infrastructure.persistence.postgres.database import Database
@@ -71,28 +74,40 @@ knowledge_service = KnowledgeService(
     worker_poll_seconds=settings.knowledge_worker_poll_seconds,
     cleanup_poll_seconds=settings.knowledge_cleanup_poll_seconds,
 )
-intent_resolver = IntentResolver(
+plan_validator = PlanValidator(max_steps=settings.orchestration_max_steps)
+planner_service = PlannerService(
     catalog_repository,
     prompt_service,
     tool_service,
     knowledge_service,
     model_gateway,
-    router_model_profile=settings.router_model_profile,
+    plan_validator,
+    planner_model_profile=settings.planner_model_profile,
+)
+step_executor = StepExecutor(
+    catalog=catalog_repository,
+    prompt_service=prompt_service,
+    tool_service=tool_service,
+    knowledge_service=knowledge_service,
+    model_gateway=model_gateway,
+    execution_repository=execution_repository,
     execution_model_profile=settings.execution_model_profile,
+    knowledge_top_k=settings.knowledge_top_k,
+    max_context_chars=settings.max_tool_result_chars_for_model,
+)
+orchestration_engine = LangGraphOrchestrationEngine(
+    step_executor=step_executor,
+    execution_repository=execution_repository,
 )
 nats_adapter = NatsAdapter(settings)
 
 execution_service = ExecutionService(
     repository=execution_repository,
-    resolver=intent_resolver,
-    model_gateway=model_gateway,
-    tool_service=tool_service,
-    knowledge_service=knowledge_service,
+    planner=planner_service,
+    orchestration_engine=orchestration_engine,
     event_publisher=nats_adapter,
     worker_poll_seconds=settings.worker_poll_seconds,
     outbox_poll_seconds=settings.outbox_poll_seconds,
-    max_tool_result_chars_for_model=settings.max_tool_result_chars_for_model,
-    knowledge_top_k=settings.knowledge_top_k,
 )
 
 bootstrap_loader = MarkdownCatalogLoader(
