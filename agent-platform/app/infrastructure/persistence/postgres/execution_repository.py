@@ -968,7 +968,7 @@ class PostgresExecutionRepository:
         step_data = []
         for row in steps:
             item = dict(row)
-            for field in ("knowledge_bases", "depends_on", "usage", "output", "error"):
+            for field in ("knowledge_bases", "depends_on", "usage", "output", "error", "retry_policy"):
                 if isinstance(item.get(field), str):
                     item[field] = json.loads(item[field])
             step_data.append(item)
