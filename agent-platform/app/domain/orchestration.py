@@ -21,6 +21,9 @@ class PlanStep:
     instructions: list[str] = field(default_factory=list)
     requires_approval: bool = False
     approval_reason: str | None = None
+    approval_source: str | None = None
+    tool_side_effect: str | None = None
+    tool_approval_policy: str | None = None
     timeout_seconds: float = 120.0
     retry_policy: dict[str, Any] = field(
         default_factory=lambda: {
@@ -45,6 +48,9 @@ class PlanStep:
             "instructions": self.instructions,
             "requiresApproval": self.requires_approval,
             "approvalReason": self.approval_reason,
+            "approvalSource": self.approval_source,
+            "toolSideEffect": self.tool_side_effect,
+            "toolApprovalPolicy": self.tool_approval_policy,
             "timeoutSeconds": self.timeout_seconds,
             "retryPolicy": self.retry_policy,
         }
@@ -87,6 +93,9 @@ class LogicalPlan:
                     ],
                     requires_approval=bool(item.get("requiresApproval", False)),
                     approval_reason=item.get("approvalReason"),
+                    approval_source=item.get("approvalSource"),
+                    tool_side_effect=item.get("toolSideEffect"),
+                    tool_approval_policy=item.get("toolApprovalPolicy"),
                     timeout_seconds=float(item.get("timeoutSeconds") or 120.0),
                     retry_policy=item.get("retryPolicy") or {
                         "maxAttempts": 3,
