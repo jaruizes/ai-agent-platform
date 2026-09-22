@@ -8,6 +8,7 @@ from uuid import UUID
 from opentelemetry import trace
 
 from app.business.intent_resolver import IntentResolver
+from app.business.knowledge_service import KnowledgeService
 from app.business.ports import EventPublisherPort, ExecutionRepositoryPort, ModelGatewayPort
 from app.business.tool_service import ToolService
 from app.domain.execution import Command, ExecutionSubmission
@@ -24,20 +25,24 @@ class ExecutionService:
         resolver: IntentResolver,
         model_gateway: ModelGatewayPort,
         tool_service: ToolService,
+        knowledge_service: KnowledgeService,
         event_publisher: EventPublisherPort,
         *,
         worker_poll_seconds: float,
         outbox_poll_seconds: float,
         max_tool_result_chars_for_model: int,
+        knowledge_top_k: int,
     ):
         self._repository = repository
         self._resolver = resolver
         self._model_gateway = model_gateway
         self._tool_service = tool_service
+        self._knowledge_service = knowledge_service
         self._event_publisher = event_publisher
         self._worker_poll_seconds = worker_poll_seconds
         self._outbox_poll_seconds = outbox_poll_seconds
         self._max_tool_result_chars_for_model = max_tool_result_chars_for_model
+        self._knowledge_top_k = knowledge_top_k
         self._stop = asyncio.Event()
 
     async def submit(self, submission: ExecutionSubmission) -> tuple[UUID, bool]:
@@ -123,7 +128,7 @@ class ExecutionService:
                     execution_plan = plan
                     tool_result = None
 
-                    if plan.strategy in {"TOOL_LLM", "AGENT_TOOL_LLM"}:
+                    if plan.strategy in {"TOOL_LLM", "AGENT_TOOL_LLM", "AGENT_TOOL_RAG_LLM"}:
                         stage = "EXECUTE_TOOL"
                         tool_result = await self._tool_service.execute(plan.tool_name, plan.tool_arguments)
                         serialized_tool_result = json.dumps(tool_result, ensure_ascii=False)
@@ -143,6 +148,25 @@ class ExecutionService:
                             ),
                         )
 
+                    knowledge_hits = []
+                    if plan.strategy in {"RAG_LLM", "AGENT_RAG_LLM", "AGENT_TOOL_RAG_LLM"}:
+                        stage = "RETRIEVE_KNOWLEDGE"
+                        retrieval_query = self._knowledge_query(command)
+                        knowledge_hits = await self._knowledge_service.retrieve(
+                            query=retrieval_query,
+                            knowledge_base_names=plan.knowledge_base_names,
+                            top_k=self._knowledge_top_k,
+                        )
+                        knowledge_context = self._knowledge_service.format_context(knowledge_hits)
+                        execution_plan = replace(
+                            execution_plan,
+                            user_prompt=(
+                                f"{execution_plan.user_prompt}\n\n"
+                                f"Knowledge usage mode: {plan.knowledge_usage_mode}\n"
+                                f"Retrieved managed knowledge:\n{knowledge_context}"
+                            ),
+                        )
+
                     stage = "EXECUTE_MODEL"
                     result = await self._model_gateway.execute(execution_plan)
                     result.setdefault("data", {})
@@ -153,6 +177,18 @@ class ExecutionService:
                         result["data"]["tool"] = plan.tool_name
                     if tool_result is not None:
                         result["data"]["toolUsed"] = True
+                    if plan.knowledge_base_names:
+                        result["data"]["knowledgeBases"] = plan.knowledge_base_names
+                        result["data"]["knowledgeUsageMode"] = plan.knowledge_usage_mode
+                        result["data"]["knowledgeHits"] = [
+                            {
+                                "documentId": str(hit.document_id),
+                                "documentName": hit.document_name,
+                                "score": hit.score,
+                                "metadata": hit.metadata,
+                            }
+                            for hit in knowledge_hits
+                        ]
 
                 stage = "PERSIST_RESULT"
                 await self._repository.complete(
@@ -174,6 +210,7 @@ class ExecutionService:
                         "strategy": getattr(plan, "strategy", None),
                         "agent": getattr(plan, "agent_name", None),
                         "tool": getattr(plan, "tool_name", None),
+                        "knowledgeBases": getattr(plan, "knowledge_base_names", None),
                     },
                 }
 
@@ -194,6 +231,18 @@ class ExecutionService:
                 span.record_exception(exc)
 
                 await self._repository.fail(execution, error)
+
+    @staticmethod
+    def _knowledge_query(command: Command) -> str:
+        return json.dumps(
+            {
+                "intent": command.intent,
+                "input": command.input,
+                "context": command.context,
+                "instructions": command.instructions,
+            },
+            ensure_ascii=False,
+        )
 
     @staticmethod
     def _safe_message(exc: Exception, max_length: int = 4000) -> str:
