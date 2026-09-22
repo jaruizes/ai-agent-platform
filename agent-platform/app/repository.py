@@ -173,7 +173,13 @@ class ExecutionRepository:
         pool = self._db.require_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM executions WHERE id=$1", execution_id)
-            return dict(row) if row else None
+            if not row:
+                return None
+            data = dict(row)
+            for field in ("source", "input", "context", "instructions", "result", "error"):
+                if isinstance(data.get(field), str):
+                    data[field] = json.loads(data[field])
+            return data
 
     async def pending_outbox(self, limit: int = 50) -> list[dict[str, Any]]:
         pool = self._db.require_pool()
