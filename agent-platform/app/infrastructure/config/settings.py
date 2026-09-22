@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     service_name: str = "agent-platform"
-    service_version: str = "0.3.0"
+    service_version: str = "0.4.0"
 
     database_url: str = "postgresql://agent:agent@postgres:5432/agent_platform"
 
@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     mcp_timeout_seconds: float = 60.0
     mcp_max_message_bytes: int = 16777216
     max_tool_result_chars_for_model: int = 500000
+
+    embedding_model_profile: str = "embedding-default"
+    knowledge_storage_root: str = "/data/knowledge"
+    knowledge_chunk_size_chars: int = 3500
+    knowledge_chunk_overlap_chars: int = 400
+    knowledge_embedding_batch_size: int = 32
+    knowledge_worker_poll_seconds: float = 0.5
+    knowledge_cleanup_poll_seconds: float = 60.0
+    knowledge_top_k: int = 8
 
     otel_exporter_otlp_endpoint: str = "http://otel-collector:4317"
 
