@@ -30,3 +30,4 @@ class ExecutionPlan:
     user_prompt: str
     strategy: Literal["DIRECT_LLM", "AGENT"] = "DIRECT_LLM"
     agent_name: str | None = None
+    model_profile: str = "reasoning-default"
