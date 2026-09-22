@@ -607,10 +607,11 @@ class PostgresExecutionRepository:
                             execution_id,step_id,step_type,description,agent_name,
                             tool_name,knowledge_bases,depends_on,status,
                             requires_approval,approval_reason,approval_status,
+                            approval_source,tool_side_effect,tool_approval_policy,
                             max_attempts,timeout_seconds,retry_policy,idempotency_key
                         ) VALUES(
                             $1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,'PENDING',
-                            $9,$10,$11,$12,$13,$14::jsonb,$15
+                            $9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18
                         )
                         """,
                         [
@@ -630,6 +631,9 @@ class PostgresExecutionRepository:
                                     if step.get("requiresApproval", False)
                                     else "NOT_REQUIRED"
                                 ),
+                                step.get("approvalSource"),
+                                step.get("toolSideEffect"),
+                                step.get("toolApprovalPolicy"),
                                 int(
                                     (step.get("retryPolicy") or {}).get(
                                         "maxAttempts", 3
