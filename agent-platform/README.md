@@ -886,3 +886,127 @@ GET /v1/admin/runtime
 ```
 
 The Angular container is independent from the execution runtime. Nginx serves the SPA and proxies `/api/*` to `agent-platform:8080`. If the UI is unavailable, runtime command processing continues normally.
+
+
+---
+
+# M7.1 / M7.2 — Sessions, Working Context and Persistent Memory
+
+This branch introduces the first half of M7.
+
+Implemented:
+
+```text
+M7.1 Sessions + Working Context       ✅
+M7.2 Persistent Memory + Policies     ✅
+M7.3 Context Engine + Budget Manager  pending
+M7.4 Context snapshots + UI           pending
+```
+
+## Sessions
+
+Create a session:
+
+```bash
+curl -X POST http://localhost:8080/v1/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "architecture-refinement",
+    "scope": "TENANT",
+    "metadata": {"project": "demo"}
+  }'
+```
+
+Use its id in an execution:
+
+```json
+{
+  "sessionId": "<SESSION_ID>",
+  "command": {
+    "name": "architecture-review",
+    "intent": "Review this architecture.",
+    "input": {},
+    "context": {},
+    "instructions": []
+  }
+}
+```
+
+REST and NATS use the same optional `sessionId`.
+
+Inspect continuity:
+
+```text
+GET /v1/sessions/{sessionId}/executions
+GET /v1/sessions/{sessionId}/context
+GET /v1/executions/{executionId}/context
+```
+
+Working Context is written transactionally with execution state. Command, instructions, plan, completed step output and final result become context entries with provenance and token estimates.
+
+## Persistent Memory
+
+Create explicit memory:
+
+```bash
+curl -X POST http://localhost:8080/v1/memories \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "scopeType": "TENANT",
+    "scopeId": "demo",
+    "memoryType": "CONSTRAINT",
+    "key": "primary-cloud",
+    "content": "The primary cloud for this programme is AWS.",
+    "importance": 0.9
+  }'
+```
+
+Evaluate an inferred candidate:
+
+```bash
+curl -X POST http://localhost:8080/v1/memory-candidates/evaluate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "scopeType": "TENANT",
+    "scopeId": "demo",
+    "memoryType": "PREFERENCE",
+    "key": "messaging",
+    "content": "Prefer NATS for lightweight event messaging.",
+    "confidence": 0.91,
+    "importance": 0.7,
+    "explicit": false
+  }'
+```
+
+Every write is evaluated by deterministic Memory Policy.
+
+Current defaults:
+
+```env
+MEMORY_ALLOW_INFERRED_PERSISTENCE=true
+MEMORY_MIN_INFERRED_CONFIDENCE=0.80
+MEMORY_MAX_CONTENT_CHARS=8000
+MEMORY_CLEANUP_POLL_SECONDS=60
+```
+
+Policy and audit:
+
+```text
+GET /v1/memory-policy
+GET /v1/memory-policy/audit
+```
+
+The audit intentionally does not persist rejected candidate content. It stores content length + SHA-256 and metadata keys.
+
+Memory lifecycle:
+
+```text
+ACTIVE
+  +--> SUPERSEDED  same scope + key replaced
+  +--> REVOKED     explicit revoke
+  +--> EXPIRED     TTL/session lifecycle
+```
+
+Session-scoped memory is expired automatically when its Session closes or expires.
+
+Important M7 boundary: memory is persisted and queryable, but is **not automatically injected into model prompts yet**. Retrieval, context selection, budgeting and compression belong to M7.3.
