@@ -35,8 +35,8 @@ class Settings(BaseSettings):
 
     embedding_model_profile: str = "embedding-default"
     knowledge_storage_root: str = "/data/knowledge"
-    knowledge_chunk_size_chars: int = 3500
-    knowledge_chunk_overlap_chars: int = 400
+    knowledge_chunk_size_chars: int = 1600
+    knowledge_chunk_overlap_chars: int = 200
     knowledge_embedding_batch_size: int = 32
     knowledge_worker_poll_seconds: float = 0.5
     knowledge_cleanup_poll_seconds: float = 60.0
