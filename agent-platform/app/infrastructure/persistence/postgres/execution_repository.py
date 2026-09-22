@@ -1017,10 +1017,33 @@ class PostgresExecutionRepository:
             for step in step_data
             if step["status"] == "RUNNING" and step["agent_name"]
         ]
+        waiting_approvals = [
+            {
+                "stepId": step["step_id"],
+                "description": step["description"],
+                "agent": step["agent_name"],
+                "reason": step.get("approval_reason"),
+            }
+            for step in step_data
+            if step["status"] == "WAITING_APPROVAL"
+        ]
+        retrying_steps = [
+            {
+                "stepId": step["step_id"],
+                "attemptCount": step.get("attempt_count", 0),
+                "maxAttempts": step.get("max_attempts", 1),
+                "nextRetryAt": step.get("next_retry_at"),
+                "error": step.get("error"),
+            }
+            for step in step_data
+            if step["status"] == "RETRYING"
+        ]
         return {
             "plan": plan_data,
             "steps": step_data,
             "activeAgents": active_agents,
+            "waitingApprovals": waiting_approvals,
+            "retryingSteps": retrying_steps,
             "usage": total_usage,
         }
 
