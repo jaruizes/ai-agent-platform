@@ -72,7 +72,10 @@ mcp_client = McpStdioClient(
 tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
 tool_service = ToolService(tool_repository, tool_executor)
 model_gateway = LiteLLMModelGateway(settings)
-if settings.memory_auto_extract_session:
+if (
+    settings.memory_auto_extract_session
+    and settings.memory_allow_inferred_persistence
+):
     memory_extractor = MemoryCandidateExtractor(
         model_gateway,
         model_profile=settings.memory_extractor_model_profile,
