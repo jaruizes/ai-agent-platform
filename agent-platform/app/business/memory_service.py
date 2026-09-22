@@ -145,57 +145,44 @@ class MemoryService:
         self,
         candidate: MemoryCandidate,
     ) -> tuple[MemoryEntry | None, MemoryPolicyDecision]:
-        if candidate.scope_type.upper() == "SESSION":
+        candidate_snapshot = self._candidate_snapshot(candidate)
+        decision = self._policy.evaluate(candidate)
+
+        if decision.allowed and candidate.scope_type.upper() == "SESSION":
             try:
                 session_id = UUID(candidate.scope_id)
             except ValueError:
-                return None, MemoryPolicyDecision(
+                decision = MemoryPolicyDecision(
                     allowed=False,
                     action="REJECT",
                     reasons=["SESSION scopeId must be a UUID"],
+                    normalized_scope_type="SESSION",
+                    normalized_memory_type=decision.normalized_memory_type,
                 )
-            session = await self._repository.get_session(session_id)
-            if not session:
-                return None, MemoryPolicyDecision(
-                    allowed=False,
-                    action="REJECT",
-                    reasons=["SESSION scopeId does not reference an existing session"],
-                )
-            if session.status != "ACTIVE":
-                return None, MemoryPolicyDecision(
-                    allowed=False,
-                    action="REJECT",
-                    reasons=["SESSION-scoped memory requires an ACTIVE session"],
-                )
+            else:
+                session = await self._repository.get_session(session_id)
+                if not session:
+                    decision = MemoryPolicyDecision(
+                        allowed=False,
+                        action="REJECT",
+                        reasons=[
+                            "SESSION scopeId does not reference an existing session"
+                        ],
+                        normalized_scope_type="SESSION",
+                        normalized_memory_type=decision.normalized_memory_type,
+                    )
+                elif session.status != "ACTIVE":
+                    decision = MemoryPolicyDecision(
+                        allowed=False,
+                        action="REJECT",
+                        reasons=[
+                            "SESSION-scoped memory requires an ACTIVE session"
+                        ],
+                        normalized_scope_type="SESSION",
+                        normalized_memory_type=decision.normalized_memory_type,
+                    )
 
-        decision = self._policy.evaluate(candidate)
-        candidate_snapshot = {
-            "scopeType": candidate.scope_type,
-            "scopeId": candidate.scope_id,
-            "memoryType": candidate.memory_type,
-            "key": candidate.memory_key,
-            "contentLength": len(candidate.content),
-            "contentSha256": hashlib.sha256(
-                candidate.content.encode("utf-8")
-            ).hexdigest(),
-            "metadataKeys": sorted(candidate.metadata.keys()),
-            "confidence": candidate.confidence,
-            "importance": candidate.importance,
-            "explicit": candidate.explicit,
-            "sourceExecutionId": (
-                str(candidate.source_execution_id)
-                if candidate.source_execution_id
-                else None
-            ),
-            "sourceStepId": candidate.source_step_id,
-            "expiresAt": (
-                candidate.expires_at.isoformat()
-                if candidate.expires_at
-                else None
-            ),
-        }
         if not decision.allowed:
-
             await self._repository.record_policy_audit(
                 candidate=candidate_snapshot,
                 decision=decision.as_dict(),
@@ -225,7 +212,6 @@ class MemoryService:
             expires_at=self._normalize_datetime(candidate.expires_at),
         )
         persisted = await self._repository.create_memory(memory)
-
         await self._repository.record_policy_audit(
             candidate=candidate_snapshot,
             decision=decision.as_dict(),
@@ -280,6 +266,34 @@ class MemoryService:
 
     async def stop(self) -> None:
         self._stop.set()
+
+    @staticmethod
+    def _candidate_snapshot(candidate: MemoryCandidate) -> dict[str, Any]:
+        return {
+            "scopeType": candidate.scope_type,
+            "scopeId": candidate.scope_id,
+            "memoryType": candidate.memory_type,
+            "key": candidate.memory_key,
+            "contentLength": len(candidate.content),
+            "contentSha256": hashlib.sha256(
+                candidate.content.encode("utf-8")
+            ).hexdigest(),
+            "metadataKeys": sorted(candidate.metadata.keys()),
+            "confidence": candidate.confidence,
+            "importance": candidate.importance,
+            "explicit": candidate.explicit,
+            "sourceExecutionId": (
+                str(candidate.source_execution_id)
+                if candidate.source_execution_id
+                else None
+            ),
+            "sourceStepId": candidate.source_step_id,
+            "expiresAt": (
+                candidate.expires_at.isoformat()
+                if candidate.expires_at
+                else None
+            ),
+        }
 
     @staticmethod
     def _normalize_datetime(value: datetime | None) -> datetime | None:
