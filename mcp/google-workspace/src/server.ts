@@ -90,7 +90,56 @@ server.tool("slides_batch_update","Advanced Slides API batchUpdate for generated
   return text((await slides.presentations.batchUpdate({presentationId,requestBody:{requests:normalized}})).data);
 });
 
-server.tool("docs_get_document","Read a Google Docs document. Read-only.",{documentId:z.string()},async({documentId})=>text((await docs.documents.get({documentId})).data));
+function docsStructuralText(elements:any[]|undefined):string{
+  if(!elements)return "";
+  const parts:string[]=[];
+  for(const element of elements){
+    if(element.paragraph){
+      const paragraphText=(element.paragraph.elements??[])
+        .map((item:any)=>item.textRun?.content??"")
+        .join("");
+      if(paragraphText)parts.push(paragraphText);
+    }
+    if(element.table){
+      for(const row of element.table.tableRows??[]){
+        const cells=(row.tableCells??[]).map((cell:any)=>docsStructuralText(cell.content).trim());
+        parts.push(cells.join(" | ")+"\n");
+      }
+    }
+    if(element.tableOfContents){
+      const toc=docsStructuralText(element.tableOfContents.content);
+      if(toc)parts.push(toc);
+    }
+  }
+  return parts.join("");
+}
+function compactGoogleDoc(document:any){
+  const bodyText=docsStructuralText(document.body?.content).trim();
+  const headers=Object.values(document.headers??{})
+    .map((header:any)=>docsStructuralText(header.content).trim())
+    .filter(Boolean);
+  const footers=Object.values(document.footers??{})
+    .map((footer:any)=>docsStructuralText(footer.content).trim())
+    .filter(Boolean);
+  const footnotes=Object.values(document.footnotes??{})
+    .map((footnote:any)=>docsStructuralText(footnote.content).trim())
+    .filter(Boolean);
+  const sections=[
+    ...headers.map(x=>`[Header]\n${x}`),
+    bodyText,
+    ...footnotes.map(x=>`[Footnote]\n${x}`),
+    ...footers.map(x=>`[Footer]\n${x}`)
+  ].filter(Boolean);
+  const documentText=sections.join("\n\n");
+  return {
+    documentId:document.documentId,
+    title:document.title,
+    text:documentText,
+    characterCount:documentText.length
+  };
+}
+server.tool("docs_get_document","Read the complete structured Google Docs API representation. Use only when document structure/styles are required.",{documentId:z.string()},async({documentId})=>text((await docs.documents.get({documentId})).data));
+server.tool("docs_get_text","Read compact semantic text from a Google Docs document for summarization and LLM analysis. Read-only.",{documentId:z.string()},async({documentId})=>text(compactGoogleDoc((await docs.documents.get({documentId})).data)));
 server.tool("docs_create_document","Create a new Google Docs document.",{title:z.string()},async({title})=>text((await docs.documents.create({requestBody:{title}})).data));
 server.tool("docs_batch_update","Apply Google Docs batchUpdate requests.",{documentId:z.string(),requests:z.array(z.record(z.any())).min(1)},async({documentId,requests})=>text((await docs.documents.batchUpdate({documentId,requestBody:{requests}})).data));
 
