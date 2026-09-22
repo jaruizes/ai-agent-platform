@@ -284,6 +284,10 @@ class PostgresKnowledgeRepository:
                 for row in rows
             ]
 
+    async def agent_exists(self, agent_id: UUID) -> bool:
+        async with self._db.require_pool().acquire() as conn:
+            return await conn.fetchval("SELECT EXISTS(SELECT 1 FROM agents WHERE id=$1)", agent_id)
+
     async def replace_agent_knowledge_bases(
         self,
         agent_id: UUID,
