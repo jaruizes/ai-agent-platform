@@ -77,6 +77,12 @@ class LangGraphOrchestrationEngine:
             await self._repository.mark_plan_completed(execution)
         except (OrchestrationSuspended, OrchestrationCancelled):
             raise
+        except BaseExceptionGroup as group:
+            control = self._find_control_exception(group)
+            if control is not None:
+                raise control
+            await self._repository.mark_plan_failed(execution)
+            raise
         except Exception:
             await self._repository.mark_plan_failed(execution)
             raise
@@ -84,6 +90,20 @@ class LangGraphOrchestrationEngine:
             "final": final,
             "stepResults": state.get("results", {}),
         }
+
+    @classmethod
+    def _find_control_exception(
+        cls,
+        group: BaseExceptionGroup,
+    ) -> OrchestrationSuspended | OrchestrationCancelled | None:
+        for error in group.exceptions:
+            if isinstance(error, (OrchestrationSuspended, OrchestrationCancelled)):
+                return error
+            if isinstance(error, BaseExceptionGroup):
+                nested = cls._find_control_exception(error)
+                if nested is not None:
+                    return nested
+        return None
 
     def _node(
         self,
