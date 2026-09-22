@@ -3020,6 +3020,8 @@ El extractor sólo puede proponer candidatos con scope `SESSION`; no puede promo
 
 La extracción es **best-effort**: si el modelo extractor falla, la ejecución ya completada permanece `COMPLETED`. El fallo no degrada el resultado funcional.
 
+El input del extractor está acotado por `MEMORY_EXTRACTOR_MAX_INPUT_CHARS` y utiliza el intent, input/context, instructions y un resumen compacto del resultado; no vuelca de nuevo outputs arbitrariamente grandes en otro prompt.
+
 La decisión de persistencia sigue siendo siempre determinista y autoritativa en `MemoryPolicyEngine`.
 
 ### Memory Policy Engine
@@ -3049,6 +3051,7 @@ MEMORY_MAX_CONTENT_CHARS=8000
 MEMORY_AUTO_EXTRACT_SESSION=true
 MEMORY_EXTRACTOR_MODEL_PROFILE=router-fast
 MEMORY_EXTRACTOR_MAX_CANDIDATES=8
+MEMORY_EXTRACTOR_MAX_INPUT_CHARS=50000
 ```
 
 Reglas implementadas:
