@@ -4,8 +4,9 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from app.domain.catalog import Agent, Skill
-from app.domain.execution import ExecutionPlan, ExecutionSubmission
+from app.domain.execution import Command, ExecutionPlan, ExecutionSubmission
 from app.domain.knowledge import KnowledgeBase, KnowledgeChunk, KnowledgeDocument, RetrievalHit
+from app.domain.orchestration import LogicalPlan
 from app.domain.prompt import Prompt
 from app.domain.tool import McpServer, Tool
 
@@ -120,3 +121,13 @@ class KnowledgeRepositoryPort(Protocol):
     async def agent_exists(self, agent_id: UUID) -> bool: ...
     async def replace_agent_knowledge_bases(self, agent_id: UUID, assignments: list[tuple[UUID, str]]) -> None: ...
     async def list_agent_knowledge_bases(self, agent_id: UUID) -> list[dict[str, Any]]: ...
+
+
+class OrchestrationEnginePort(Protocol):
+    async def execute(
+        self,
+        *,
+        execution: dict[str, Any],
+        command: Command,
+        plan: LogicalPlan,
+    ) -> dict[str, Any]: ...
