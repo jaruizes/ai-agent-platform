@@ -30,13 +30,34 @@ class LiteLLMModelGateway:
         model_profile: str,
         temperature: float = 0.2,
     ) -> str:
+        detail = await self.complete_detailed(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model_profile=model_profile,
+            temperature=temperature,
+        )
+        return detail["content"]
+
+    async def complete_detailed(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model_profile: str,
+        temperature: float = 0.2,
+    ) -> dict[str, Any]:
         body = await self._chat(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             model_profile=model_profile,
             temperature=temperature,
         )
-        return body["choices"][0]["message"]["content"]
+        return {
+            "content": body["choices"][0]["message"]["content"],
+            "model": body.get("model", model_profile),
+            "modelProfile": model_profile,
+            "usage": body.get("usage", {}),
+        }
 
     async def execute(self, plan: ExecutionPlan) -> dict[str, Any]:
         body = await self._chat(
