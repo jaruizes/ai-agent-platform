@@ -114,6 +114,56 @@ class PlannerService:
             tool_names={tool.name for tool in tools},
             knowledge_base_names={kb.name for kb in knowledge_bases},
         )
+
+        if not validation.valid:
+            repair = await self._model_gateway.complete_detailed(
+                system_prompt=(
+                    prompt.content
+                    + "\n\nThe previous plan failed deterministic validation. "
+                    "Return a corrected plan only."
+                ),
+                user_prompt=json.dumps(
+                    {
+                        "command": {
+                            "name": command.name,
+                            "intent": command.intent,
+                            "input": command.input,
+                            "context": command.context,
+                            "instructions": command.instructions,
+                        },
+                        "previousPlan": plan.as_dict(),
+                        "validationErrors": validation.errors,
+                        "availableAgents": [agent.name for agent in agents],
+                        "availableTools": [tool.name for tool in tools],
+                        "availableKnowledgeBases": [
+                            kb.name for kb in knowledge_bases
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                model_profile=self._planner_model_profile,
+                temperature=0.0,
+            )
+            repaired_plan = self._parse_plan(repair["content"])
+            repaired_validation = self._validator.validate(
+                repaired_plan,
+                agent_names={agent.name for agent in agents},
+                tool_names={tool.name for tool in tools},
+                knowledge_base_names={kb.name for kb in knowledge_bases},
+            )
+            detail = {
+                **repair,
+                "usage": self._merge_usage(
+                    detail.get("usage") or {},
+                    repair.get("usage") or {},
+                ),
+                "planningAttempts": 2,
+            }
+            plan = repaired_plan
+            validation = repaired_validation
+        else:
+            detail["planningAttempts"] = 1
+
         return plan, validation, detail
 
     @classmethod
@@ -151,6 +201,30 @@ class PlannerService:
             steps=steps,
             final_step_id=str(payload.get("finalStepId") or "").strip(),
         )
+
+    @staticmethod
+    def _merge_usage(
+        first: dict[str, Any],
+        second: dict[str, Any],
+    ) -> dict[str, Any]:
+        prompt = int(first.get("prompt_tokens") or first.get("input_tokens") or 0)
+        prompt += int(second.get("prompt_tokens") or second.get("input_tokens") or 0)
+        completion = int(
+            first.get("completion_tokens") or first.get("output_tokens") or 0
+        )
+        completion += int(
+            second.get("completion_tokens") or second.get("output_tokens") or 0
+        )
+        total = int(first.get("total_tokens") or 0) + int(
+            second.get("total_tokens") or 0
+        )
+        if total == 0:
+            total = prompt + completion
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": total,
+        }
 
     @staticmethod
     def _parse_json(raw: str) -> dict[str, Any]:
