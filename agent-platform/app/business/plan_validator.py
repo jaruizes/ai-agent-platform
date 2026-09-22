@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+import re
 
 from app.domain.orchestration import LogicalPlan, PlanValidation
+
+
+_STEP_REFERENCE = re.compile(r"^\$\{steps\.([^.}]+)(?:\.|})")
 
 
 class PlanValidator:
@@ -75,6 +79,17 @@ class PlanValidator:
                         f"TOOL step '{step.id}' references unknown/disabled tool "
                         f"'{step.tool_name}'"
                     )
+                for referenced_step in self._step_references(step.tool_arguments):
+                    if referenced_step not in id_set:
+                        errors.append(
+                            f"TOOL step '{step.id}' argument references unknown step "
+                            f"'{referenced_step}'"
+                        )
+                    elif referenced_step not in step.depends_on:
+                        errors.append(
+                            f"TOOL step '{step.id}' references output from "
+                            f"'{referenced_step}' but does not depend on it"
+                        )
             elif step.tool_name:
                 warnings.append(
                     f"Step '{step.id}' declares tool '{step.tool_name}' but type is {step.type}"
@@ -97,9 +112,25 @@ class PlanValidator:
                     f"Step '{step.id}' has invalid knowledgeUsageMode "
                     f"'{step.knowledge_usage_mode}'"
                 )
+            if step.type == "VALIDATE" and step.knowledge_usage_mode != "GUARDRAIL":
+                warnings.append(
+                    f"VALIDATE step '{step.id}' normally should use GUARDRAIL knowledge"
+                )
 
         if not errors and self._has_cycle(plan):
             errors.append("Plan dependency graph contains a cycle")
+
+        if not errors and plan.final_step_id:
+            final_dependents = [
+                step.id
+                for step in plan.steps
+                if plan.final_step_id in step.depends_on
+            ]
+            if final_dependents:
+                errors.append(
+                    f"finalStepId '{plan.final_step_id}' has dependent steps: "
+                    + ", ".join(sorted(final_dependents))
+                )
 
         if not errors and plan.final_step_id:
             contributing = self._ancestors(plan, plan.final_step_id)
@@ -110,6 +141,21 @@ class PlanValidator:
                 )
 
         return PlanValidation(not errors, errors, warnings)
+
+    @classmethod
+    def _step_references(cls, value) -> set[str]:
+        references: set[str] = set()
+        if isinstance(value, dict):
+            for item in value.values():
+                references.update(cls._step_references(item))
+        elif isinstance(value, list):
+            for item in value:
+                references.update(cls._step_references(item))
+        elif isinstance(value, str):
+            match = _STEP_REFERENCE.match(value)
+            if match:
+                references.add(match.group(1))
+        return references
 
     @staticmethod
     def _has_cycle(plan: LogicalPlan) -> bool:
