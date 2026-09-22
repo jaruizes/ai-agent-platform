@@ -34,8 +34,13 @@ class ExecutionPlan:
         "TOOL",
         "TOOL_LLM",
         "AGENT_TOOL_LLM",
+        "RAG_LLM",
+        "AGENT_RAG_LLM",
+        "AGENT_TOOL_RAG_LLM",
     ] = "DIRECT_LLM"
     agent_name: str | None = None
     tool_name: str | None = None
     tool_arguments: dict[str, Any] = field(default_factory=dict)
+    knowledge_base_names: list[str] = field(default_factory=list)
+    knowledge_usage_mode: str = "REFERENCE"
     model_profile: str = "reasoning-default"
