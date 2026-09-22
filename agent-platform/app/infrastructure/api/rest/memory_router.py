@@ -19,13 +19,16 @@ def create_memory_router(service: MemoryService) -> APIRouter:
 
     @router.post("/sessions")
     async def create_session(request: SessionRequest) -> dict[str, Any]:
-        session = await service.create_session(
-            name=request.name,
-            scope=request.scope,
-            owner_key=request.ownerKey,
-            metadata=request.metadata,
-            expires_at=request.expiresAt,
-        )
+        try:
+            session = await service.create_session(
+                name=request.name,
+                scope=request.scope,
+                owner_key=request.ownerKey,
+                metadata=request.metadata,
+                expires_at=request.expiresAt,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _session(session)
 
     @router.get("/sessions")
@@ -51,14 +54,17 @@ def create_memory_router(service: MemoryService) -> APIRouter:
         session_id: UUID,
         request: SessionRequest,
     ) -> dict[str, Any]:
-        session = await service.update_session(
-            session_id,
-            name=request.name,
-            scope=request.scope,
-            owner_key=request.ownerKey,
-            metadata=request.metadata,
-            expires_at=request.expiresAt,
-        )
+        try:
+            session = await service.update_session(
+                session_id,
+                name=request.name,
+                scope=request.scope,
+                owner_key=request.ownerKey,
+                metadata=request.metadata,
+                expires_at=request.expiresAt,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if not session:
             raise HTTPException(
                 status_code=409,
