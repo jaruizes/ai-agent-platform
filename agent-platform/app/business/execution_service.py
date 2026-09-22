@@ -28,6 +28,7 @@ class ExecutionService:
         *,
         worker_poll_seconds: float,
         outbox_poll_seconds: float,
+        max_tool_result_chars_for_model: int,
     ):
         self._repository = repository
         self._resolver = resolver
@@ -36,6 +37,7 @@ class ExecutionService:
         self._event_publisher = event_publisher
         self._worker_poll_seconds = worker_poll_seconds
         self._outbox_poll_seconds = outbox_poll_seconds
+        self._max_tool_result_chars_for_model = max_tool_result_chars_for_model
         self._stop = asyncio.Event()
 
     async def submit(self, submission: ExecutionSubmission) -> tuple[UUID, bool]:
@@ -124,12 +126,20 @@ class ExecutionService:
                     if plan.strategy in {"TOOL_LLM", "AGENT_TOOL_LLM"}:
                         stage = "EXECUTE_TOOL"
                         tool_result = await self._tool_service.execute(plan.tool_name, plan.tool_arguments)
+                        serialized_tool_result = json.dumps(tool_result, ensure_ascii=False)
+                        if len(serialized_tool_result) > self._max_tool_result_chars_for_model:
+                            raise ValueError(
+                                "Tool result is too large to inject safely into the model context: "
+                                f"{len(serialized_tool_result)} characters > "
+                                f"{self._max_tool_result_chars_for_model} configured limit. "
+                                "Use a compact semantic tool, chunking/reduction, or the Knowledge/RAG layer."
+                            )
                         execution_plan = replace(
                             plan,
                             user_prompt=(
                                 f"{plan.user_prompt}\n\n"
                                 f"Tool result from '{plan.tool_name}':\n"
-                                f"{json.dumps(tool_result, ensure_ascii=False)}"
+                                f"{serialized_tool_result}"
                             ),
                         )
 
