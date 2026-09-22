@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     memory_auto_extract_session: bool = True
     memory_extractor_model_profile: str = "router-fast"
     memory_extractor_max_candidates: int = 8
+    memory_extractor_max_input_chars: int = 50000
 
     otel_exporter_otlp_endpoint: str = "http://otel-collector:4317"
 
