@@ -1,8 +1,9 @@
 import asyncio
 import json
 import logging
+import socket
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from opentelemetry import trace
 
@@ -13,7 +14,11 @@ from app.business.ports import (
     OrchestrationEnginePort,
 )
 from app.domain.execution import Command, ExecutionSubmission
-from app.domain.orchestration import LogicalPlan
+from app.domain.orchestration import (
+    LogicalPlan,
+    OrchestrationCancelled,
+    OrchestrationSuspended,
+)
 
 
 tracer = trace.get_tracer(__name__)
@@ -30,6 +35,8 @@ class ExecutionService:
         *,
         worker_poll_seconds: float,
         outbox_poll_seconds: float,
+        execution_lease_seconds: int,
+        execution_heartbeat_seconds: float,
     ):
         self._repository = repository
         self._planner = planner
@@ -37,6 +44,9 @@ class ExecutionService:
         self._event_publisher = event_publisher
         self._worker_poll_seconds = worker_poll_seconds
         self._outbox_poll_seconds = outbox_poll_seconds
+        self._execution_lease_seconds = execution_lease_seconds
+        self._execution_heartbeat_seconds = execution_heartbeat_seconds
+        self._worker_id = f"{socket.gethostname()}:{uuid4()}"
         self._stop = asyncio.Event()
 
     async def submit(self, submission: ExecutionSubmission) -> tuple[UUID, bool]:
@@ -48,9 +58,54 @@ class ExecutionService:
     async def get_orchestration(self, execution_id: UUID) -> dict[str, Any] | None:
         return await self._repository.get_orchestration(execution_id)
 
+    async def pause_execution(
+        self,
+        execution_id: UUID,
+        *,
+        reason: str | None = None,
+    ) -> bool:
+        return await self._repository.request_pause(
+            execution_id,
+            reason=reason,
+        )
+
+    async def resume_execution(self, execution_id: UUID) -> bool:
+        return await self._repository.resume_execution(execution_id)
+
+    async def cancel_execution(
+        self,
+        execution_id: UUID,
+        *,
+        reason: str | None = None,
+    ) -> bool:
+        return await self._repository.request_cancel(
+            execution_id,
+            reason=reason,
+        )
+
+    async def decide_step_approval(
+        self,
+        execution_id: UUID,
+        step_id: str,
+        *,
+        approved: bool,
+        actor: str,
+        comment: str | None = None,
+    ) -> bool:
+        return await self._repository.decide_step_approval(
+            execution_id,
+            step_id,
+            approved=approved,
+            actor=actor,
+            comment=comment,
+        )
+
     async def worker_loop(self) -> None:
         while not self._stop.is_set():
-            execution = await self._repository.claim_next()
+            execution = await self._repository.claim_next(
+                worker_id=self._worker_id,
+                lease_seconds=self._execution_lease_seconds,
+            )
             if not execution:
                 await asyncio.sleep(self._worker_poll_seconds)
                 continue
@@ -86,9 +141,15 @@ class ExecutionService:
     async def _execute(self, execution: dict[str, Any]) -> None:
         stage = "BUILD_COMMAND"
         plan: LogicalPlan | None = None
+        heartbeat_stop = asyncio.Event()
+        heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(execution["id"], heartbeat_stop),
+            name=f"execution-heartbeat-{execution['id']}",
+        )
 
         with tracer.start_as_current_span("execution.run") as span:
             span.set_attribute("execution.id", str(execution["id"]))
+            span.set_attribute("execution.worker_id", self._worker_id)
             span.set_attribute(
                 "execution.command_name",
                 execution["command_name"] or "",
@@ -103,29 +164,59 @@ class ExecutionService:
                     instructions=self._as_list(execution["instructions"]),
                 )
 
-                stage = "PLAN"
-                plan, validation, planner_detail = await self._planner.plan(command)
-                span.set_attribute("execution.plan.steps", len(plan.steps))
-                span.set_attribute("execution.plan.final_step", plan.final_step_id)
-                await self._repository.save_plan(
-                    execution,
-                    plan=plan.as_dict(),
-                    planner_model=str(
-                        planner_detail.get("model")
-                        or planner_detail.get("modelProfile")
-                        or ""
-                    ),
-                    planner_usage={
-                        **(planner_detail.get("usage") or {}),
-                        "planningAttempts": planner_detail.get("planningAttempts", 1),
-                    },
-                    validation=validation.as_dict(),
+                await self._honor_control_before_plan(execution)
+
+                existing_orchestration = await self._repository.get_orchestration(
+                    execution["id"]
                 )
-                if not validation.valid:
-                    raise ValueError(
-                        "Planner produced an invalid plan: "
-                        + "; ".join(validation.errors)
+                if existing_orchestration:
+                    stage = "RECOVER_PLAN"
+                    plan_data = existing_orchestration["plan"]["logical_plan"]
+                    plan = LogicalPlan.from_dict(plan_data)
+                    planner_detail = {
+                        "model": existing_orchestration["plan"]["planner_model"],
+                        "modelProfile": "planner-default",
+                        "usage": existing_orchestration["plan"]["planner_usage"],
+                        "recovered": True,
+                    }
+                    validation_data = (
+                        existing_orchestration["plan"].get("validation") or {}
                     )
+                    if not validation_data.get("valid", False):
+                        raise ValueError(
+                            "Stored execution plan is not valid and cannot be resumed"
+                        )
+                    span.set_attribute("execution.recovered", True)
+                else:
+                    stage = "PLAN"
+                    plan, validation, planner_detail = await self._planner.plan(command)
+                    span.set_attribute("execution.plan.steps", len(plan.steps))
+                    span.set_attribute(
+                        "execution.plan.final_step",
+                        plan.final_step_id,
+                    )
+                    await self._repository.save_plan(
+                        execution,
+                        plan=plan.as_dict(),
+                        planner_model=str(
+                            planner_detail.get("model")
+                            or planner_detail.get("modelProfile")
+                            or ""
+                        ),
+                        planner_usage={
+                            **(planner_detail.get("usage") or {}),
+                            "planningAttempts": planner_detail.get(
+                                "planningAttempts",
+                                1,
+                            ),
+                        },
+                        validation=validation.as_dict(),
+                    )
+                    if not validation.valid:
+                        raise ValueError(
+                            "Planner produced an invalid plan: "
+                            + "; ".join(validation.errors)
+                        )
 
                 stage = "ORCHESTRATE"
                 orchestration = await self._orchestration_engine.execute(
@@ -152,6 +243,7 @@ class ExecutionService:
                             "model": planner_detail.get("model"),
                             "modelProfile": planner_detail.get("modelProfile"),
                             "usage": planner_detail.get("usage") or {},
+                            "recovered": planner_detail.get("recovered", False),
                         },
                     },
                     "artifacts": final.get("artifacts") or [],
@@ -162,6 +254,28 @@ class ExecutionService:
                     execution,
                     normalized_intent=command.intent.strip(),
                     result=result,
+                )
+            except OrchestrationSuspended as exc:
+                logger.info(
+                    "Execution suspended execution_id=%s status=%s reason=%s",
+                    execution["id"],
+                    exc.status,
+                    exc.reason,
+                )
+                await self._repository.mark_suspended(
+                    execution,
+                    status=exc.status,
+                    reason=exc.reason,
+                )
+            except OrchestrationCancelled as exc:
+                logger.info(
+                    "Execution cancelled execution_id=%s reason=%s",
+                    execution["id"],
+                    str(exc),
+                )
+                await self._repository.mark_cancelled(
+                    execution,
+                    reason=str(exc) or "Cancelled by operator",
                 )
             except Exception as exc:
                 if plan is not None and stage == "PLAN":
@@ -178,7 +292,7 @@ class ExecutionService:
                     "code": "EXECUTION_FAILED",
                     "category": "PLATFORM",
                     "message": "The execution could not be completed.",
-                    "retryable": stage not in {"PLAN"},
+                    "retryable": stage not in {"PLAN", "RECOVER_PLAN"},
                     "details": {
                         "stage": stage,
                         "exceptionType": type(exc).__name__,
@@ -204,6 +318,52 @@ class ExecutionService:
                 span.record_exception(exc)
 
                 await self._repository.fail(execution, error)
+            finally:
+                heartbeat_stop.set()
+                heartbeat_task.cancel()
+                await asyncio.gather(heartbeat_task, return_exceptions=True)
+                await self._repository.release_lease(
+                    execution["id"],
+                    worker_id=self._worker_id,
+                )
+
+    async def _heartbeat_loop(
+        self,
+        execution_id: UUID,
+        stop: asyncio.Event,
+    ) -> None:
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(
+                    stop.wait(),
+                    timeout=self._execution_heartbeat_seconds,
+                )
+                return
+            except asyncio.TimeoutError:
+                renewed = await self._repository.heartbeat(
+                    execution_id,
+                    worker_id=self._worker_id,
+                    lease_seconds=self._execution_lease_seconds,
+                )
+                if not renewed:
+                    logger.warning(
+                        "Execution lease could not be renewed execution_id=%s worker_id=%s",
+                        execution_id,
+                        self._worker_id,
+                    )
+                    return
+
+    async def _honor_control_before_plan(
+        self,
+        execution: dict[str, Any],
+    ) -> None:
+        control = await self._repository.get_control(execution["id"])
+        action = control.get("control_action")
+        reason = control.get("control_reason") or "Requested by operator"
+        if action == "CANCEL":
+            raise OrchestrationCancelled(reason)
+        if action == "PAUSE":
+            raise OrchestrationSuspended("PAUSED", reason)
 
     @staticmethod
     def _safe_message(exc: Exception, max_length: int = 4000) -> str:
