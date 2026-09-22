@@ -1,11 +1,13 @@
 import json
 from typing import Any
 
+from app.business.knowledge_service import KnowledgeService
 from app.business.ports import CatalogRepositoryPort, ModelGatewayPort
 from app.business.prompt_service import PromptService
 from app.business.tool_service import ToolService
 from app.domain.catalog import Agent
 from app.domain.execution import Command, ExecutionPlan
+from app.domain.knowledge import KnowledgeBase
 from app.domain.tool import Tool
 
 
@@ -15,6 +17,7 @@ class IntentResolver:
         catalog: CatalogRepositoryPort,
         prompt_service: PromptService,
         tool_service: ToolService,
+        knowledge_service: KnowledgeService,
         model_gateway: ModelGatewayPort,
         *,
         router_model_profile: str,
@@ -23,6 +26,7 @@ class IntentResolver:
         self._catalog = catalog
         self._prompt_service = prompt_service
         self._tool_service = tool_service
+        self._knowledge_service = knowledge_service
         self._model_gateway = model_gateway
         self._router_model_profile = router_model_profile
         self._execution_model_profile = execution_model_profile
@@ -30,12 +34,33 @@ class IntentResolver:
     async def resolve(self, command: Command) -> ExecutionPlan:
         agents = await self._catalog.list_agents(enabled_only=True)
         tools = await self._tool_service.list_tools(enabled_only=True)
-        decision = await self._route(command, agents, tools)
+        knowledge_bases = await self._knowledge_service.list_knowledge_bases(enabled_only=True)
+        agent_knowledge = {
+            str(agent.id): await self._knowledge_service.list_agent_knowledge_bases(agent.id)
+            for agent in agents
+        }
+
+        decision = await self._route(
+            command, agents, tools, knowledge_bases, agent_knowledge
+        )
 
         strategy = decision.get("strategy", "DIRECT_LLM")
         agent = self._find_agent(decision.get("agent"), agents)
         tool = self._find_tool(decision.get("tool"), tools)
         tool_arguments = decision.get("toolArguments") or {}
+        selected_kbs = self._valid_knowledge_names(
+            decision.get("knowledgeBases") or [],
+            knowledge_bases,
+        )
+        usage_mode = str(decision.get("knowledgeUsageMode") or "REFERENCE").upper()
+        if usage_mode not in {"REFERENCE", "GUARDRAIL"}:
+            usage_mode = "REFERENCE"
+
+        if strategy in {"AGENT_RAG_LLM", "AGENT_TOOL_RAG_LLM"} and agent and not selected_kbs:
+            assigned = agent_knowledge.get(str(agent.id), [])
+            selected_kbs = [item["knowledgeBase"].name for item in assigned]
+            if any(item["usageMode"] == "GUARDRAIL" for item in assigned):
+                usage_mode = "GUARDRAIL"
 
         if strategy == "DIRECT_LLM":
             prompt = await self._prompt_service.get_by_name("direct-executor")
@@ -87,6 +112,33 @@ class IntentResolver:
                 model_profile=self._execution_model_profile,
             )
 
+        if strategy == "RAG_LLM" and selected_kbs:
+            prompt = await self._prompt_service.get_by_name("knowledge-executor")
+            return ExecutionPlan(
+                strategy="RAG_LLM",
+                system_prompt=prompt.content,
+                user_prompt=self._user_payload(command),
+                knowledge_base_names=selected_kbs,
+                knowledge_usage_mode=usage_mode,
+                model_profile=self._execution_model_profile,
+            )
+
+        if strategy == "AGENT_RAG_LLM" and agent and selected_kbs:
+            return await self._agent_knowledge_plan(
+                command, agent, selected_kbs, usage_mode, "AGENT_RAG_LLM"
+            )
+
+        if strategy == "AGENT_TOOL_RAG_LLM" and agent and tool and selected_kbs:
+            return await self._agent_knowledge_plan(
+                command,
+                agent,
+                selected_kbs,
+                usage_mode,
+                "AGENT_TOOL_RAG_LLM",
+                tool_name=tool.name,
+                tool_arguments=tool_arguments,
+            )
+
         prompt = await self._prompt_service.get_by_name("direct-executor")
         return ExecutionPlan(
             strategy="DIRECT_LLM",
@@ -110,8 +162,44 @@ class IntentResolver:
             model_profile=self._execution_model_profile,
         )
 
-    async def _route(self, command: Command, agents: list[Agent], tools: list[Tool]) -> dict[str, Any]:
-        routing_prompt = await self._prompt_service.get_by_name("intent-router-tools-v2")
+    async def _agent_knowledge_plan(
+        self,
+        command: Command,
+        agent: Agent,
+        knowledge_base_names: list[str],
+        usage_mode: str,
+        strategy: str,
+        *,
+        tool_name: str | None = None,
+        tool_arguments: dict[str, Any] | None = None,
+    ) -> ExecutionPlan:
+        prompt = await self._prompt_service.get_by_name("agent-knowledge-executor")
+        return ExecutionPlan(
+            strategy=strategy,
+            agent_name=agent.name,
+            tool_name=tool_name,
+            tool_arguments=tool_arguments or {},
+            system_prompt=prompt.content.format(
+                agent_name=agent.name,
+                agent_description=agent.description,
+                agent_instructions=agent.instructions,
+                skills=self._skills_text(agent) or "No skills assigned.",
+            ),
+            user_prompt=self._user_payload(command),
+            knowledge_base_names=knowledge_base_names,
+            knowledge_usage_mode=usage_mode,
+            model_profile=self._execution_model_profile,
+        )
+
+    async def _route(
+        self,
+        command: Command,
+        agents: list[Agent],
+        tools: list[Tool],
+        knowledge_bases: list[KnowledgeBase],
+        agent_knowledge: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        routing_prompt = await self._prompt_service.get_by_name("intent-router-knowledge-v1")
         raw = await self._model_gateway.complete(
             system_prompt=routing_prompt.content,
             user_prompt=json.dumps(
@@ -132,6 +220,14 @@ class IntentResolver:
                                 for skill in agent.skills
                                 if skill.enabled
                             ],
+                            "knowledgeBases": [
+                                {
+                                    "name": item["knowledgeBase"].name,
+                                    "description": item["knowledgeBase"].description,
+                                    "usageMode": item["usageMode"],
+                                }
+                                for item in agent_knowledge.get(str(agent.id), [])
+                            ],
                         }
                         for agent in agents
                     ],
@@ -143,6 +239,15 @@ class IntentResolver:
                             "inputSchema": tool.input_schema,
                         }
                         for tool in tools
+                    ],
+                    "availableKnowledgeBases": [
+                        {
+                            "name": kb.name,
+                            "description": kb.description,
+                            "scope": kb.scope,
+                            "metadata": kb.metadata,
+                        }
+                        for kb in knowledge_bases
                     ],
                 },
                 ensure_ascii=False,
@@ -159,6 +264,14 @@ class IntentResolver:
     @staticmethod
     def _find_tool(name: str | None, tools: list[Tool]) -> Tool | None:
         return next((tool for tool in tools if tool.name == name), None)
+
+    @staticmethod
+    def _valid_knowledge_names(
+        names: list[str],
+        knowledge_bases: list[KnowledgeBase],
+    ) -> list[str]:
+        available = {kb.name for kb in knowledge_bases}
+        return [name for name in names if name in available]
 
     @staticmethod
     def _skills_text(agent: Agent) -> str:
@@ -196,4 +309,6 @@ class IntentResolver:
                 "agent": None,
                 "tool": None,
                 "toolArguments": {},
+                "knowledgeBases": [],
+                "knowledgeUsageMode": "REFERENCE",
             }
