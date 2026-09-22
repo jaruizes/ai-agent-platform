@@ -127,7 +127,7 @@ def create_knowledge_router(service: KnowledgeService) -> APIRouter:
             document = await service.create_uploaded_document(
                 kb_id,
                 name=file.filename or "document",
-                content=await file.read(),
+                stream=file.file,
                 mime_type=file.content_type,
                 metadata=parsed_metadata,
             )
@@ -175,7 +175,7 @@ def create_knowledge_router(service: KnowledgeService) -> APIRouter:
             document = await service.update_uploaded_document(
                 document_id,
                 name=file.filename or "document",
-                content=await file.read(),
+                stream=file.file,
                 mime_type=file.content_type,
                 metadata=parsed_metadata,
             )
