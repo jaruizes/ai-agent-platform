@@ -367,6 +367,9 @@ class PostgresExecutionRepository:
                     SET status='COMPLETED',
                         normalized_intent=$2,
                         result=$3::jsonb,
+                        control_action='NONE',
+                        lease_owner=NULL,
+                        lease_expires_at=NULL,
                         updated_at=now(),
                         completed_at=now()
                     WHERE id=$1
@@ -403,7 +406,11 @@ class PostgresExecutionRepository:
                 await conn.execute(
                     """
                     UPDATE executions
-                    SET status='FAILED', error=$2::jsonb, updated_at=now(), completed_at=now()
+                    SET status='FAILED', error=$2::jsonb,
+                        control_action='NONE',
+                        lease_owner=NULL,
+                        lease_expires_at=NULL,
+                        updated_at=now(), completed_at=now()
                     WHERE id=$1
                     """,
                     execution["id"],
@@ -608,11 +615,20 @@ class PostgresExecutionRepository:
                 await conn.execute(
                     """
                     UPDATE execution_plan_steps
-                    SET status='RUNNING',started_at=now(),error=NULL
+                    SET status='RUNNING',started_at=COALESCE(started_at,now()),
+                        error=NULL,next_retry_at=NULL
                     WHERE execution_id=$1 AND step_id=$2
                     """,
                     execution["id"],
                     step_id,
+                )
+                await conn.execute(
+                    """
+                    UPDATE executions
+                    SET status='RUNNING',updated_at=now()
+                    WHERE id=$1
+                    """,
+                    execution["id"],
                 )
                 event = orchestration_event(
                     execution_id=execution["id"],
