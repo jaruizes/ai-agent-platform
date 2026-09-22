@@ -289,7 +289,7 @@ class PostgresExecutionRepository:
                     UPDATE execution_plan_steps
                     SET status='PENDING',error=NULL,completed_at=NULL,
                         attempt_count=0,next_retry_at=NULL,last_attempt_at=NULL
-                    WHERE execution_id=$1 AND status='FAILED'
+                    WHERE execution_id=$1 AND status<>'COMPLETED'
                     """,
                     execution_id,
                 )
@@ -710,6 +710,17 @@ class PostgresExecutionRepository:
                         execution["id"],
                         status,
                     )
+                    if status == "FAILED":
+                        await conn.execute(
+                            """
+                            UPDATE execution_plan_steps
+                            SET status='CANCELLED',
+                                completed_at=COALESCE(completed_at,now())
+                            WHERE execution_id=$1
+                              AND status NOT IN ('COMPLETED','FAILED','CANCELLED')
+                            """,
+                            execution["id"],
+                        )
                 event = orchestration_event(
                     execution_id=execution["id"],
                     correlation_id=execution["correlation_id"],
