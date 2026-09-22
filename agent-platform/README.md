@@ -174,3 +174,208 @@ The outbox publisher later sends pending records to NATS JetStream. This provide
 - artifact storage.
 
 Those are later vertical slices. M0 establishes the generic contracts, durable execution record, model gateway boundary and event-driven output.
+
+
+---
+
+# M1 — Configurable Agents & Skills
+
+M1 adds a persistent catalog of agents and skills without introducing business-specific routing in code.
+
+## Runtime flow
+
+```text
+ExecutionCommand
+      |
+      v
+Intent Resolver
+      |
+      +---- DIRECT_LLM --------------------> LiteLLM
+      |
+      +---- AGENT
+              |
+              v
+       Agent from database
+              +
+       assigned Skills
+              |
+              v
+           LiteLLM
+```
+
+The Intent Resolver asks the model to decide whether a specialized registered agent materially improves the execution. There is no mapping such as:
+
+```text
+analyse-proposal -> ProposalAgent
+```
+
+Agents are selected from the catalog based on their descriptions and skills. If no agent is a clear match, execution remains `DIRECT_LLM`.
+
+## Persistence
+
+M1 creates:
+
+- `skills`
+- `agents`
+- `agent_skills`
+
+Agents and skills are normal database records and can be created, updated or deleted through REST without modifying platform code.
+
+## Bootstrap from Markdown
+
+On startup, the platform reads:
+
+```text
+bootstrap/
+├── skills/
+└── agents/
+```
+
+Bootstrap entries are inserted only when an item with the same name does not already exist. Existing database records are not overwritten, so user modifications survive restarts.
+
+A skill is a Markdown file with YAML front matter:
+
+```markdown
+---
+name: technical-risk-analysis
+description: Identify technical architecture risks.
+enabled: true
+---
+
+Identify concrete technical risks and explain their impact.
+```
+
+An agent references skills by name:
+
+```markdown
+---
+name: technical-reviewer
+description: Specialist software architecture reviewer.
+skills:
+  - technical-risk-analysis
+  - summarization
+enabled: true
+---
+
+Act as a senior software architecture reviewer.
+```
+
+M1 includes two bootstrap skills and two bootstrap agents:
+
+- `summarization`
+- `technical-risk-analysis`
+- `document-analyst`
+- `technical-reviewer`
+
+## Catalog API
+
+List:
+
+```bash
+curl http://localhost:8080/v1/skills
+curl http://localhost:8080/v1/agents
+```
+
+Create a skill dynamically:
+
+```bash
+curl -X POST http://localhost:8080/v1/skills \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "plain-language",
+    "description": "Explain complex ideas in simple language.",
+    "instructions": "Use simple language and concrete examples.",
+    "enabled": true
+  }'
+```
+
+Create an agent dynamically using existing skills:
+
+```bash
+curl -X POST http://localhost:8080/v1/agents \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "explainer",
+    "description": "Specialist agent for explaining complex material to non-specialists.",
+    "instructions": "Be precise but accessible.",
+    "skills": ["plain-language", "summarization"],
+    "enabled": true
+  }'
+```
+
+`PUT /v1/skills/{id}`, `DELETE /v1/skills/{id}`, `PUT /v1/agents/{id}` and `DELETE /v1/agents/{id}` complete the basic CRUD.
+
+## E2E test 1 — no agent required
+
+This request should normally be resolved as `DIRECT_LLM`:
+
+```bash
+curl -X POST http://localhost:8080/v1/executions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "correlationId": "m1-direct-001",
+    "command": {
+      "name": "simple-task",
+      "intent": "Translate this sentence to Spanish.",
+      "input": {
+        "text": "The platform is ready."
+      },
+      "context": {},
+      "instructions": []
+    }
+  }'
+```
+
+Query the returned execution ID:
+
+```bash
+curl http://localhost:8080/v1/executions/<executionId>
+```
+
+The completed result contains:
+
+```json
+{
+  "data": {
+    "strategy": "DIRECT_LLM"
+  }
+}
+```
+
+## E2E test 2 — agent selected dynamically
+
+This request is designed to match the bootstrap `technical-reviewer` agent:
+
+```bash
+curl -X POST http://localhost:8080/v1/executions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "correlationId": "m1-agent-001",
+    "command": {
+      "name": "review-system",
+      "intent": "Review this software architecture and identify its main technical risks.",
+      "input": {
+        "architecture": "The service updates PostgreSQL and then publishes an event to NATS as a separate operation. There is no retry policy and all services share the same database."
+      },
+      "context": {
+        "systemType": "distributed-system"
+      },
+      "instructions": [
+        "Explain the impact of each risk and suggest practical mitigations."
+      ]
+    }
+  }'
+```
+
+The resolver receives the currently enabled agents from the database. A successful specialized route will produce:
+
+```json
+{
+  "data": {
+    "strategy": "AGENT",
+    "agent": "technical-reviewer"
+  }
+}
+```
+
+The functional result and lifecycle continue to be emitted through the same generic NATS contracts used in M0.
