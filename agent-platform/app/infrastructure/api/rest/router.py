@@ -4,7 +4,12 @@ from fastapi import APIRouter, HTTPException, Response, status
 
 from app.business.execution_service import ExecutionService
 from app.domain.execution import Command, ExecutionSubmission
-from app.infrastructure.api.rest.schemas import RestExecutionAccepted, RestExecutionRequest
+from app.infrastructure.api.rest.schemas import (
+    ExecutionControlRequest,
+    RestExecutionAccepted,
+    RestExecutionRequest,
+    StepApprovalRequest,
+)
 
 
 def create_router(service: ExecutionService) -> APIRouter:
@@ -94,6 +99,20 @@ def create_router(service: ExecutionService) -> APIRouter:
                     "knowledgeBases": step["knowledge_bases"],
                     "dependsOn": step["depends_on"],
                     "status": step["status"],
+                    "requiresApproval": step.get("requires_approval", False),
+                    "approval": {
+                        "status": step.get("approval_status"),
+                        "reason": step.get("approval_reason"),
+                        "actor": step.get("approval_actor"),
+                        "comment": step.get("approval_comment"),
+                        "updatedAt": step.get("approval_updated_at"),
+                    },
+                    "attemptCount": step.get("attempt_count", 0),
+                    "maxAttempts": step.get("max_attempts", 1),
+                    "timeoutSeconds": step.get("timeout_seconds"),
+                    "retryPolicy": step.get("retry_policy") or {},
+                    "nextRetryAt": step.get("next_retry_at"),
+                    "idempotencyKey": step.get("idempotency_key"),
                     "usage": step["usage"],
                     "output": step["output"],
                     "error": step["error"],
@@ -104,6 +123,85 @@ def create_router(service: ExecutionService) -> APIRouter:
             ],
             "activeAgents": orchestration["activeAgents"],
             "usage": orchestration["usage"],
+        }
+
+    @router.post("/executions/{execution_id}/pause")
+    async def pause_execution(
+        execution_id: UUID,
+        request: ExecutionControlRequest,
+    ) -> dict:
+        execution = await service.get_execution(execution_id)
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        if not await service.pause_execution(execution_id, reason=request.reason):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Execution cannot be paused from status {execution['status']}",
+            )
+        return {
+            "executionId": str(execution_id),
+            "requestedState": "PAUSED",
+            "status": "PAUSING",
+        }
+
+    @router.post("/executions/{execution_id}/resume")
+    async def resume_execution(execution_id: UUID) -> dict:
+        execution = await service.get_execution(execution_id)
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        if not await service.resume_execution(execution_id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Execution cannot be resumed from status {execution['status']}",
+            )
+        return {
+            "executionId": str(execution_id),
+            "status": "ACCEPTED",
+        }
+
+    @router.post("/executions/{execution_id}/cancel")
+    async def cancel_execution(
+        execution_id: UUID,
+        request: ExecutionControlRequest,
+    ) -> dict:
+        execution = await service.get_execution(execution_id)
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        if not await service.cancel_execution(execution_id, reason=request.reason):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Execution cannot be cancelled from status {execution['status']}",
+            )
+        return {
+            "executionId": str(execution_id),
+            "requestedState": "CANCELLED",
+            "status": "CANCELLING",
+        }
+
+    @router.post("/executions/{execution_id}/steps/{step_id}/approval")
+    async def decide_step_approval(
+        execution_id: UUID,
+        step_id: str,
+        request: StepApprovalRequest,
+    ) -> dict:
+        execution = await service.get_execution(execution_id)
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        if not await service.decide_step_approval(
+            execution_id,
+            step_id,
+            approved=request.approved,
+            actor=request.actor,
+            comment=request.comment,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Step is not waiting for approval",
+            )
+        return {
+            "executionId": str(execution_id),
+            "stepId": step_id,
+            "decision": "APPROVED" if request.approved else "REJECTED",
         }
 
     @router.get("/executions/{execution_id}")
@@ -119,6 +217,15 @@ def create_router(service: ExecutionService) -> APIRouter:
             "command": {"name": execution["command_name"]},
             "intent": execution["intent"],
             "status": execution["status"],
+            "control": {
+                "action": execution.get("control_action"),
+                "reason": execution.get("control_reason"),
+            },
+            "lease": {
+                "owner": execution.get("lease_owner"),
+                "expiresAt": execution.get("lease_expires_at"),
+                "lastHeartbeatAt": execution.get("last_heartbeat_at"),
+            },
             "result": execution["result"],
             "error": execution["error"],
             "orchestration": {
