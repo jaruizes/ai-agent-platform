@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 from app.business.knowledge_service import KnowledgeService
-from app.business.ports import CatalogRepositoryPort, ExecutionRepositoryPort, ModelGatewayPort
+from app.business.ports import (
+    CatalogRepositoryPort,
+    ExecutionRepositoryPort,
+    ModelGatewayPort,
+)
 from app.business.prompt_service import PromptService
 from app.business.tool_service import ToolService
 from app.domain.execution import Command
-from app.domain.orchestration import PlanStep
+from app.domain.orchestration import (
+    OrchestrationCancelled,
+    OrchestrationSuspended,
+    PlanStep,
+)
 
 
 _PLACEHOLDER = re.compile(r"^\$\{([^}]+)\}$")
@@ -28,6 +39,7 @@ class StepExecutor:
         execution_model_profile: str,
         knowledge_top_k: int,
         max_context_chars: int,
+        control_poll_seconds: float = 0.5,
     ):
         self._catalog = catalog
         self._prompt_service = prompt_service
@@ -38,6 +50,7 @@ class StepExecutor:
         self._execution_model_profile = execution_model_profile
         self._knowledge_top_k = knowledge_top_k
         self._max_context_chars = max_context_chars
+        self._control_poll_seconds = control_poll_seconds
 
     async def execute(
         self,
@@ -47,46 +60,232 @@ class StepExecutor:
         step: PlanStep,
         previous_results: dict[str, Any],
     ) -> dict[str, Any]:
-        await self._repository.mark_step_started(
-            execution,
-            step_id=step.id,
-            detail={
-                "type": step.type,
-                "description": step.description,
-                "agent": step.agent_name,
-                "tool": step.tool_name,
-            },
+        checkpoint = await self._repository.get_step_checkpoint(
+            execution["id"],
+            step.id,
         )
-        try:
-            if step.type == "TOOL":
-                result = await self._tool_step(command, step, previous_results)
-            elif step.type == "KNOWLEDGE":
-                result = await self._knowledge_step(command, step, previous_results)
-            elif step.type == "AGENT":
-                result = await self._agent_step(command, step, previous_results)
-            elif step.type == "VALIDATE":
-                result = await self._validation_step(command, step, previous_results)
-            else:
-                result = await self._model_step(command, step, previous_results)
+        if checkpoint and checkpoint["status"] == "COMPLETED":
+            return checkpoint["output"]
 
-            await self._repository.mark_step_completed(
+        await self._check_control(execution)
+
+        if step.requires_approval:
+            approval_status = (
+                checkpoint.get("approval_status") if checkpoint else "PENDING"
+            )
+            if approval_status != "APPROVED":
+                reason = (
+                    step.approval_reason
+                    or f"Human approval is required before step '{step.id}'."
+                )
+                await self._repository.mark_step_waiting_approval(
+                    execution,
+                    step_id=step.id,
+                    reason=reason,
+                )
+                raise OrchestrationSuspended("WAITING_APPROVAL", reason)
+
+        if checkpoint and checkpoint.get("next_retry_at"):
+            await self._wait_until_retry(checkpoint["next_retry_at"], execution)
+
+        retry_policy = {
+            "maxAttempts": max(
+                1,
+                int((step.retry_policy or {}).get("maxAttempts", 3)),
+            ),
+            "initialBackoffSeconds": max(
+                0.0,
+                float(
+                    (step.retry_policy or {}).get("initialBackoffSeconds", 1.0)
+                ),
+            ),
+            "maxBackoffSeconds": max(
+                0.0,
+                float((step.retry_policy or {}).get("maxBackoffSeconds", 30.0)),
+            ),
+            "multiplier": max(
+                1.0,
+                float((step.retry_policy or {}).get("multiplier", 2.0)),
+            ),
+        }
+
+        checkpoint = await self._repository.get_step_checkpoint(
+            execution["id"],
+            step.id,
+        )
+        attempts_already = int((checkpoint or {}).get("attempt_count") or 0)
+        max_attempts = retry_policy["maxAttempts"]
+
+        while attempts_already < max_attempts:
+            await self._check_control(execution)
+            attempt = await self._repository.mark_step_attempt(
                 execution,
                 step_id=step.id,
-                output=result,
-                usage=result.get("usage") or {},
             )
-            return result
-        except Exception as exc:
-            error = {
-                "type": type(exc).__name__,
-                "message": str(exc)[:4000],
-            }
-            await self._repository.mark_step_failed(
+            attempts_already = attempt
+
+            await self._repository.mark_step_started(
                 execution,
                 step_id=step.id,
-                error=error,
+                detail={
+                    "type": step.type,
+                    "description": step.description,
+                    "agent": step.agent_name,
+                    "tool": step.tool_name,
+                    "attempt": attempt,
+                    "maxAttempts": max_attempts,
+                    "timeoutSeconds": step.timeout_seconds,
+                    "idempotencyKey": f"{execution['id']}:{step.id}",
+                },
             )
+
+            try:
+                result = await self._run_with_controls(
+                    execution=execution,
+                    timeout_seconds=step.timeout_seconds,
+                    operation=self._dispatch(
+                        command=command,
+                        step=step,
+                        previous_results=previous_results,
+                    ),
+                )
+                result.setdefault(
+                    "durability",
+                    {
+                        "attempt": attempt,
+                        "maxAttempts": max_attempts,
+                        "idempotencyKey": f"{execution['id']}:{step.id}",
+                    },
+                )
+                await self._repository.mark_step_completed(
+                    execution,
+                    step_id=step.id,
+                    output=result,
+                    usage=result.get("usage") or {},
+                )
+                return result
+            except (OrchestrationSuspended, OrchestrationCancelled):
+                raise
+            except Exception as exc:
+                error = {
+                    "type": type(exc).__name__,
+                    "message": str(exc)[:4000],
+                    "attempt": attempt,
+                    "maxAttempts": max_attempts,
+                    "retryable": self._is_retryable(exc),
+                }
+
+                if attempt < max_attempts and error["retryable"]:
+                    delay = min(
+                        retry_policy["maxBackoffSeconds"],
+                        retry_policy["initialBackoffSeconds"]
+                        * (retry_policy["multiplier"] ** (attempt - 1)),
+                    )
+                    await self._repository.mark_step_retrying(
+                        execution,
+                        step_id=step.id,
+                        error=error,
+                        delay_seconds=delay,
+                    )
+                    await self._controlled_sleep(delay, execution)
+                    continue
+
+                await self._repository.mark_step_failed(
+                    execution,
+                    step_id=step.id,
+                    error=error,
+                )
+                raise
+
+        raise RuntimeError(
+            f"Step '{step.id}' exhausted its retry attempts without a result"
+        )
+
+    async def _dispatch(
+        self,
+        *,
+        command: Command,
+        step: PlanStep,
+        previous_results: dict[str, Any],
+    ) -> dict[str, Any]:
+        if step.type == "TOOL":
+            return await self._tool_step(command, step, previous_results)
+        if step.type == "KNOWLEDGE":
+            return await self._knowledge_step(command, step, previous_results)
+        if step.type == "AGENT":
+            return await self._agent_step(command, step, previous_results)
+        if step.type == "VALIDATE":
+            return await self._validation_step(command, step, previous_results)
+        return await self._model_step(command, step, previous_results)
+
+    async def _run_with_controls(
+        self,
+        *,
+        execution: dict[str, Any],
+        timeout_seconds: float,
+        operation,
+    ) -> dict[str, Any]:
+        task = asyncio.create_task(operation)
+        deadline = time.monotonic() + max(0.1, timeout_seconds)
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    raise TimeoutError(
+                        f"Step timed out after {timeout_seconds} seconds"
+                    )
+
+                done, _ = await asyncio.wait(
+                    {task},
+                    timeout=min(self._control_poll_seconds, remaining),
+                )
+                if task in done:
+                    return task.result()
+
+                await self._check_control(execution)
+        except (OrchestrationSuspended, OrchestrationCancelled):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
             raise
+
+    async def _check_control(self, execution: dict[str, Any]) -> None:
+        control = await self._repository.get_control(execution["id"])
+        action = control.get("control_action")
+        reason = control.get("control_reason") or "Requested by operator"
+        if action == "CANCEL" or control.get("status") == "CANCELLING":
+            raise OrchestrationCancelled(reason)
+        if action == "PAUSE" or control.get("status") == "PAUSING":
+            raise OrchestrationSuspended("PAUSED", reason)
+
+    async def _controlled_sleep(
+        self,
+        seconds: float,
+        execution: dict[str, Any],
+    ) -> None:
+        deadline = time.monotonic() + seconds
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            await asyncio.sleep(min(self._control_poll_seconds, remaining))
+            await self._check_control(execution)
+
+    async def _wait_until_retry(
+        self,
+        retry_at: datetime,
+        execution: dict[str, Any],
+    ) -> None:
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        seconds = (retry_at - datetime.now(timezone.utc)).total_seconds()
+        if seconds > 0:
+            await self._controlled_sleep(seconds, execution)
+
+    @staticmethod
+    def _is_retryable(exc: Exception) -> bool:
+        return not isinstance(exc, (ValueError, LookupError))
 
     async def _tool_step(
         self,
