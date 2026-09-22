@@ -2,7 +2,7 @@
 
 ## 1. Objetivo
 
-AI Agent Platform es una **plataforma genérica** para ejecutar capacidades basadas en agentes de IA sin acoplar a las aplicaciones consumidoras con agentes concretos, prompts, modelos, RAG, MCP ni estrategias de orquestación.
+AI Agent Platform es una **plataforma genérica orientada a intención** para resolver objetivos mediante IA sin acoplar a las aplicaciones consumidoras con agentes concretos, prompts, modelos, RAG, MCP, tools ni estrategias de orquestación. Los agentes son uno de los posibles mecanismos de ejecución de la plataforma, no la abstracción principal que ésta expone.
 
 La frontera arquitectónica principal separa dos mundos:
 
@@ -25,7 +25,7 @@ Como he comentado, la plataforma tiene la intencion de ser genérica y de que se
 
 La entrada se normaliza como un `ExecutionCommand`. El caso de uso de negocio solicitado se representa como datos:
 
-- `command.name`: identificador estable y machine-readable de la capacidad.
+- `command.name`: etiqueta semántica machine-readable que describe el tipo de intención y puede utilizarse como hint, para observabilidad, políticas o métricas. No actúa como routing key hacia una implementación concreta.
 - `intent`: objetivo expresado en lenguaje natural.
 - `input`: datos estructurados sobre los que trabajar.
 - `context`: contexto adicional conocido por el consumidor. Este dato es opcional
@@ -38,7 +38,7 @@ Ejemplos de `command.name`:
 - `review-code`
 - `prepare-presentation`
 
-El nombre de comando identifica una **capacidad**, nunca a un agente.
+El nombre de comando describe semánticamente la intención, pero **no identifica ni una implementación, ni una capability registrada, ni un agente**. La plataforma no debe resolver el comando mediante mappings de negocio del tipo `analyse-proposal -> ProposalAnalysisCapability`.
 
 ### 2.2 Independencia del transporte
 
@@ -78,7 +78,15 @@ Los consumidores de la plataforma no deberían conocer:
 - estrategia de planificación;
 - número de pasos.
 
-Una capacidad puede evolucionar internamente desde un único agente a una ejecución multiagente sin cambiar el contrato externo. El consumidor enviará un comando (es decir, una intencion, el QUÉ) y la plataforma se encarga del CÓMO. El usuario sí que dispone de campos en el mensaje de comando, como "context" e "instructions" en los que puede indicar ciertas recomendaciones o restricciones en la ejecucion del CÓMO.
+Una misma intención puede resolverse internamente con una tool directa, una skill, un agente, varios agentes, RAG, una combinación de estos recursos o incluso una operación determinista, sin cambiar el contrato externo. El consumidor enviará un comando (es decir, una intención, el QUÉ) y la plataforma se encarga del CÓMO. El usuario sí que dispone de campos en el mensaje de comando, como "context" e "instructions", en los que puede indicar ciertas recomendaciones o restricciones en la ejecución del CÓMO.
+
+Principio adicional:
+
+> **The platform is intent-driven, not workflow-driven and not agent-driven.**
+
+Y, como consecuencia:
+
+> **Agents are an execution mechanism, not the abstraction exposed by the platform.**
 
 ### 2.6 Trazabilidad extremo a extremo
 
@@ -112,7 +120,7 @@ flowchart TB
     end
 
     subgraph Platform["AI AGENT PLATFORM - No determinista"]
-        CR["Capability / Command Resolver"]
+        IR["Intent Resolver"]
 
         subgraph Runtime["AGENTIC RUNTIME"]
             PL["Planner"]
@@ -176,8 +184,10 @@ flowchart TB
     CMD --> NATSIN
     REST --> CG
     NATSIN --> CG
-    CG --> CR
-    CR --> Runtime
+    CG --> IR
+    IR --> PL
+    PL --> OR
+    OR --> EE
     Runtime --> Capabilities
     Runtime --> Knowledge
     Runtime --> State
@@ -230,31 +240,53 @@ Responsabilidades:
 - validar semánticamente el comando;
 - aplicar idempotencia;
 - crear o localizar la `Execution`;
-- resolver la capacidad solicitada;
+- entregar la intención normalizada al `Intent Resolver`;
 - iniciar el procesamiento asíncrono.
 
 El gateway no debe conocer detalles de agentes o proveedores LLM.
 
-### 4.4 Capability / Command Resolver
+### 4.4 Intent Resolver
 
-Resuelve `command.name` hacia una capacidad registrada en la plataforma.
+Interpreta semánticamente el `ExecutionCommand` y determina **qué debe conseguir la plataforma**.
 
-Ejemplo:
+Para resolver la intención utiliza conjuntamente:
+
+- `command.name`, cuando exista, como hint semántico;
+- `intent`;
+- `input`;
+- `context`;
+- `instructions`.
+
+No realiza routing mediante reglas de negocio predefinidas ni mappings del tipo:
 
 ```text
-command.name = analyse-proposal
-          |
-          v
-Capability Registry
-          |
-          v
-proposal-analysis capability
-          |
-          v
-Execution Strategy
+analyse-proposal -> ProposalAnalysisHandler
 ```
 
-La resolución puede evolucionar sin modificar el contrato externo.
+o:
+
+```text
+analyse-proposal -> ProposalAnalysisCapability
+```
+
+El `Intent Resolver` construye una representación normalizada de la intención y la entrega al planner. El contrato externo no determina la estrategia de ejecución.
+
+Ejemplo conceptual:
+
+```text
+ExecutionCommand
+      |
+      v
+Intent Resolver
+      |
+      v
+Normalized Intent
+      |
+      v
+Execution Planner
+```
+
+El `command.name` puede ser útil para trazabilidad, observabilidad, políticas, métricas o como pista semántica, pero nunca debe forzar la selección de un agente, workflow o capability concreta.
 
 ### 4.5 Agentic Runtime
 
@@ -272,11 +304,23 @@ Contiene:
 
 ### 4.6 Planner
 
-Decide, cuando una capacidad lo requiere, cómo descomponer un objetivo en pasos.
+Decide dinámicamente **cómo resolver la intención** a partir de los recursos disponibles en la plataforma.
 
-Puede generar un plan lineal, paralelo o dinámico.
+Puede determinar que la ejecución requiera:
 
-No todas las ejecuciones necesitan planner; una capacidad sencilla puede ir directamente a una estrategia conocida.
+- una llamada directa a una tool;
+- una skill;
+- un agente;
+- varias tools;
+- una combinación de tool + agente;
+- RAG + agente;
+- múltiples agentes;
+- un plan multi-step;
+- una operación determinista si no es necesario utilizar un agente.
+
+Puede generar un plan lineal, paralelo o dinámico. Para ello descubre los recursos disponibles a través de los registries de agentes, skills, tools, conocimiento y modelos.
+
+No debe existir un workflow de negocio obligatorio asociado a `command.name`. Dos ejecuciones con una intención equivalente pueden utilizar estrategias diferentes si el contexto, los recursos disponibles o las políticas de la plataforma cambian.
 
 ### 4.7 Orchestrator
 
@@ -679,9 +723,8 @@ Esto evita:
 
 ### Control Plane
 
-Gestiona definiciones y configuración:
+Gestiona definiciones y configuración de los **recursos disponibles para resolver intenciones**:
 
-- capabilities;
 - agents;
 - skills;
 - tools;
@@ -714,7 +757,7 @@ La UI administrativa trabaja principalmente sobre el Control Plane.
 ## 12. Decisiones a preservar
 
 1. El contrato externo es genérico.
-2. `command.name` representa una capacidad, no un agente.
+2. `command.name` es una etiqueta semántica/hint de la intención; no identifica una capability, workflow, handler o agente concreto.
 3. REST y NATS convergen en el mismo modelo interno.
 4. La salida funcional es siempre event-driven mediante NATS JetStream.
 5. Las queries pueden realizarse mediante REST.
@@ -722,4 +765,6 @@ La UI administrativa trabaja principalmente sobre el Control Plane.
 7. Los resultados grandes se modelan como artifacts.
 8. Estado y eventos se mantienen consistentes mediante Transactional Outbox.
 9. La plataforma, no el consumidor, administra prompts, agentes, RAG, MCP y modelos.
-10. Añadir una nueva capacidad no implica añadir un nuevo contrato de integración.
+10. Añadir una nueva intención o caso de uso no implica añadir un nuevo contrato de integración ni un mapping de negocio dentro de la plataforma.
+11. La plataforma es intent-driven: decide dinámicamente si resolver una intención mediante tools, skills, agentes, RAG, múltiples recursos o una operación determinista.
+12. Los agents son mecanismos internos de ejecución, no la abstracción expuesta a los consumidores.
