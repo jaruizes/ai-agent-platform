@@ -7,6 +7,15 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class ChunkingPolicy(BaseModel):
+    strategy: str = "PARAGRAPH"
+    chunkSize: int = Field(default=1600, gt=0)
+    overlap: int = Field(default=200, ge=0)
+    parentSize: int = Field(default=6000, gt=0)
+    childSize: int = Field(default=1600, gt=0)
+    childOverlap: int = Field(default=200, ge=0)
+
+
 class KnowledgeBaseRequest(BaseModel):
     name: str
     description: str = ""
@@ -14,6 +23,7 @@ class KnowledgeBaseRequest(BaseModel):
     retentionPolicy: str = "PERSISTENT"
     ttlSeconds: int | None = None
     enabled: bool = True
+    chunkingPolicy: ChunkingPolicy = Field(default_factory=ChunkingPolicy)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -25,6 +35,7 @@ class KnowledgeBaseResponse(BaseModel):
     retentionPolicy: str
     expiresAt: datetime | None
     enabled: bool
+    chunkingPolicy: dict[str, Any]
     metadata: dict[str, Any]
 
 
