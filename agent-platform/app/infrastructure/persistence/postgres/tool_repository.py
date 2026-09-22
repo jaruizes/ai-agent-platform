@@ -92,18 +92,30 @@ class PostgresToolRepository:
             return await conn.execute("DELETE FROM mcp_servers WHERE id=$1", server_id) == "DELETE 1"
 
     @staticmethod
-    def _tool(row) -> Tool:
+    def _decode_json(value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return json.loads(value)
+        return value
+
+    @classmethod
+    def _tool(cls, row) -> Tool:
         return Tool(
             id=row["id"], name=row["name"], description=row["description"],
             instructions=row["instructions"], implementation_type=row["implementation_type"],
-            configuration=dict(row["configuration"]), input_schema=dict(row["input_schema"]),
+            configuration=dict(cls._decode_json(row["configuration"]) or {}),
+            input_schema=dict(cls._decode_json(row["input_schema"]) or {}),
             enabled=row["enabled"], source=row["source"],
         )
 
-    @staticmethod
-    def _server(row) -> McpServer:
+    @classmethod
+    def _server(cls, row) -> McpServer:
         return McpServer(
             id=row["id"], name=row["name"], description=row["description"],
-            command=row["command"], args=list(row["args"]), cwd=row["cwd"],
-            environment=dict(row["environment"]), enabled=row["enabled"], source=row["source"],
+            command=row["command"],
+            args=list(cls._decode_json(row["args"]) or []),
+            cwd=row["cwd"],
+            environment=dict(cls._decode_json(row["environment"]) or {}),
+            enabled=row["enabled"], source=row["source"],
         )
