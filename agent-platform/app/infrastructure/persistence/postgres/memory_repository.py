@@ -91,17 +91,31 @@ class PostgresMemoryRepository:
         return self._session(row) if row else None
 
     async def close_session(self, session_id: UUID) -> Session | None:
-        async with self._db.require_pool().acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                UPDATE sessions
-                SET status='CLOSED',closed_at=now(),updated_at=now()
-                WHERE id=$1 AND status='ACTIVE'
-                RETURNING *
-                """,
-                session_id,
-            )
-        return self._session(row) if row else None
+        pool = self._db.require_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    UPDATE sessions
+                    SET status='CLOSED',closed_at=now(),updated_at=now()
+                    WHERE id=$1 AND status='ACTIVE'
+                    RETURNING *
+                    """,
+                    session_id,
+                )
+                if not row:
+                    return None
+                await conn.execute(
+                    """
+                    UPDATE memory_entries
+                    SET status='EXPIRED',updated_at=now()
+                    WHERE scope_type='SESSION'
+                      AND scope_id=$1
+                      AND status='ACTIVE'
+                    """,
+                    str(session_id),
+                )
+        return self._session(row)
 
     async def list_session_executions(
         self,
@@ -302,6 +316,56 @@ class PostgresMemoryRepository:
                 memory_id,
             )
         return self._memory(row) if row else None
+
+    async def record_policy_audit(
+        self,
+        *,
+        candidate: dict[str, Any],
+        decision: dict[str, Any],
+        memory_id: UUID | None,
+        source_execution_id: UUID | None,
+        audit_id: UUID,
+    ) -> None:
+        async with self._db.require_pool().acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO memory_policy_audit(
+                    id,memory_id,candidate,decision,source_execution_id
+                ) VALUES($1,$2,$3::jsonb,$4::jsonb,$5)
+                """,
+                audit_id,
+                memory_id,
+                json.dumps(candidate),
+                json.dumps(decision),
+                source_execution_id,
+            )
+
+    async def expire_sessions(self) -> int:
+        pool = self._db.require_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                rows = await conn.fetch(
+                    """
+                    UPDATE sessions
+                    SET status='CLOSED',closed_at=now(),updated_at=now()
+                    WHERE status='ACTIVE'
+                      AND expires_at IS NOT NULL
+                      AND expires_at <= now()
+                    RETURNING id
+                    """
+                )
+                for row in rows:
+                    await conn.execute(
+                        """
+                        UPDATE memory_entries
+                        SET status='EXPIRED',updated_at=now()
+                        WHERE scope_type='SESSION'
+                          AND scope_id=$1
+                          AND status='ACTIVE'
+                        """,
+                        str(row["id"]),
+                    )
+        return len(rows)
 
     async def expire_memories(self) -> int:
         async with self._db.require_pool().acquire() as conn:
