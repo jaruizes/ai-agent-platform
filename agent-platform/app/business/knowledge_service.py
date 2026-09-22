@@ -317,6 +317,8 @@ class KnowledgeService:
         agent_id: UUID,
         assignments: list[dict[str, str]],
     ) -> None:
+        if not await self._repository.agent_exists(agent_id):
+            raise LookupError("Agent not found")
         resolved: list[tuple[UUID, str]] = []
         for assignment in assignments:
             name = assignment["name"]
