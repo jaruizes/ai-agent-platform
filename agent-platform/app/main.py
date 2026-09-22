@@ -7,6 +7,7 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 from app.business.catalog_service import CatalogService
 from app.business.execution_service import ExecutionService
+from app.business.prompt_service import PromptService
 from app.business.intent_resolver import IntentResolver
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
@@ -18,6 +19,7 @@ from app.infrastructure.observability.telemetry import configure_telemetry
 from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
 from app.infrastructure.persistence.postgres.database import Database
 from app.infrastructure.persistence.postgres.execution_repository import PostgresExecutionRepository
+from app.infrastructure.persistence.postgres.prompt_repository import PostgresPromptRepository
 
 
 settings = get_settings()
@@ -28,8 +30,16 @@ database = Database(settings.database_url)
 execution_repository = PostgresExecutionRepository(database)
 catalog_repository = PostgresCatalogRepository(database)
 catalog_service = CatalogService(catalog_repository)
+prompt_repository = PostgresPromptRepository(database)
+prompt_service = PromptService(prompt_repository)
 model_gateway = LiteLLMModelGateway(settings)
-intent_resolver = IntentResolver(catalog_repository, model_gateway)
+intent_resolver = IntentResolver(
+    catalog_repository,
+    prompt_service,
+    model_gateway,
+    router_model_profile=settings.router_model_profile,
+    execution_model_profile=settings.execution_model_profile,
+)
 nats_adapter = NatsAdapter(settings)
 
 execution_service = ExecutionService(
@@ -43,8 +53,10 @@ execution_service = ExecutionService(
 
 bootstrap_loader = MarkdownCatalogLoader(
     catalog_service,
+    prompt_service,
     skills_dir=settings.bootstrap_skills_dir,
     agents_dir=settings.bootstrap_agents_dir,
+    prompts_dir=settings.bootstrap_prompts_dir,
 )
 
 
