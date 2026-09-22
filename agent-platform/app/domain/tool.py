@@ -14,6 +14,8 @@ class Tool:
     implementation_type: str
     configuration: dict[str, Any] = field(default_factory=dict)
     input_schema: dict[str, Any] = field(default_factory=dict)
+    side_effect: str = "READ"
+    approval_policy: str = "NEVER"
     enabled: bool = True
     source: str = "USER"
 
