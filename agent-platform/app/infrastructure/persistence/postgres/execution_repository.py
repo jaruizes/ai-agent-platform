@@ -276,6 +276,15 @@ class PostgresExecutionRepository:
                     execution["id"],
                     status,
                 )
+                await conn.execute(
+                    """
+                    UPDATE execution_plan_steps
+                    SET status='PAUSED'
+                    WHERE execution_id=$1
+                      AND status IN ('RUNNING','RETRYING')
+                    """,
+                    execution["id"],
+                )
                 event = lifecycle_event(
                     execution_id=execution["id"],
                     correlation_id=execution["correlation_id"],
@@ -319,6 +328,15 @@ class PostgresExecutionRepository:
                     UPDATE execution_plans
                     SET status='CANCELLED',completed_at=now(),updated_at=now()
                     WHERE execution_id=$1
+                    """,
+                    execution["id"],
+                )
+                await conn.execute(
+                    """
+                    UPDATE execution_plan_steps
+                    SET status='CANCELLED',completed_at=COALESCE(completed_at,now())
+                    WHERE execution_id=$1
+                      AND status NOT IN ('COMPLETED','FAILED','CANCELLED')
                     """,
                     execution["id"],
                 )
@@ -921,6 +939,18 @@ class PostgresExecutionRepository:
                         WHERE execution_id=$1
                         """,
                         execution_id,
+                    )
+                    await conn.execute(
+                        """
+                        UPDATE execution_plan_steps
+                        SET status='CANCELLED',
+                            completed_at=COALESCE(completed_at,now())
+                        WHERE execution_id=$1
+                          AND step_id<>$2
+                          AND status NOT IN ('COMPLETED','FAILED','CANCELLED')
+                        """,
+                        execution_id,
+                        step_id,
                     )
 
                 event = orchestration_event(
