@@ -762,6 +762,7 @@ Operational endpoints:
 POST /v1/executions/{id}/pause
 POST /v1/executions/{id}/resume
 POST /v1/executions/{id}/cancel
+POST /v1/executions/{id}/retry
 POST /v1/executions/{id}/steps/{stepId}/approval
 GET  /v1/executions/{id}/orchestration
 ```
