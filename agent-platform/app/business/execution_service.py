@@ -115,7 +115,10 @@ class ExecutionService:
                         or planner_detail.get("modelProfile")
                         or ""
                     ),
-                    planner_usage=planner_detail.get("usage") or {},
+                    planner_usage={
+                        **(planner_detail.get("usage") or {}),
+                        "planningAttempts": planner_detail.get("planningAttempts", 1),
+                    },
                     validation=validation.as_dict(),
                 )
                 if not validation.valid:
