@@ -111,7 +111,7 @@ class IntentResolver:
         )
 
     async def _route(self, command: Command, agents: list[Agent], tools: list[Tool]) -> dict[str, Any]:
-        routing_prompt = await self._prompt_service.get_by_name("intent-router-tools")
+        routing_prompt = await self._prompt_service.get_by_name("intent-router-tools-v2")
         raw = await self._model_gateway.complete(
             system_prompt=routing_prompt.content,
             user_prompt=json.dumps(
