@@ -22,6 +22,7 @@ class CommandMessage(BaseModel):
 
 class NatsExecutionData(BaseModel):
     executionId: UUID | None = None
+    sessionId: UUID | None = None
     command: CommandMessage
 
 
