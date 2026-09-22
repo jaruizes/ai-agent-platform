@@ -27,6 +27,8 @@ class ToolService:
         implementation_type: str,
         configuration: dict[str, Any],
         input_schema: dict[str, Any],
+        side_effect: str = "READ",
+        approval_policy: str = "NEVER",
         enabled: bool = True,
         source: str = "USER",
         only_if_missing: bool = False,
@@ -36,6 +38,10 @@ class ToolService:
             if only_if_missing:
                 return existing
             raise ValueError(f"Tool '{name}' already exists")
+
+        side_effect = side_effect.upper()
+        approval_policy = approval_policy.upper()
+        self._validate_tool_policy(side_effect, approval_policy)
 
         if implementation_type.upper() == "MCP":
             server_name = configuration.get("server")
@@ -54,6 +60,8 @@ class ToolService:
                 implementation_type=implementation_type.upper(),
                 configuration=configuration,
                 input_schema=input_schema,
+                side_effect=side_effect,
+                approval_policy=approval_policy,
                 enabled=enabled,
                 source=source,
             )
@@ -69,11 +77,16 @@ class ToolService:
         implementation_type: str,
         configuration: dict[str, Any],
         input_schema: dict[str, Any],
+        side_effect: str,
+        approval_policy: str,
         enabled: bool,
     ) -> Tool | None:
         existing = await self._repository.get_tool(tool_id)
         if not existing:
             return None
+        side_effect = side_effect.upper()
+        approval_policy = approval_policy.upper()
+        self._validate_tool_policy(side_effect, approval_policy)
         tool = Tool(
             id=tool_id,
             name=name,
@@ -82,10 +95,25 @@ class ToolService:
             implementation_type=implementation_type.upper(),
             configuration=configuration,
             input_schema=input_schema,
+            side_effect=side_effect,
+            approval_policy=approval_policy,
             enabled=enabled,
             source=existing.source,
         )
         return await self._repository.update_tool(tool)
+
+    @staticmethod
+    def _validate_tool_policy(side_effect: str, approval_policy: str) -> None:
+        allowed_side_effects = {"NONE", "READ", "WRITE", "EXTERNAL_ACTION"}
+        allowed_approval_policies = {"NEVER", "OPTIONAL", "REQUIRED"}
+        if side_effect not in allowed_side_effects:
+            raise ValueError(
+                "sideEffect must be one of NONE, READ, WRITE, EXTERNAL_ACTION"
+            )
+        if approval_policy not in allowed_approval_policies:
+            raise ValueError(
+                "approvalPolicy must be one of NEVER, OPTIONAL, REQUIRED"
+            )
 
     async def delete_tool(self, tool_id: UUID) -> bool:
         return await self._repository.delete_tool(tool_id)
