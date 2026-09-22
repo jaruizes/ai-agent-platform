@@ -252,6 +252,13 @@ class MemoryService:
     def policy_description(self) -> dict[str, Any]:
         return self._policy.describe()
 
+    async def policy_audit(
+        self,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return await self._repository.list_policy_audit(limit=limit)
+
     async def cleanup_loop(self) -> None:
         while not self._stop.is_set():
             await self._repository.expire_sessions()
