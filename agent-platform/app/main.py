@@ -8,6 +8,7 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from app.business.catalog_service import CatalogService
 from app.business.execution_service import ExecutionService
 from app.business.knowledge_service import KnowledgeService
+from app.business.plan_policy_enricher import PlanPolicyEnricher
 from app.business.plan_validator import PlanValidator
 from app.business.planner_service import PlannerService
 from app.business.prompt_service import PromptService
@@ -75,6 +76,7 @@ knowledge_service = KnowledgeService(
     cleanup_poll_seconds=settings.knowledge_cleanup_poll_seconds,
 )
 plan_validator = PlanValidator(max_steps=settings.orchestration_max_steps)
+plan_policy_enricher = PlanPolicyEnricher()
 planner_service = PlannerService(
     catalog_repository,
     prompt_service,
@@ -82,6 +84,7 @@ planner_service = PlannerService(
     knowledge_service,
     model_gateway,
     plan_validator,
+    plan_policy_enricher,
     planner_model_profile=settings.planner_model_profile,
 )
 step_executor = StepExecutor(
