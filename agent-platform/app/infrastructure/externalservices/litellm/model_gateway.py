@@ -81,5 +81,11 @@ class LiteLLMModelGateway:
                     "temperature": temperature,
                 },
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                body = response.text[:4000]
+                raise RuntimeError(
+                    f"LiteLLM request failed with HTTP {response.status_code}: {body}"
+                ) from exc
             return response.json()
