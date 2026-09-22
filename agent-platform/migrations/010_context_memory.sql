@@ -83,3 +83,15 @@ CREATE INDEX IF NOT EXISTS idx_memory_expiry
 CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_active_key
     ON memory_entries(scope_type, scope_id, memory_key)
     WHERE status='ACTIVE' AND memory_key IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS memory_policy_audit (
+    id UUID PRIMARY KEY,
+    memory_id UUID NULL REFERENCES memory_entries(id) ON DELETE SET NULL,
+    candidate JSONB NOT NULL,
+    decision JSONB NOT NULL,
+    source_execution_id UUID NULL REFERENCES executions(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_policy_audit_created
+    ON memory_policy_audit(created_at DESC);
