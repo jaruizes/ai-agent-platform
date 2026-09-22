@@ -15,6 +15,7 @@ from app.business.prompt_service import PromptService
 from app.business.step_executor import StepExecutor
 from app.business.tool_service import ToolService
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
+from app.infrastructure.api.rest.admin_router import create_admin_router
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
 from app.infrastructure.api.rest.prompt_router import create_prompt_router
 from app.infrastructure.api.rest.knowledge_router import create_knowledge_router
@@ -164,6 +165,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(create_router(execution_service))
+app.include_router(create_admin_router(database, nats_adapter, settings))
 app.include_router(create_catalog_router(catalog_service))
 app.include_router(create_prompt_router(prompt_service))
 app.include_router(create_knowledge_router(knowledge_service))
