@@ -182,6 +182,7 @@ class ExecutionService:
                         result["data"]["knowledgeUsageMode"] = plan.knowledge_usage_mode
                         result["data"]["knowledgeHits"] = [
                             {
+                                "chunkId": str(hit.chunk_id),
                                 "documentId": str(hit.document_id),
                                 "documentName": hit.document_name,
                                 "score": hit.score,
