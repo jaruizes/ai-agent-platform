@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
@@ -264,6 +265,12 @@ class MemoryService:
                     action="REJECT",
                     reasons=["SESSION scopeId does not reference an existing session"],
                 )
+            if session.status != "ACTIVE":
+                return None, MemoryPolicyDecision(
+                    allowed=False,
+                    action="REJECT",
+                    reasons=["SESSION-scoped memory requires an ACTIVE session"],
+                )
 
         decision = self._policy.evaluate(candidate)
         candidate_snapshot = {
@@ -271,7 +278,10 @@ class MemoryService:
             "scopeId": candidate.scope_id,
             "memoryType": candidate.memory_type,
             "key": candidate.memory_key,
-            "content": candidate.content,
+            "contentLength": len(candidate.content),
+            "contentSha256": hashlib.sha256(
+                candidate.content.encode("utf-8")
+            ).hexdigest(),
             "metadata": candidate.metadata,
             "confidence": candidate.confidence,
             "importance": candidate.importance,
