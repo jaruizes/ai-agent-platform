@@ -11,7 +11,7 @@ model_list:
 
   - model_name: embedding-default
     litellm_params:
-      model: ollama/nomic-embed-text
+      model: ollama/nomic-embed-text-v2-moe
       api_base: os.environ/OLLAMA_API_BASE
 
 general_settings:
