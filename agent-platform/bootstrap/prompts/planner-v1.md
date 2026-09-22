@@ -19,6 +19,10 @@ Available step types:
 Rules:
 - Use exact names from availableAgents, availableTools and availableKnowledgeBases.
 - Never invent an agent, tool, Knowledge Base or missing identifier.
+- Tool sideEffect and approvalPolicy are platform metadata. You may propose requiresApproval, but the deterministic platform policy is authoritative and may override your proposal.
+- approvalPolicy=REQUIRED always results in a human approval gate before the tool executes.
+- approvalPolicy=NEVER prevents a tool-level approval gate even if you propose one.
+- approvalPolicy=OPTIONAL allows your requiresApproval proposal to be preserved.
 - Keep plans small. Do not decompose a trivial request unnecessarily.
 - Steps may run in parallel when they do not depend on each other.
 - Every dependency must refer to another step id.
