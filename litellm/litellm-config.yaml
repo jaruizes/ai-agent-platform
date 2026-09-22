@@ -9,6 +9,11 @@ model_list:
       model: os.environ/ANTHROPIC_EXECUTION_MODEL
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  - model_name: planner-default
+    litellm_params:
+      model: os.environ/ANTHROPIC_PLANNER_MODEL
+      api_key: os.environ/ANTHROPIC_API_KEY
+
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
