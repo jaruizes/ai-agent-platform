@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     service_name: str = "agent-platform"
-    service_version: str = "0.5.0"
+    service_version: str = "0.6.0"
 
     database_url: str = "postgresql://agent:agent@postgres:5432/agent_platform"
 
@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = 0.5
     outbox_poll_seconds: float = 0.25
     orchestration_max_steps: int = 12
+    execution_lease_seconds: int = 30
+    execution_heartbeat_seconds: float = 10.0
+    execution_control_poll_seconds: float = 0.5
 
     bootstrap_skills_dir: str = "/app/bootstrap/skills"
     bootstrap_agents_dir: str = "/app/bootstrap/agents"
