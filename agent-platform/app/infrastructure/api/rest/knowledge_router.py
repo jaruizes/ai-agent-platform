@@ -227,6 +227,8 @@ def create_knowledge_router(service: KnowledgeService) -> APIRouter:
                 agent_id,
                 [item.model_dump() for item in request.knowledgeBases],
             )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
