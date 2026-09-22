@@ -88,6 +88,8 @@ class MarkdownCatalogLoader:
                 implementation_type=metadata["implementationType"],
                 configuration=dict(metadata.get("configuration", {})),
                 input_schema=dict(metadata.get("inputSchema", {})),
+                side_effect=str(metadata.get("sideEffect", "READ")),
+                approval_policy=str(metadata.get("approvalPolicy", "NEVER")),
                 enabled=bool(metadata.get("enabled", True)),
                 source="BOOTSTRAP",
                 only_if_missing=True,
