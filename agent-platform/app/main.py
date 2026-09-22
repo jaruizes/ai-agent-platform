@@ -64,6 +64,7 @@ execution_service = ExecutionService(
     event_publisher=nats_adapter,
     worker_poll_seconds=settings.worker_poll_seconds,
     outbox_poll_seconds=settings.outbox_poll_seconds,
+    max_tool_result_chars_for_model=settings.max_tool_result_chars_for_model,
 )
 
 bootstrap_loader = MarkdownCatalogLoader(
