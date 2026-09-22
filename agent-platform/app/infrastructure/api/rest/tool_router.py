@@ -21,6 +21,8 @@ def _tool_response(tool: Tool) -> ToolResponse:
         implementationType=tool.implementation_type,
         configuration=tool.configuration,
         inputSchema=tool.input_schema,
+        sideEffect=tool.side_effect,
+        approvalPolicy=tool.approval_policy,
         enabled=tool.enabled,
         source=tool.source,
     )
@@ -57,6 +59,8 @@ def create_tool_router(service: ToolService) -> APIRouter:
                 implementation_type=request.implementationType,
                 configuration=request.configuration,
                 input_schema=request.inputSchema,
+                side_effect=request.sideEffect,
+                approval_policy=request.approvalPolicy,
                 enabled=request.enabled,
             )
             return _tool_response(tool)
@@ -74,6 +78,8 @@ def create_tool_router(service: ToolService) -> APIRouter:
                 implementation_type=request.implementationType,
                 configuration=request.configuration,
                 input_schema=request.inputSchema,
+                side_effect=request.sideEffect,
+                approval_policy=request.approvalPolicy,
                 enabled=request.enabled,
             )
         except ValueError as exc:
