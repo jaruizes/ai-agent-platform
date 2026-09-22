@@ -987,6 +987,9 @@ MEMORY_ALLOW_INFERRED_PERSISTENCE=true
 MEMORY_MIN_INFERRED_CONFIDENCE=0.80
 MEMORY_MAX_CONTENT_CHARS=8000
 MEMORY_CLEANUP_POLL_SECONDS=60
+MEMORY_AUTO_EXTRACT_SESSION=true
+MEMORY_EXTRACTOR_MODEL_PROFILE=router-fast
+MEMORY_EXTRACTOR_MAX_CANDIDATES=8
 ```
 
 Policy and audit:
@@ -1010,3 +1013,30 @@ ACTIVE
 Session-scoped memory is expired automatically when its Session closes or expires.
 
 Important M7 boundary: memory is persisted and queryable, but is **not automatically injected into model prompts yet**. Retrieval, context selection, budgeting and compression belong to M7.3.
+
+
+## Automatic session-memory extraction
+
+When an execution has a `sessionId` and finishes successfully, M7.2 can invoke a lightweight model profile to propose reusable session-memory candidates.
+
+```text
+Execution COMPLETED
+  -> MemoryCandidateExtractor
+  -> MemoryCandidate[]
+  -> deterministic MemoryPolicyEngine
+  -> persist/reject
+```
+
+The extractor is configured with:
+
+```env
+MEMORY_AUTO_EXTRACT_SESSION=true
+MEMORY_EXTRACTOR_MODEL_PROFILE=router-fast
+MEMORY_EXTRACTOR_MAX_CANDIDATES=8
+```
+
+Automatic candidates are always `scopeType=SESSION`. Cross-session scopes such as USER, TEAM, TENANT and AGENT require explicit memory creation at this milestone.
+
+Extraction is best-effort and runs after the execution result is already durable. An extraction/model failure never changes a successful execution into FAILED.
+
+This does **not** mean memory is automatically injected into future model calls. Retrieval and context composition remain M7.3.
