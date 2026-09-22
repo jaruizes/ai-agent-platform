@@ -8,6 +8,7 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from app.business.catalog_service import CatalogService
 from app.business.execution_service import ExecutionService
 from app.business.knowledge_service import KnowledgeService
+from app.business.memory_candidate_extractor import MemoryCandidateExtractor
 from app.business.memory_policy import MemoryPolicyEngine
 from app.business.memory_service import MemoryService
 from app.business.plan_policy_enricher import PlanPolicyEnricher
@@ -71,6 +72,14 @@ mcp_client = McpStdioClient(
 tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
 tool_service = ToolService(tool_repository, tool_executor)
 model_gateway = LiteLLMModelGateway(settings)
+if settings.memory_auto_extract_session:
+    memory_extractor = MemoryCandidateExtractor(
+        model_gateway,
+        model_profile=settings.memory_extractor_model_profile,
+        max_candidates=settings.memory_extractor_max_candidates,
+    )
+else:
+    memory_extractor = None
 knowledge_repository = PostgresKnowledgeRepository(database)
 if settings.knowledge_embedding_provider.lower() != "hash":
     raise ValueError(
@@ -127,6 +136,7 @@ execution_service = ExecutionService(
     orchestration_engine=orchestration_engine,
     event_publisher=nats_adapter,
     memory_service=memory_service,
+    memory_candidate_extractor=memory_extractor,
     worker_poll_seconds=settings.worker_poll_seconds,
     outbox_poll_seconds=settings.outbox_poll_seconds,
     execution_lease_seconds=settings.execution_lease_seconds,
