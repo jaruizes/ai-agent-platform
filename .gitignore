@@ -1,0 +1,11 @@
+node_modules/
+dist/
+target/
+.angular/
+.DS_Store
+.env
+.secrets/
+workspace/
+*.log
+/.idea/
+/rag/
