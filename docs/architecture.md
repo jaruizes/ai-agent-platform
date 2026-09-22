@@ -1078,3 +1078,299 @@ Reglas a preservar:
 > **Una integración técnicamente correcta puede ser arquitectónicamente incorrecta si propaga demasiado detalle hacia el modelo.**
 
 Estas decisiones serán base explícita de M3 (Knowledge/RAG) y M4 (Agentic Orchestration).
+
+---
+
+## 15. M3 — Managed Knowledge / RAG
+
+M3 convierte el conocimiento documental en un recurso gestionado de la plataforma. No se limita al caso de resumir documentos grandes: su objetivo principal es permitir que agentes y ejecuciones consulten documentación de referencia, políticas, arquitecturas, patrones, perfiles aprobados y reglas de validación.
+
+### ADR-009 — Managed Knowledge es un recurso de primer nivel
+
+**Estado:** Accepted  
+**Contexto:** M3
+
+#### Decisión
+
+Se introduce `KnowledgeBase` como recurso administrado, independiente de agentes, tools y prompts. Una base de conocimiento puede contener múltiples documentos y ser utilizada por cualquier ejecución o asociada explícitamente a agentes.
+
+Scopes soportados:
+
+```text
+EXECUTION
+SESSION
+USER
+TENANT
+GLOBAL
+```
+
+Políticas de retención:
+
+```text
+PERSISTENT
+TTL
+```
+
+Esto permite utilizar el mismo pipeline tanto para conocimiento corporativo persistente como para conocimiento efímero de una ejecución.
+
+#### Consecuencias
+
+- RAG no implica persistencia permanente.
+- La retención se decide independientemente de la técnica de retrieval.
+- El conocimiento puede reutilizarse entre ejecuciones sin volver a parsear/embeber los documentos.
+- Bases TTL se eliminan automáticamente junto con documentos y chunks.
+
+---
+
+### ADR-010 — Ingestar semánticamente, no convertir todo a PDF
+
+**Estado:** Accepted
+
+#### Contexto
+
+Una opción era convertir cualquier formato entrante a PDF y utilizar un único parser. Esto simplifica el pipeline pero destruye estructura útil, especialmente en presentaciones y hojas de cálculo.
+
+#### Decisión
+
+Se utiliza parsing nativo siempre que sea razonable:
+
+```text
+PDF   -> PyMuPDF
+DOCX  -> python-docx
+PPTX  -> python-pptx
+XLSX  -> openpyxl
+CSV   -> parser CSV
+TXT/MD/JSON -> parser nativo
+```
+
+Google Docs, Slides y Sheets utilizan proyecciones semánticas del MCP de Google Workspace.
+
+LibreOffice se utiliza únicamente como fallback portable para formatos legacy/ODF:
+
+```text
+DOC / PPT / XLS / ODT / ODP / ODS
+      -> LibreOffice headless
+      -> PDF temporal
+      -> extracción
+```
+
+LibreOffice forma parte de la imagen Docker de agent-platform; la ejecución no depende de software instalado en el host.
+
+#### Consecuencias
+
+- Se preservan páginas, slides, sheets y tablas como metadata de chunks.
+- Se evita degradar hojas de cálculo a una representación visual antes del parsing.
+- El fallback sigue siendo portable.
+
+---
+
+### ADR-011 — Retrieval híbrido semántico + lexical
+
+**Estado:** Accepted
+
+#### Decisión
+
+Los chunks se almacenan en PostgreSQL con `pgvector` y full-text search.
+
+Cada chunk contiene:
+
+```text
+content
+metadata
+embedding vector(768)
+search_vector tsvector
+```
+
+La búsqueda combina similitud coseno y ranking lexical. El modelo de embeddings se accede mediante el perfil lógico `embedding-default`, igual que el resto de modelos se abstraen mediante LiteLLM.
+
+Implementación local inicial:
+
+```text
+Knowledge Service
+      -> LiteLLM /v1/embeddings
+      -> embedding-default
+      -> Ollama
+      -> nomic-embed-text
+```
+
+#### Consecuencias
+
+- El business code no depende de Ollama.
+- El modelo de embeddings puede sustituirse manteniendo el perfil lógico.
+- El retrieval funciona mejor que una búsqueda únicamente lexical para documentación de referencia.
+- La dimensión de embedding actual (768) forma parte del esquema de almacenamiento M3 y requerirá migración si cambia el modelo por otro de dimensión diferente.
+
+---
+
+### ADR-012 — El ciclo de vida del documento es explícito y reindexable
+
+**Estado:** Accepted
+
+#### Decisión
+
+Los documentos tienen estado de ingestión:
+
+```text
+PENDING -> INDEXING -> READY
+                   -> FAILED
+```
+
+La creación de un documento sólo registra la fuente. Un worker de Knowledge procesa parsing, chunking, embeddings e indexado.
+
+Actualizar un fichero subido incrementa su versión y reconstruye todos sus chunks. Para fuentes Google, `reindex` vuelve a leer la fuente actual por su ID. Eliminar un documento elimina por cascade sus chunks y elimina el binario local cuando exista.
+
+#### Consecuencias
+
+- El lifecycle es observable.
+- Una actualización no mezcla chunks de versiones antiguas y nuevas.
+- El origen (`sourceType + sourceId`) identifica fuentes Google dentro de una KB.
+- M5 podrá hacer durable el proceso de ingestión sin cambiar el modelo externo.
+
+---
+
+### ADR-013 — Knowledge puede actuar como REFERENCE o GUARDRAIL
+
+**Estado:** Accepted
+
+#### Contexto
+
+El conocimiento no siempre se utiliza del mismo modo. Una arquitectura de referencia orienta una solución; un catálogo de perfiles permitidos o una política de seguridad debe funcionar como restricción.
+
+#### Decisión
+
+Las asignaciones Agent -> KnowledgeBase incluyen `usageMode`:
+
+```text
+REFERENCE
+GUARDRAIL
+```
+
+`REFERENCE` aporta grounding, ejemplos y contexto.
+
+`GUARDRAIL` indica que los fragmentos recuperados contienen reglas/constraints contra los que debe contrastarse la solución o el input que se está validando.
+
+El runtime M3 soporta:
+
+```text
+RAG_LLM
+AGENT_RAG_LLM
+AGENT_TOOL_RAG_LLM
+```
+
+Los resultados registran las bases utilizadas y metadata de los retrieval hits para trazabilidad.
+
+#### Límite de M3
+
+M3 permite generación grounded y validación explícita contra conocimiento. Una validación automática multi-step del tipo `generar -> recuperar reglas -> validar -> reparar` pertenece a M4 Agentic Orchestration.
+
+---
+
+### ADR-014 — Conocimiento efímero y conocimiento persistente comparten pipeline
+
+**Estado:** Accepted
+
+#### Decisión
+
+No se implementan dos RAG distintos. Una KB persistente y una KB efímera usan el mismo pipeline:
+
+```text
+source
+  -> parse
+  -> chunk
+  -> embed
+  -> index
+  -> retrieve
+```
+
+La diferencia está en scope y retention:
+
+```text
+Reference architecture KB:
+  scope = TENANT
+  retention = PERSISTENT
+
+One-off huge document:
+  scope = EXECUTION
+  retention = TTL
+```
+
+Un cleanup worker elimina las KB TTL expiradas.
+
+#### Evolución M4
+
+El Planner + Feasibility Engine podrá crear automáticamente una KB efímera cuando detecte que un documento requerido para una ejecución excede el presupuesto de contexto directo.
+
+---
+
+### ADR-015 — El RAG pertenece a la plataforma, no al agente
+
+**Estado:** Accepted
+
+#### Decisión
+
+Los agentes pueden declarar/asociar qué bases de conocimiento les resultan relevantes, pero no implementan por sí mismos vector stores, chunking, embeddings ni retrieval.
+
+```text
+Agent
+   -> logical knowledge assignment
+Platform Knowledge Layer
+   -> ingestion
+   -> indexing
+   -> retrieval
+   -> context construction
+```
+
+#### Consecuencias
+
+- Distintos agentes reutilizan el mismo conocimiento.
+- Las políticas de retención y seguridad se centralizan.
+- Cambiar pgvector, embeddings o estrategia de retrieval no obliga a modificar agentes.
+- El conocimiento recuperado es trazable como parte de la ejecución.
+
+---
+
+### M3: pipeline implementado
+
+```text
+                  +---------------------------+
+Upload ---------->| Native Document Parsers   |
+                  +---------------------------+
+                               |
+Google Docs/Slides/Sheets -> MCP semantic readers
+                               |
+                               v
+                       ParsedDocument
+                               |
+                               v
+                    structure-aware chunking
+                               |
+                               v
+                 LiteLLM embedding-default
+                               |
+                               v
+                  PostgreSQL + pgvector + FTS
+                               |
+                               v
+                       Hybrid Retrieval
+                               |
+                               v
+                    Context Engineering
+                               |
+                               v
+                        Agent / LLM
+```
+
+Formatos iniciales:
+
+- PDF
+- DOCX
+- PPTX
+- XLSX
+- CSV
+- TXT / Markdown / JSON
+- Google Docs
+- Google Slides
+- Google Sheets
+- DOC/PPT/XLS/ODT/ODP/ODS mediante fallback LibreOffice.
+
+El almacenamiento binario local está montado como volumen Docker `/data/knowledge`, separado de PostgreSQL. Los chunks, embeddings, metadata y lifecycle permanecen en PostgreSQL.
