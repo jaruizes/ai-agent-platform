@@ -736,3 +736,46 @@ planner-default
 and defaults to `ANTHROPIC_PLANNER_MODEL`.
 
 M4 intentionally does not add LangGraph durable checkpointing yet. Durable recovery, resume, human approval, configurable retries and cancellation remain M5.
+
+
+---
+
+# M5 — Durable Execution
+
+M5 adds durable, recoverable execution on top of the M4 LangGraph runtime.
+
+Implemented capabilities:
+
+- worker leases and heartbeats;
+- recovery after worker/pod failure;
+- persisted per-step checkpoints;
+- retry with exponential backoff;
+- per-attempt timeout;
+- pause/resume;
+- cancellation;
+- human approval gates;
+- stable step idempotency keys.
+
+Operational endpoints:
+
+```text
+POST /v1/executions/{id}/pause
+POST /v1/executions/{id}/resume
+POST /v1/executions/{id}/cancel
+POST /v1/executions/{id}/steps/{stepId}/approval
+GET  /v1/executions/{id}/orchestration
+```
+
+The orchestration view includes `waitingApprovals`, `retryingSteps`, attempts, retry timing, approval state, stable idempotency keys and token usage.
+
+Recovery does not call the Planner again. The stored `LogicalPlan` is loaded, LangGraph is reconstructed, completed steps return persisted outputs and incomplete work continues.
+
+Default runtime settings:
+
+```env
+EXECUTION_LEASE_SECONDS=30
+EXECUTION_HEARTBEAT_SECONDS=10
+EXECUTION_CONTROL_POLL_SECONDS=0.5
+```
+
+M5 uses at-least-once semantics for external side effects. Completed steps are not re-executed after recovery, but a process failure between an external side effect and checkpoint persistence can repeat that side effect. Side-effecting tools should therefore use the stable `executionId:stepId` idempotency key when the external system supports it.
