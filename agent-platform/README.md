@@ -834,3 +834,55 @@ approvalPolicy = NEVER
 ```
 
 To test the deterministic gate with an existing read Tool, temporarily update that Tool through `PUT /v1/tools/{toolId}` and set `approvalPolicy` to `REQUIRED`. The next plan that uses that Tool must enter `WAITING_APPROVAL` before the Tool call, regardless of what the Planner proposed.
+
+
+---
+
+# M6 — Angular Control Plane
+
+M6 adds a separate Angular 20 administration and operations UI under:
+
+```text
+control-plane-ui/
+```
+
+Start it with the complete stack:
+
+```bash
+docker compose build control-plane-ui agent-platform
+docker compose up -d
+```
+
+Open:
+
+```text
+http://localhost:8081
+```
+
+The UI follows the visual language of `proposal-app/feat/agent-platform-integration` and contains:
+
+- platform dashboard;
+- execution explorer with logical-plan visualization;
+- active agents, step status, tokens, attempts and errors;
+- pause/resume/retry/cancel controls;
+- global human-approval inbox;
+- Agent/Skill/Prompt CRUD;
+- Tool CRUD including side-effect and approval policy;
+- MCP Server CRUD;
+- Knowledge Base and document management;
+- upload, Google document ingestion and reindex;
+- RAG retrieval playground;
+- Agent-to-Knowledge assignment management;
+- runtime/model/durability information;
+- links to Grafana, Prometheus, Jaeger and NATS Monitor.
+
+M6 also adds Control Plane read models:
+
+```text
+GET /v1/admin/overview
+GET /v1/admin/executions
+GET /v1/admin/approvals
+GET /v1/admin/runtime
+```
+
+The Angular container is independent from the execution runtime. Nginx serves the SPA and proxies `/api/*` to `agent-platform:8080`. If the UI is unavailable, runtime command processing continues normally.
