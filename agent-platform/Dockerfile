@@ -16,6 +16,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY agent-platform/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -23,7 +27,6 @@ COPY agent-platform/app ./app
 COPY agent-platform/migrations ./migrations
 COPY agent-platform/bootstrap ./bootstrap
 
-COPY --from=mcp-builder /usr/local/bin/node /usr/local/bin/node
 COPY --from=mcp-builder /build/google-workspace /opt/mcp/google-workspace
 
 EXPOSE 8080
