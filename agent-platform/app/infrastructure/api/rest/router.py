@@ -46,12 +46,73 @@ def create_router(service: ExecutionService) -> APIRouter:
             correlationId=correlation_id,
         )
 
+    @router.get("/executions/{execution_id}/orchestration")
+    async def get_orchestration(execution_id: UUID) -> dict:
+        execution = await service.get_execution(execution_id)
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+
+        orchestration = await service.get_orchestration(execution_id)
+        if not orchestration:
+            return {
+                "executionId": str(execution_id),
+                "status": "NOT_PLANNED",
+                "plan": None,
+                "steps": [],
+                "activeAgents": [],
+                "usage": {
+                    "promptTokens": 0,
+                    "completionTokens": 0,
+                    "totalTokens": 0,
+                },
+            }
+
+        plan = orchestration["plan"]
+        return {
+            "executionId": str(execution_id),
+            "status": plan["status"],
+            "plan": {
+                "objective": plan["objective"],
+                "finalStepId": plan["logical_plan"]["finalStepId"],
+                "logicalPlan": plan["logical_plan"],
+                "validation": plan["validation"],
+                "planner": {
+                    "model": plan["planner_model"],
+                    "usage": plan["planner_usage"],
+                },
+                "createdAt": plan["created_at"],
+                "startedAt": plan["started_at"],
+                "completedAt": plan["completed_at"],
+            },
+            "steps": [
+                {
+                    "id": step["step_id"],
+                    "type": step["step_type"],
+                    "description": step["description"],
+                    "agent": step["agent_name"],
+                    "tool": step["tool_name"],
+                    "knowledgeBases": step["knowledge_bases"],
+                    "dependsOn": step["depends_on"],
+                    "status": step["status"],
+                    "usage": step["usage"],
+                    "output": step["output"],
+                    "error": step["error"],
+                    "startedAt": step["started_at"],
+                    "completedAt": step["completed_at"],
+                }
+                for step in orchestration["steps"]
+            ],
+            "activeAgents": orchestration["activeAgents"],
+            "usage": orchestration["usage"],
+        }
+
     @router.get("/executions/{execution_id}")
     async def get_execution(execution_id: UUID) -> dict:
         execution = await service.get_execution(execution_id)
         if not execution:
             raise HTTPException(status_code=404, detail="Execution not found")
 
+        orchestration = await service.get_orchestration(execution_id)
         return {
             "executionId": str(execution["id"]),
             "correlationId": execution["correlation_id"],
@@ -60,6 +121,12 @@ def create_router(service: ExecutionService) -> APIRouter:
             "status": execution["status"],
             "result": execution["result"],
             "error": execution["error"],
+            "orchestration": {
+                "status": orchestration["plan"]["status"],
+                "objective": orchestration["plan"]["objective"],
+                "activeAgents": orchestration["activeAgents"],
+                "usage": orchestration["usage"],
+            } if orchestration else None,
             "createdAt": execution["created_at"],
             "updatedAt": execution["updated_at"],
             "completedAt": execution["completed_at"],
