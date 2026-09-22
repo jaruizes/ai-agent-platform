@@ -2,7 +2,7 @@
 
 ## 1. Objetivo
 
-AI Agent Platform es una plataforma genérica para ejecutar capacidades basadas en agentes de IA sin acoplar a las aplicaciones consumidoras con agentes concretos, prompts, modelos, RAG, MCP ni estrategias de orquestación.
+AI Agent Platform es una **plataforma genérica** para ejecutar capacidades basadas en agentes de IA sin acoplar a las aplicaciones consumidoras con agentes concretos, prompts, modelos, RAG, MCP ni estrategias de orquestación.
 
 La frontera arquitectónica principal separa dos mundos:
 
@@ -11,7 +11,7 @@ La frontera arquitectónica principal separa dos mundos:
 
 Principio fundamental:
 
-> Las aplicaciones expresan **qué quieren conseguir**. La plataforma decide **cómo conseguirlo**.
+> Las aplicaciones expresan **QUÉ quieren conseguir**. La plataforma decide **CÓMO conseguirlo**.
 
 Una nueva capacidad de negocio no debe implicar un nuevo contrato de integración.
 
@@ -19,17 +19,17 @@ Una nueva capacidad de negocio no debe implicar un nuevo contrato de integració
 
 ## 2. Principios arquitectónicos
 
-### 2.1 Contratos genéricos
+### 2.1 Contratos genéricos: evitando acoplamiento a procesos y aplicaciones
 
-La plataforma no expone contratos específicos como `AnalyseProposalCommand`, `GenerateArchitectureCommand` o `ReviewCodeCommand`.
+Como he comentado, la plataforma tiene la intencion de ser genérica y de que se puedan construir sobre ella las diferentes capas de negocio concreto. Por este motivo, no expone contratos específicos acoplados a un caso de negocio particular (ej:  `AnalyseProposalCommand`, `GenerateArchitectureCommand` o `ReviewCodeCommand`)
 
-La entrada se normaliza como un `ExecutionCommand`. El caso de uso solicitado se representa como datos:
+La entrada se normaliza como un `ExecutionCommand`. El caso de uso de negocio solicitado se representa como datos:
 
 - `command.name`: identificador estable y machine-readable de la capacidad.
 - `intent`: objetivo expresado en lenguaje natural.
 - `input`: datos estructurados sobre los que trabajar.
-- `context`: contexto adicional conocido por el consumidor.
-- `instructions`: aclaraciones o restricciones específicas de la ejecución.
+- `context`: contexto adicional conocido por el consumidor. Este dato es opcional
+- `instructions`: aclaraciones o restricciones específicas de la ejecución. Este dato es opcional
 
 Ejemplos de `command.name`:
 
@@ -38,10 +38,11 @@ Ejemplos de `command.name`:
 - `review-code`
 - `prepare-presentation`
 
-El nombre de comando identifica una **capacidad**, no un agente.
+El nombre de comando identifica una **capacidad**, nunca a un agente.
 
 ### 2.2 Independencia del transporte
 
+Como hemos visto en el punto anterior, el modelo de entrada es genérico, independientemente del canal de entrada. 
 REST y NATS son adaptadores de transporte. Ambos deben mapear al mismo modelo canónico interno.
 
 ```text
@@ -52,7 +53,9 @@ NATS Adapter ──┘
 
 No existirán dos caminos funcionales diferentes para REST y mensajería.
 
-### 2.3 Commands in / Events out
+### 2.3 Commands in / Events out: manejando la latencia
+
+En el caso de operaciones con agentes tenemos que tener muy en cuenta que son operaciones no deterministas y que la latencia puede variar bastante. Por este motivo, la entrada puede ser síncrona o asíncróna pero la respuesta siempre va a ser asíncróna:
 
 - **Entrada de comandos**: REST o NATS JetStream.
 - **Salida de ejecución**: siempre mediante eventos publicados en NATS JetStream.
@@ -60,15 +63,9 @@ No existirán dos caminos funcionales diferentes para REST y mensajería.
 
 La aceptación de un comando no implica su finalización. Una llamada REST de escritura debe responder con `202 Accepted` y devolver los identificadores necesarios para seguir la ejecución.
 
-### 2.4 Asincronía por defecto
+### 2.4 Encapsulación de la inteligencia
 
-Las ejecuciones agénticas pueden durar segundos, minutos u horas. La plataforma no mantiene una petición HTTP abierta esperando el resultado final.
-
-La unidad de trabajo durable es la **Execution**.
-
-### 2.5 Encapsulación de la inteligencia
-
-Los consumidores no conocen:
+Los consumidores de la plataforma no deberían conocer:
 
 - agentes concretos;
 - prompts;
@@ -81,7 +78,7 @@ Los consumidores no conocen:
 - estrategia de planificación;
 - número de pasos.
 
-Una capacidad puede evolucionar internamente desde un único agente a una ejecución multiagente sin cambiar el contrato externo.
+Una capacidad puede evolucionar internamente desde un único agente a una ejecución multiagente sin cambiar el contrato externo. El consumidor enviará un comando (es decir, una intencion, el QUÉ) y la plataforma se encarga del CÓMO. El usuario sí que dispone de campos en el mensaje de comando, como "context" e "instructions" en los que puede indicar ciertas recomendaciones o restricciones en la ejecucion del CÓMO.
 
 ### 2.6 Trazabilidad extremo a extremo
 
@@ -94,7 +91,7 @@ Todos los mensajes deben incluir identificadores que permitan reconstruir la cad
 
 ### 2.7 Durable delivery
 
-Los comandos y eventos relevantes utilizarán **NATS JetStream**, no únicamente Core NATS, para disponer de persistencia, acknowledgements, redelivery y replay.
+Los comandos y eventos relevantes utilizarán **NATS JetStream**, no únicamente Core NATS, para disponer de persistencia, acknowledgements, redelivery y replay. Esto permite que si hay un fallo de la plataforma a nivel de infraestructura se pueda retomar el proceso en cuanto la plataforma vuelva a estar operativa.
 
 ---
 
