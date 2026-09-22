@@ -124,6 +124,7 @@ flowchart TB
 
         subgraph Runtime["AGENTIC RUNTIME - M4"]
             PL["LLM Planner<br/>planner-default"]
+            PE["Plan Policy Enricher<br/>approval determinista"]
             PV["Plan Validator / Feasibility<br/>determinista"]
             OP["OrchestrationEngine Port"]
             LG["LangGraph Engine"]
@@ -196,7 +197,8 @@ flowchart TB
     NATSIN --> CG
     CG --> IR
     IR --> PL
-    PL --> PV
+    PL --> PE
+    PE --> PV
     PV --> OP
     OP --> LG
     LG --> SE
@@ -215,6 +217,7 @@ flowchart TB
     MS --> MG
     SE --> CE
     Runtime --> State
+    SEC --> PE
     Runtime --> Cross
     Runtime --> DB
     Runtime --> ART
@@ -1629,7 +1632,25 @@ Esto permite composición multi-step sin introducir adaptaciones específicas po
 
 El LLM **propone** el plan. No decide si el plan es estructuralmente válido.
 
-Antes de compilar el grafo, `PlanValidator` comprueba de forma determinista:
+Antes de compilar el grafo, el plan pasa por dos puntos deterministas:
+
+```text
+LLM Planner
+    |
+    v
+LogicalPlan propuesto
+    |
+    v
+PlanPolicyEnricher
+    |
+    v
+LogicalPlan efectivo
+    |
+    v
+PlanValidator
+```
+
+`PlanPolicyEnricher` aplica políticas que el LLM no puede relajar. En M5 incluye la política de aprobación humana asociada a cada Tool. Después, `PlanValidator` comprueba de forma determinista:
 
 - número máximo de pasos;
 - IDs únicos;
@@ -2073,7 +2094,59 @@ Los steps incompletos pasan a `CANCELLED`; los ya `COMPLETED` conservan su outpu
 
 ### Human approval
 
-El Planner puede marcar un step:
+La aprobación humana no depende exclusivamente de que el Planner produzca `requiresApproval=true`.
+
+Cada Tool declara metadata de riesgo operacional:
+
+```text
+sideEffect:
+  NONE
+  READ
+  WRITE
+  EXTERNAL_ACTION
+
+approvalPolicy:
+  NEVER
+  OPTIONAL
+  REQUIRED
+```
+
+El flujo efectivo es:
+
+```text
+Planner proposes LogicalPlan
+        |
+        v
+PlanPolicyEnricher
+        |
+        +-- Tool approvalPolicy=REQUIRED
+        |       -> force requiresApproval=true
+        |
+        +-- Tool approvalPolicy=NEVER
+        |       -> force requiresApproval=false
+        |
+        +-- Tool approvalPolicy=OPTIONAL
+                -> preserve Planner proposal
+        |
+        v
+PlanValidator
+        |
+        v
+persist effective plan
+        |
+        v
+LangGraph
+        |
+        v
+StepExecutor rechecks current Tool policy
+        |
+        v
+WAITING_APPROVAL before side effect
+```
+
+Por tanto existen **dos barreras deterministas**: una al construir el plan efectivo y otra inmediatamente antes de ejecutar la Tool. La segunda evita que un plan ya persistido omita una política `REQUIRED` que haya cambiado después de la planificación.
+
+El Planner puede además marcar un step:
 
 ```json
 {
@@ -2312,3 +2385,85 @@ approvalUpdatedAt
 forman parte del estado persistente del step y son visibles por API/eventos.
 
 Esto permite una futura UI, auditoría y reemplazo del motor de orquestación sin perder la semántica funcional del approval.
+
+
+### ADR-027 — Human approval para Tools se impone mediante política determinista
+
+**Estado:** Accepted  
+**Contexto:** M5 hardening
+
+#### Contexto
+
+La primera versión de M5 permitía que el Planner estableciera `requiresApproval=true`. Esto no es suficiente para operaciones sensibles porque un LLM puede omitir el flag, generar un plan distinto o interpretar de forma diferente una instrucción de usuario.
+
+#### Decisión
+
+Las Tools son recursos declarativos con metadata de efecto y política:
+
+```text
+Tool
+  sideEffect = NONE | READ | WRITE | EXTERNAL_ACTION
+  approvalPolicy = NEVER | OPTIONAL | REQUIRED
+```
+
+El LLM sigue pudiendo proponer approval gates, pero **la política de plataforma es autoritativa**.
+
+```text
+LLM proposal
+    |
+    v
+PlanPolicyEnricher        <-- deterministic enforcement point #1
+    |
+    v
+PlanValidator
+    |
+    v
+Persisted effective plan
+    |
+    v
+StepExecutor
+    |
+    v
+Current Tool policy check <-- deterministic enforcement point #2
+    |
+    +--> REQUIRED and not approved -> WAITING_APPROVAL
+    |
+    +--> approved/not required -> execute Tool
+```
+
+Para `REQUIRED`, `PlanPolicyEnricher` fuerza:
+
+```text
+requiresApproval = true
+approvalSource = TOOL_POLICY
+toolSideEffect = <snapshot>
+toolApprovalPolicy = REQUIRED
+```
+
+La policy y su procedencia se persisten en `execution_plan_steps` y se exponen en la API de orquestación.
+
+El `StepExecutor` vuelve a consultar la Tool antes de ejecutarla. Si la Tool ha cambiado a `REQUIRED` después de persistir el plan, el runtime eleva dinámicamente el step a approval obligatorio, persiste el cambio y emite `STEP_APPROVAL_POLICY_ENFORCED`.
+
+#### Consecuencias
+
+- un Planner no puede saltarse una política `REQUIRED`;
+- la UI puede explicar **por qué** una ejecución está esperando aprobación;
+- cambios de política entre planificación y ejecución se aplican de forma segura;
+- el approval gate sigue siendo durable y auditable;
+- la política pertenece al Tool Registry / Platform Policy, no al prompt.
+
+Para las Tools bootstrap de Google que actualmente son sólo de lectura:
+
+```text
+sideEffect = READ
+approvalPolicy = NEVER
+```
+
+Una futura Tool de escritura/publicación debería declarar explícitamente, por ejemplo:
+
+```yaml
+sideEffect: EXTERNAL_ACTION
+approvalPolicy: REQUIRED
+```
+
+si la organización exige aprobación humana antes del side effect.
