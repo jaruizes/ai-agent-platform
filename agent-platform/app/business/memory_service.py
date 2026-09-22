@@ -5,13 +5,11 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.business.memory_policy import MemoryPolicyEngine
 from app.business.ports import MemoryRepositoryPort
-from app.domain.execution import Command
 from app.domain.memory import (
-    CONTEXT_ENTRY_TYPES,
     MEMORY_STATUSES,
     SESSION_SCOPES,
     SESSION_STATUSES,
@@ -126,108 +124,6 @@ class MemoryService:
             limit=limit,
         )
 
-    async def capture_submission(
-        self,
-        *,
-        execution_id: UUID,
-        session_id: UUID | None,
-        command: Command,
-    ) -> None:
-        await self.record_context(
-            WorkingContextEntry(
-                execution_id=execution_id,
-                session_id=session_id,
-                entry_type="COMMAND",
-                entry_key="command",
-                content={
-                    "name": command.name,
-                    "intent": command.intent,
-                    "input": command.input,
-                    "context": command.context,
-                    "metadata": command.metadata,
-                },
-                priority=100,
-                token_estimate=self._estimate_tokens(
-                    {
-                        "intent": command.intent,
-                        "input": command.input,
-                        "context": command.context,
-                    }
-                ),
-                source_type="COMMAND",
-            )
-        )
-        for index, instruction in enumerate(command.instructions):
-            await self.record_context(
-                WorkingContextEntry(
-                    execution_id=execution_id,
-                    session_id=session_id,
-                    entry_type="INSTRUCTION",
-                    entry_key=f"instruction:{index}",
-                    content={"text": instruction},
-                    priority=100,
-                    token_estimate=self._estimate_tokens(instruction),
-                    source_type="COMMAND",
-                )
-            )
-
-    async def record_plan(
-        self,
-        *,
-        execution_id: UUID,
-        session_id: UUID | None,
-        plan: dict[str, Any],
-    ) -> None:
-        await self.record_context(
-            WorkingContextEntry(
-                execution_id=execution_id,
-                session_id=session_id,
-                entry_type="PLAN",
-                entry_key="logical-plan",
-                content=plan,
-                priority=90,
-                token_estimate=self._estimate_tokens(plan),
-                source_type="PLANNER",
-            )
-        )
-
-    async def record_step_result(
-        self,
-        *,
-        execution_id: UUID,
-        session_id: UUID | None,
-        step_id: str,
-        step_type: str,
-        output: dict[str, Any],
-    ) -> None:
-        entry_type = {
-            "TOOL": "TOOL_RESULT",
-            "KNOWLEDGE": "KNOWLEDGE",
-        }.get(step_type, "STEP_RESULT")
-        await self.record_context(
-            WorkingContextEntry(
-                execution_id=execution_id,
-                session_id=session_id,
-                step_id=step_id,
-                entry_type=entry_type,
-                entry_key=f"step:{step_id}",
-                content=output,
-                priority=80,
-                token_estimate=self._estimate_tokens(output),
-                source_type=step_type,
-                source_ref=step_id,
-                provenance={"stepId": step_id, "stepType": step_type},
-            )
-        )
-
-    async def record_context(
-        self,
-        entry: WorkingContextEntry,
-    ) -> WorkingContextEntry:
-        if entry.entry_type not in CONTEXT_ENTRY_TYPES:
-            raise ValueError(f"Unsupported context entry type '{entry.entry_type}'")
-        return await self._repository.add_context_entry(entry)
-
     async def execution_context(
         self,
         execution_id: UUID,
@@ -299,7 +195,6 @@ class MemoryService:
             ),
         }
         if not decision.allowed:
-            from uuid import uuid4
 
             await self._repository.record_policy_audit(
                 candidate=candidate_snapshot,
@@ -330,7 +225,6 @@ class MemoryService:
             expires_at=self._normalize_datetime(candidate.expires_at),
         )
         persisted = await self._repository.create_memory(memory)
-        from uuid import uuid4
 
         await self._repository.record_policy_audit(
             candidate=candidate_snapshot,
