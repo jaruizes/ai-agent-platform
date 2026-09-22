@@ -17,7 +17,8 @@ class Settings(BaseSettings):
 
     litellm_base_url: str = "http://litellm:4000"
     litellm_master_key: str = "sk-local-dev-key"
-    default_model: str = "platform-default"
+    router_model_profile: str = "router-fast"
+    execution_model_profile: str = "reasoning-default"
     model_timeout_seconds: float = 120.0
 
     worker_poll_seconds: float = 0.5
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
 
     bootstrap_skills_dir: str = "/app/bootstrap/skills"
     bootstrap_agents_dir: str = "/app/bootstrap/agents"
+    bootstrap_prompts_dir: str = "/app/bootstrap/prompts"
 
     otel_exporter_otlp_endpoint: str = "http://otel-collector:4317"
 
