@@ -69,21 +69,53 @@ class StepExecutor:
 
         await self._check_control(execution)
 
-        if step.requires_approval:
+        effective_requires_approval = step.requires_approval
+        effective_reason = (
+            step.approval_reason
+            or f"Human approval is required before step '{step.id}'."
+        )
+
+        if step.type == "TOOL" and step.tool_name:
+            tool = await self._tool_service.get_tool_by_name(step.tool_name)
+            if not tool or not tool.enabled:
+                raise LookupError(
+                    f"Tool '{step.tool_name}' not found or disabled"
+                )
+            if tool.approval_policy.upper() == "REQUIRED":
+                effective_requires_approval = True
+                effective_reason = (
+                    step.approval_reason
+                    or f"Tool '{tool.name}' requires human approval "
+                    f"by deterministic platform policy."
+                )
+                if not checkpoint or not checkpoint.get("requires_approval"):
+                    await self._repository.enforce_step_approval_policy(
+                        execution,
+                        step_id=step.id,
+                        reason=effective_reason,
+                        approval_source="TOOL_POLICY",
+                        tool_side_effect=tool.side_effect,
+                        tool_approval_policy=tool.approval_policy,
+                    )
+                    checkpoint = await self._repository.get_step_checkpoint(
+                        execution["id"],
+                        step.id,
+                    )
+
+        if effective_requires_approval:
             approval_status = (
                 checkpoint.get("approval_status") if checkpoint else "PENDING"
             )
             if approval_status != "APPROVED":
-                reason = (
-                    step.approval_reason
-                    or f"Human approval is required before step '{step.id}'."
-                )
                 await self._repository.mark_step_waiting_approval(
                     execution,
                     step_id=step.id,
-                    reason=reason,
+                    reason=effective_reason,
                 )
-                raise OrchestrationSuspended("WAITING_APPROVAL", reason)
+                raise OrchestrationSuspended(
+                    "WAITING_APPROVAL",
+                    effective_reason,
+                )
 
         if checkpoint and checkpoint.get("next_retry_at"):
             await self._wait_until_retry(checkpoint["next_retry_at"], execution)
