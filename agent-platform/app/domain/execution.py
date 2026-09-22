@@ -28,4 +28,5 @@ class ExecutionSubmission:
 class ExecutionPlan:
     system_prompt: str
     user_prompt: str
-    strategy: Literal["DIRECT_LLM"] = "DIRECT_LLM"
+    strategy: Literal["DIRECT_LLM", "AGENT"] = "DIRECT_LLM"
+    agent_name: str | None = None
