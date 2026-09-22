@@ -41,11 +41,11 @@ class PostgresKnowledgeRepository:
             await conn.execute(
                 """
                 INSERT INTO knowledge_bases(
-                    id,name,description,scope,retention_policy,expires_at,enabled,metadata
-                ) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+                    id,name,description,scope,retention_policy,expires_at,enabled,chunking_policy,metadata
+                ) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)
                 """,
                 kb.id, kb.name, kb.description, kb.scope, kb.retention_policy,
-                kb.expires_at, kb.enabled, json.dumps(kb.metadata),
+                kb.expires_at, kb.enabled, json.dumps(kb.chunking_policy), json.dumps(kb.metadata),
             )
         return kb
 
@@ -55,11 +55,11 @@ class PostgresKnowledgeRepository:
                 """
                 UPDATE knowledge_bases SET
                     name=$2,description=$3,scope=$4,retention_policy=$5,
-                    expires_at=$6,enabled=$7,metadata=$8::jsonb,updated_at=now()
+                    expires_at=$6,enabled=$7,chunking_policy=$8::jsonb,metadata=$9::jsonb,updated_at=now()
                 WHERE id=$1
                 """,
                 kb.id, kb.name, kb.description, kb.scope, kb.retention_policy,
-                kb.expires_at, kb.enabled, json.dumps(kb.metadata),
+                kb.expires_at, kb.enabled, json.dumps(kb.chunking_policy), json.dumps(kb.metadata),
             )
         return kb
 
@@ -266,6 +266,7 @@ class PostgresKnowledgeRepository:
                 WHERE c.knowledge_base_id = ANY($1::uuid[])
                   AND d.status='READY'
                   AND kb.enabled=true
+                  AND c.embedding IS NOT NULL
                 ORDER BY score DESC
                 LIMIT $4
                 """,
@@ -326,7 +327,9 @@ class PostgresKnowledgeRepository:
             ]
 
     @staticmethod
-    def _vector_literal(values: list[float]) -> str:
+    def _vector_literal(values: list[float] | None) -> str | None:
+        if values is None:
+            return None
         return "[" + ",".join(f"{value:.9f}" for value in values) + "]"
 
     @staticmethod
@@ -347,6 +350,7 @@ class PostgresKnowledgeRepository:
             retention_policy=row["retention_policy"],
             expires_at=row["expires_at"],
             enabled=row["enabled"],
+            chunking_policy=cls._json(row["chunking_policy"]) or {},
             metadata=cls._json(row["metadata"]) or {},
         )
 
