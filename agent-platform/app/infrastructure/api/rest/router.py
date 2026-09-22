@@ -41,14 +41,21 @@ def create_router(service: ExecutionService) -> APIRouter:
             message_id=message_id,
             correlation_id=correlation_id,
             source={"type": "application", "name": "rest-client"},
+            session_id=request.sessionId,
             command=command,
         )
 
-        persisted_id, _ = await service.submit(submission)
+        try:
+            persisted_id, _ = await service.submit(submission)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         response.headers["Location"] = f"/v1/executions/{persisted_id}"
         return RestExecutionAccepted(
             executionId=persisted_id,
             correlationId=correlation_id,
+            sessionId=request.sessionId,
         )
 
     @router.get("/executions/{execution_id}/orchestration")
@@ -241,6 +248,11 @@ def create_router(service: ExecutionService) -> APIRouter:
         return {
             "executionId": str(execution["id"]),
             "correlationId": execution["correlation_id"],
+            "sessionId": (
+                str(execution["session_id"])
+                if execution.get("session_id")
+                else None
+            ),
             "command": {"name": execution["command_name"]},
             "intent": execution["intent"],
             "status": execution["status"],
