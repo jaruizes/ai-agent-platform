@@ -147,7 +147,7 @@ class PostgresKnowledgeRepository:
     async def mark_document_pending(self, document_id: UUID) -> bool:
         async with self._db.require_pool().acquire() as conn:
             result = await conn.execute(
-                "UPDATE knowledge_documents SET status='PENDING',error=NULL,updated_at=now() WHERE id=$1",
+                "UPDATE knowledge_documents SET status='PENDING',version=version+1,error=NULL,updated_at=now() WHERE id=$1",
                 document_id,
             )
             return result == "UPDATE 1"
