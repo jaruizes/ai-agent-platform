@@ -31,18 +31,20 @@ class PostgresToolRepository:
     async def create_tool(self, tool: Tool) -> Tool:
         async with self._db.require_pool().acquire() as conn:
             await conn.execute(
-                "INSERT INTO tools(id,name,description,instructions,implementation_type,configuration,input_schema,enabled,source) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9)",
+                "INSERT INTO tools(id,name,description,instructions,implementation_type,configuration,input_schema,side_effect,approval_policy,enabled,source) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10,$11)",
                 tool.id, tool.name, tool.description, tool.instructions, tool.implementation_type,
-                json.dumps(tool.configuration), json.dumps(tool.input_schema), tool.enabled, tool.source,
+                json.dumps(tool.configuration), json.dumps(tool.input_schema),
+                tool.side_effect, tool.approval_policy, tool.enabled, tool.source,
             )
         return tool
 
     async def update_tool(self, tool: Tool) -> Tool:
         async with self._db.require_pool().acquire() as conn:
             await conn.execute(
-                "UPDATE tools SET name=$2,description=$3,instructions=$4,implementation_type=$5,configuration=$6::jsonb,input_schema=$7::jsonb,enabled=$8,updated_at=now() WHERE id=$1",
+                "UPDATE tools SET name=$2,description=$3,instructions=$4,implementation_type=$5,configuration=$6::jsonb,input_schema=$7::jsonb,side_effect=$8,approval_policy=$9,enabled=$10,updated_at=now() WHERE id=$1",
                 tool.id, tool.name, tool.description, tool.instructions, tool.implementation_type,
-                json.dumps(tool.configuration), json.dumps(tool.input_schema), tool.enabled,
+                json.dumps(tool.configuration), json.dumps(tool.input_schema),
+                tool.side_effect, tool.approval_policy, tool.enabled,
             )
         return tool
 
@@ -106,6 +108,8 @@ class PostgresToolRepository:
             instructions=row["instructions"], implementation_type=row["implementation_type"],
             configuration=dict(cls._decode_json(row["configuration"]) or {}),
             input_schema=dict(cls._decode_json(row["input_schema"]) or {}),
+            side_effect=row["side_effect"],
+            approval_policy=row["approval_policy"],
             enabled=row["enabled"], source=row["source"],
         )
 
