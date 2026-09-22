@@ -22,6 +22,7 @@ class ExecutionSubmission:
     correlation_id: str
     source: dict[str, Any]
     command: Command
+    session_id: UUID | None = None
 
 
 @dataclass(frozen=True)
