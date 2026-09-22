@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     memory_min_inferred_confidence: float = 0.80
     memory_max_content_chars: int = 8000
     memory_cleanup_poll_seconds: float = 60.0
+    memory_auto_extract_session: bool = True
+    memory_extractor_model_profile: str = "router-fast"
+    memory_extractor_max_candidates: int = 8
 
     otel_exporter_otlp_endpoint: str = "http://otel-collector:4317"
 
