@@ -39,7 +39,10 @@ catalog_service = CatalogService(catalog_repository)
 prompt_repository = PostgresPromptRepository(database)
 prompt_service = PromptService(prompt_repository)
 tool_repository = PostgresToolRepository(database)
-mcp_client = McpStdioClient(settings.mcp_timeout_seconds)
+mcp_client = McpStdioClient(
+    timeout_seconds=settings.mcp_timeout_seconds,
+    max_message_bytes=settings.mcp_max_message_bytes,
+)
 tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
 tool_service = ToolService(tool_repository, tool_executor)
 model_gateway = LiteLLMModelGateway(settings)
