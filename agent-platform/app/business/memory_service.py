@@ -282,7 +282,7 @@ class MemoryService:
             "contentSha256": hashlib.sha256(
                 candidate.content.encode("utf-8")
             ).hexdigest(),
-            "metadata": candidate.metadata,
+            "metadataKeys": sorted(candidate.metadata.keys()),
             "confidence": candidate.confidence,
             "importance": candidate.importance,
             "explicit": candidate.explicit,
