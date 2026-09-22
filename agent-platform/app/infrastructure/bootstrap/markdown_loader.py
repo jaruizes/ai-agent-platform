@@ -3,13 +3,24 @@ from pathlib import Path
 import yaml
 
 from app.business.catalog_service import CatalogService
+from app.business.prompt_service import PromptService
 
 
 class MarkdownCatalogLoader:
-    def __init__(self, catalog_service: CatalogService, *, skills_dir: str, agents_dir: str):
+    def __init__(
+        self,
+        catalog_service: CatalogService,
+        prompt_service: PromptService,
+        *,
+        skills_dir: str,
+        agents_dir: str,
+        prompts_dir: str,
+    ):
         self._catalog_service = catalog_service
+        self._prompt_service = prompt_service
         self._skills_dir = Path(skills_dir)
         self._agents_dir = Path(agents_dir)
+        self._prompts_dir = Path(prompts_dir)
 
     async def load(self) -> None:
         for file in sorted(self._skills_dir.glob("*.md")):
@@ -30,6 +41,18 @@ class MarkdownCatalogLoader:
                 description=metadata.get("description", ""),
                 instructions=body,
                 skill_names=list(metadata.get("skills", [])),
+                enabled=bool(metadata.get("enabled", True)),
+                source="BOOTSTRAP",
+                only_if_missing=True,
+            )
+
+        for file in sorted(self._prompts_dir.glob("*.md")):
+            metadata, body = self._parse(file)
+            await self._prompt_service.create_prompt(
+                name=metadata["name"],
+                description=metadata.get("description", ""),
+                content=body,
+                version=int(metadata.get("version", 1)),
                 enabled=bool(metadata.get("enabled", True)),
                 source="BOOTSTRAP",
                 only_if_missing=True,
