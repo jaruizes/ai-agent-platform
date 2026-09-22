@@ -8,7 +8,6 @@ from uuid import UUID, uuid4
 
 from app.business.memory_policy import MemoryPolicyEngine
 from app.business.ports import MemoryRepositoryPort
-from app.business.ports import MemoryRepositoryPort
 from app.domain.memory import (
     MEMORY_STATUSES,
     SESSION_SCOPES,
@@ -259,13 +258,6 @@ class MemoryService:
                 }
             )
         return decisions
-
-    async def list_policy_audit(
-        self,
-        *,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        return await self._repository.list_policy_audit(limit=limit)
 
     async def get_memory(self, memory_id: UUID) -> MemoryEntry | None:
         return await self._repository.get_memory(memory_id)
