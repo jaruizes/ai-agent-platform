@@ -205,6 +205,29 @@ def create_memory_router(service: MemoryService) -> APIRouter:
     async def memory_policy() -> dict[str, Any]:
         return service.policy_description()
 
+    @router.get("/memory-policy/audit")
+    async def memory_policy_audit(
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[dict[str, Any]]:
+        rows = await service.policy_audit(limit=limit)
+        return [
+            {
+                **row,
+                "id": str(row["id"]),
+                "memory_id": (
+                    str(row["memory_id"])
+                    if row.get("memory_id")
+                    else None
+                ),
+                "source_execution_id": (
+                    str(row["source_execution_id"])
+                    if row.get("source_execution_id")
+                    else None
+                ),
+            }
+            for row in rows
+        ]
+
     return router
 
 
