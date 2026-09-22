@@ -1190,7 +1190,7 @@ Knowledge Service
       -> LiteLLM /v1/embeddings
       -> embedding-default
       -> Ollama
-      -> nomic-embed-text
+      -> nomic-embed-text-v2-moe
 ```
 
 #### Consecuencias
