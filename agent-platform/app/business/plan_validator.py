@@ -112,6 +112,37 @@ class PlanValidator:
                     f"Step '{step.id}' has invalid knowledgeUsageMode "
                     f"'{step.knowledge_usage_mode}'"
                 )
+
+            if step.timeout_seconds <= 0 or step.timeout_seconds > 3600:
+                errors.append(
+                    f"Step '{step.id}' timeoutSeconds must be in (0, 3600]"
+                )
+
+            retry = step.retry_policy or {}
+            max_attempts = int(retry.get("maxAttempts", 3))
+            initial_backoff = float(retry.get("initialBackoffSeconds", 1.0))
+            max_backoff = float(retry.get("maxBackoffSeconds", 30.0))
+            multiplier = float(retry.get("multiplier", 2.0))
+            if max_attempts < 1 or max_attempts > 10:
+                errors.append(
+                    f"Step '{step.id}' maxAttempts must be between 1 and 10"
+                )
+            if initial_backoff < 0 or max_backoff < 0:
+                errors.append(
+                    f"Step '{step.id}' backoff values must be non-negative"
+                )
+            if max_backoff < initial_backoff:
+                errors.append(
+                    f"Step '{step.id}' maxBackoffSeconds must be >= initialBackoffSeconds"
+                )
+            if multiplier < 1.0 or multiplier > 10.0:
+                errors.append(
+                    f"Step '{step.id}' retry multiplier must be between 1 and 10"
+                )
+            if step.requires_approval and not step.approval_reason:
+                warnings.append(
+                    f"Step '{step.id}' requires approval without an approvalReason"
+                )
             if step.type == "VALIDATE" and step.knowledge_usage_mode != "GUARDRAIL":
                 warnings.append(
                     f"VALIDATE step '{step.id}' normally should use GUARDRAIL knowledge"
