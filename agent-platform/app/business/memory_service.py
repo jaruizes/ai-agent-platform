@@ -55,7 +55,7 @@ class MemoryService:
                 scope=normalized_scope,
                 owner_key=owner_key,
                 metadata=metadata,
-                expires_at=expires_at,
+                expires_at=self._normalize_datetime(expires_at),
             )
         )
 
@@ -109,7 +109,7 @@ class MemoryService:
             scope=normalized_scope,
             owner_key=owner_key,
             metadata=metadata,
-            expires_at=expires_at,
+            expires_at=self._normalize_datetime(expires_at),
         )
 
     async def close_session(self, session_id: UUID) -> Session | None:
@@ -327,7 +327,7 @@ class MemoryService:
             policy_decision=decision.as_dict(),
             source_execution_id=candidate.source_execution_id,
             source_step_id=candidate.source_step_id,
-            expires_at=candidate.expires_at,
+            expires_at=self._normalize_datetime(candidate.expires_at),
         )
         persisted = await self._repository.create_memory(memory)
         from uuid import uuid4
@@ -386,6 +386,14 @@ class MemoryService:
 
     async def stop(self) -> None:
         self._stop.set()
+
+    @staticmethod
+    def _normalize_datetime(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
     @staticmethod
     def _estimate_tokens(value: Any) -> int:
