@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from app.domain.memory import (
@@ -65,9 +66,16 @@ class MemoryPolicyEngine:
                     f"{self._min_inferred_confidence:.2f}"
                 )
 
+        secret_scan_text = candidate.content + "\n" + json.dumps(
+            candidate.metadata,
+            ensure_ascii=False,
+            default=str,
+        )
         for pattern in self._SECRET_PATTERNS:
-            if pattern.search(candidate.content):
-                reasons.append("Secret-like content is not allowed in persistent memory")
+            if pattern.search(secret_scan_text):
+                reasons.append(
+                    "Secret-like content is not allowed in persistent memory"
+                )
                 break
 
         allowed = not reasons
