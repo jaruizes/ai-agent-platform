@@ -1374,3 +1374,143 @@ Formatos iniciales:
 - DOC/PPT/XLS/ODT/ODP/ODS mediante fallback LibreOffice.
 
 El almacenamiento binario local está montado como volumen Docker `/data/knowledge`, separado de PostgreSQL. Los chunks, embeddings, metadata y lifecycle permanecen en PostgreSQL.
+
+
+
+---
+
+### ADR-016 — Embeddings desacoplados del Model Gateway y sin dependencia obligatoria de Ollama
+
+**Estado:** Accepted  
+**Contexto:** M3 — revisión de portabilidad local
+
+#### Contexto
+
+La primera implementación de M3 resolvía embeddings mediante:
+
+```text
+Knowledge Service
+  -> LiteLLM
+  -> embedding-default
+  -> Ollama
+  -> nomic-embed-text-v2-moe
+```
+
+Aunque la abstracción lógica era correcta, el runtime local quedaba obligado a descargar y ejecutar una imagen pesada de Ollama. En entornos de desarrollo con Docker/Colima esto introduce consumo significativo de disco y memoria y puede impedir incluso arrancar la plataforma.
+
+La rama `feat/agent-platform-integration` de `proposal-app` ya utilizaba una abstracción específica de embedding con un provider hash determinista y sin credenciales para desarrollo/integración.
+
+#### Decisión
+
+Embeddings dejan de formar parte de `ModelGatewayPort`.
+
+Se introduce una abstracción independiente:
+
+```text
+EmbeddingProvider
+  - provider_key
+  - model
+  - dimensions
+  - embed(texts)
+```
+
+El runtime portable por defecto usa:
+
+```text
+HashEmbeddingProvider
+model = hash-embedding-v1
+dimensions = 768
+```
+
+No necesita:
+
+- Ollama;
+- GPU;
+- CUDA;
+- descarga de modelos;
+- credenciales adicionales.
+
+LiteLLM vuelve a dedicarse únicamente a modelos generativos.
+
+#### Consecuencias
+
+Positivas:
+
+- el `docker-compose` local deja de incluir Ollama;
+- M3 puede arrancar en máquinas con recursos limitados;
+- embeddings y modelos generativos evolucionan independientemente;
+- sustituir el provider hash por Bedrock, OpenAI, Vertex AI u otro proveedor requerirá un adapter de `EmbeddingProvider`, no cambios en ingestión/retrieval.
+
+Trade-off:
+
+- `HashEmbeddingProvider` es apropiado para desarrollo, integración y pruebas funcionales;
+- no ofrece la calidad semántica de un embedding model de producción;
+- antes de considerar M3 productivo deberá añadirse al menos un provider remoto/real y evaluarlo con datasets de retrieval.
+
+---
+
+### ADR-017 — La estrategia de chunking pertenece a cada Knowledge Base
+
+**Estado:** Accepted  
+**Contexto:** M3
+
+#### Contexto
+
+La primera versión aplicaba globalmente un split por caracteres con tamaño y overlap configurados por variables de entorno.
+
+Esto no representa bien la diversidad documental:
+
+- una normativa se beneficia de párrafos/secciones;
+- Markdown puede aprovechar headings;
+- PDFs deben conservar fronteras de página;
+- documentos grandes pueden requerir parent/child chunks.
+
+#### Decisión
+
+Cada `KnowledgeBase` almacena su propia `chunkingPolicy`.
+
+Formato inicial:
+
+```json
+{
+  "strategy": "PARAGRAPH",
+  "chunkSize": 1600,
+  "overlap": 200,
+  "parentSize": 6000,
+  "childSize": 1600,
+  "childOverlap": 200
+}
+```
+
+Las unidades de M3 actuales son **caracteres**, no tokens. El token accounting real pertenece a Context Engineering y podrá sustituir esta aproximación sin cambiar el contrato conceptual.
+
+Estrategias soportadas:
+
+```text
+FIXED
+PARAGRAPH
+HEADING
+PAGE
+HIERARCHICAL
+```
+
+`HIERARCHICAL` genera parent chunks no embebidos y child chunks embebidos:
+
+```text
+Parent (~6000 chars)
+   |
+   +-- Child (~1600)
+   +-- Child (~1600)
+   +-- Child (~1600)
+```
+
+Los chunks mantienen metadata estructural procedente del parser (page, slide, sheet, table, etc.) además de metadata propia del chunker.
+
+#### Consecuencias
+
+- dos KB pueden usar estrategias diferentes;
+- cambiar la política no requiere modificar código;
+- un reindex aplica la política actual de la KB;
+- la metadata de ingestión registra la política efectiva;
+- la estrategia podrá evolucionar a token-aware/semantic chunking manteniendo el mismo modelo de configuración.
+
