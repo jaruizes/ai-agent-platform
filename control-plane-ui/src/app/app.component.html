@@ -1,0 +1,165 @@
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">A</span><span>Agent <b>Platform</b></span></div>
+    <nav>
+      <button class="nav-item" [class.active]="view()==='dashboard'" (click)="setView('dashboard')">◫ <span>Dashboard</span></button>
+      <button class="nav-item" [class.active]="view()==='executions'" (click)="setView('executions')">▶ <span>Executions</span></button>
+      <button class="nav-item" [class.active]="view()==='approvals'" (click)="setView('approvals')">✓ <span>Approvals</span><i *ngIf="approvals().length">{{approvals().length}}</i></button>
+      <div class="nav-section">RESOURCES</div>
+      <button class="nav-item" [class.active]="view()==='agents'" (click)="setView('agents')">◎ <span>Agents</span></button>
+      <button class="nav-item" [class.active]="view()==='skills'" (click)="setView('skills')">◇ <span>Skills</span></button>
+      <button class="nav-item" [class.active]="view()==='prompts'" (click)="setView('prompts')">¶ <span>Prompts</span></button>
+      <button class="nav-item" [class.active]="view()==='tools'" (click)="setView('tools')">⌁ <span>Tools</span></button>
+      <button class="nav-item" [class.active]="view()==='mcp'" (click)="setView('mcp')">⇄ <span>MCP Servers</span></button>
+      <button class="nav-item" [class.active]="view()==='knowledge'" (click)="setView('knowledge')">▤ <span>Knowledge</span></button>
+      <div class="nav-section">OPERATIONS</div>
+      <button class="nav-item" [class.active]="view()==='runtime'" (click)="setView('runtime')">⚙ <span>Runtime</span></button>
+    </nav>
+    <div class="sidebar-bottom"><span class="profile-dot">CP</span><div><strong>Control Plane</strong><small>v{{overview()?.version||'—'}}</small></div></div>
+  </aside>
+
+  <main class="main-content">
+    <div class="topbar">
+      <div><span class="eyebrow">AI AGENT PLATFORM · CONTROL PLANE</span><h1>{{view()==='dashboard'?'Platform overview':view()|titlecase}}</h1></div>
+      <div class="top-actions"><span class="environment">● Runtime connected</span><button class="ghost" (click)="refreshAll()">↻ Refresh</button></div>
+    </div>
+    <div class="error-banner" *ngIf="error()">{{error()}} <button (click)="error.set('')">×</button></div>
+
+    <ng-container *ngIf="view()==='dashboard'">
+      <section class="stat-grid">
+        <article class="stat-card"><span>EXECUTIONS</span><strong>{{overview()?.totals?.['executions']||0}}</strong><small>{{overview()?.executionsByStatus?.['RUNNING']||0}} running</small></article>
+        <article class="stat-card"><span>PENDING APPROVALS</span><strong>{{overview()?.totals?.['pending_approvals']||0}}</strong><small class="warn">human action required</small></article>
+        <article class="stat-card"><span>AGENTS / TOOLS</span><strong>{{overview()?.totals?.['agents']||0}} / {{overview()?.totals?.['tools']||0}}</strong><small>{{overview()?.totals?.['knowledge_bases']||0}} knowledge bases</small></article>
+        <article class="stat-card"><span>RETRYING</span><strong>{{overview()?.totals?.['retrying_steps']||0}}</strong><small>active retry loops</small></article>
+      </section>
+      <section class="two-col">
+        <article class="panel">
+          <div class="panel-head"><div><h2>Recent executions</h2><p>Latest durable runs and current state.</p></div><button class="ghost small" (click)="setView('executions')">View all</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Status</th><th>Command</th><th>Intent</th><th>Created</th></tr></thead><tbody>
+            <tr *ngFor="let e of executions().slice(0,8)" (click)="openExecution(e.executionId)"><td><span class="status-pill" [ngClass]="statusClass(e.status)">{{e.status}}</span></td><td>{{e.commandName||'—'}}</td><td>{{short(e.intent,55)}}</td><td>{{date(e.createdAt)}}</td></tr>
+          </tbody></table></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><div><h2>Approval inbox</h2><p>Deterministic policy gates waiting for a decision.</p></div></div>
+          <div class="approval-list"><div class="approval-card" *ngFor="let a of approvals().slice(0,5)">
+            <div><span class="risk">{{a.sideEffect||'HUMAN'}}</span><strong>{{a.description}}</strong><small>{{a.tool||a.agent||a.commandName}}</small></div>
+            <button class="primary small" (click)="setView('approvals')">Review</button>
+          </div><div class="empty" *ngIf="!approvals().length">No pending approvals.</div></div>
+        </article>
+      </section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='executions'">
+      <section class="panel">
+        <div class="panel-head"><div><h2>Execution explorer</h2><p>Plans, agents, tokens, retries, leases and durable controls.</p></div><div class="actions"><input class="search" [(ngModel)]="search" placeholder="Search..." /><select [(ngModel)]="executionStatus" (change)="filterExecutions()"><option value="">All statuses</option><option *ngFor="let s of ['ACCEPTED','RUNNING','RETRYING','PAUSED','WAITING_APPROVAL','COMPLETED','FAILED','CANCELLED']">{{s}}</option></select><button class="primary" (click)="openCreateExecution()">＋ New execution</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Status</th><th>Command</th><th>Objective</th><th>Approval</th><th>Retry</th><th>Created</th><th></th></tr></thead><tbody>
+          <tr *ngFor="let e of filteredExecutions()" (click)="openExecution(e.executionId)"><td><span class="status-pill" [ngClass]="statusClass(e.status)">{{e.status}}</span></td><td><strong>{{e.commandName||'—'}}</strong><small class="block mono">{{e.executionId}}</small></td><td>{{short(e.objective||e.intent,70)}}</td><td>{{e.waitingApprovals}}</td><td>{{e.retryingSteps}}</td><td>{{date(e.createdAt)}}</td><td>›</td></tr>
+        </tbody></table></div>
+      </section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='approvals'">
+      <section class="panel">
+        <div class="panel-head"><div><h2>Approval inbox</h2><p>Human gates enforced by plan or deterministic tool policy.</p></div><label class="inline-field">Actor <input [(ngModel)]="actor" /></label></div>
+        <div class="approval-grid"><article class="approval-detail" *ngFor="let a of approvals()">
+          <div class="approval-top"><span class="status-pill waiting-approval">WAITING APPROVAL</span><span class="risk">{{a.sideEffect||'—'}} · {{a.approvalPolicy||a.approvalSource}}</span></div>
+          <h3>{{a.description}}</h3><p>{{a.reason||'Human approval required.'}}</p>
+          <dl><div><dt>Execution</dt><dd class="mono">{{a.executionId}}</dd></div><div><dt>Step</dt><dd>{{a.stepId}}</dd></div><div><dt>Tool / Agent</dt><dd>{{a.tool||a.agent||'—'}}</dd></div></dl>
+          <textarea [(ngModel)]="approvalComment" placeholder="Optional audit comment"></textarea>
+          <div class="actions"><button class="danger" (click)="decide(a.executionId,a.stepId,false)">Reject</button><button class="approve" (click)="decide(a.executionId,a.stepId,true)">Approve</button><button class="ghost" (click)="openExecution(a.executionId)">Inspect plan</button></div>
+        </article><div class="empty big" *ngIf="!approvals().length">✓ No approvals are waiting.</div></div>
+      </section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='agents'">
+      <section class="panel"><div class="panel-head"><div><h2>Agent Registry</h2><p>Logical agents, instructions, skills and knowledge assignments.</p></div><button class="primary" (click)="editAgent()">＋ Agent</button></div>
+      <div class="resource-grid"><article class="resource-card" *ngFor="let x of agents()"><div class="resource-head"><span class="resource-icon">◎</span><span class="status-dot" [class.off]="!x.enabled"></span></div><h3>{{x.name}}</h3><p>{{x.description||'No description'}}</p><div class="chips"><span *ngFor="let s of x.skills">{{s.name}}</span></div><footer><small>{{x.source}}</small><div><button class="ghost small" (click)="editAgentKnowledge(x)">Knowledge</button><button class="ghost small" (click)="editAgent(x)">Edit</button><button class="icon-danger" (click)="deleteAgent(x)">×</button></div></footer></article></div></section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='skills'">
+      <section class="panel"><div class="panel-head"><div><h2>Skill Registry</h2><p>Reusable reasoning and procedures.</p></div><button class="primary" (click)="editSkill()">＋ Skill</button></div><div class="resource-grid"><article class="resource-card" *ngFor="let x of skills()"><div class="resource-head"><span class="resource-icon">◇</span><span class="status-dot" [class.off]="!x.enabled"></span></div><h3>{{x.name}}</h3><p>{{x.description}}</p><footer><small>{{x.source}}</small><div><button class="ghost small" (click)="editSkill(x)">Edit</button><button class="icon-danger" (click)="deleteSkill(x)">×</button></div></footer></article></div></section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='prompts'">
+      <section class="panel"><div class="panel-head"><div><h2>Prompt Registry</h2><p>Runtime prompts and planner contracts.</p></div><button class="primary" (click)="editPrompt()">＋ Prompt</button></div><div class="resource-grid"><article class="resource-card" *ngFor="let x of prompts()"><div class="resource-head"><span class="resource-icon">¶</span><span class="status-dot" [class.off]="!x.enabled"></span></div><h3>{{x.name}} <small>v{{x.version}}</small></h3><p>{{x.description}}</p><footer><small>{{x.source}}</small><div><button class="ghost small" (click)="editPrompt(x)">Edit</button><button class="icon-danger" (click)="deletePrompt(x)">×</button></div></footer></article></div></section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='tools'">
+      <section class="panel"><div class="panel-head"><div><h2>Tool Registry</h2><p>Executable capabilities and deterministic side-effect policies.</p></div><button class="primary" (click)="editTool()">＋ Tool</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Tool</th><th>Implementation</th><th>Side effect</th><th>Approval policy</th><th>Status</th><th></th></tr></thead><tbody>
+        <tr *ngFor="let x of tools()"><td><strong>{{x.name}}</strong><small class="block muted">{{short(x.description,70)}}</small></td><td>{{x.implementationType}}</td><td><span class="risk">{{x.sideEffect}}</span></td><td><span class="policy" [class.required]="x.approvalPolicy==='REQUIRED'">{{x.approvalPolicy}}</span></td><td>{{x.enabled?'Enabled':'Disabled'}}</td><td><button class="ghost small" (click)="editTool(x)">Edit</button> <button class="icon-danger" (click)="deleteTool(x)">×</button></td></tr>
+      </tbody></table></div></section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='mcp'">
+      <section class="panel"><div class="panel-head"><div><h2>MCP Servers</h2><p>Integration providers available to the Tool Layer.</p></div><button class="primary" (click)="editMcp()">＋ MCP Server</button></div><div class="resource-grid"><article class="resource-card" *ngFor="let x of mcpServers()"><div class="resource-head"><span class="resource-icon">⇄</span><span class="status-dot" [class.off]="!x.enabled"></span></div><h3>{{x.name}}</h3><p>{{x.description}}</p><code>{{x.command}} {{x.args.join(' ')}}</code><footer><small>{{x.source}}</small><div><button class="ghost small" (click)="editMcp(x)">Edit</button><button class="icon-danger" (click)="deleteMcp(x)">×</button></div></footer></article></div></section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='knowledge'">
+      <section class="knowledge-layout">
+        <aside class="panel kb-list"><div class="panel-head"><div><h2>Knowledge</h2><p>Managed RAG assets.</p></div><button class="primary small" (click)="editKb()">＋</button></div>
+          <button class="kb-item" *ngFor="let kb of knowledgeBases()" [class.active]="selectedKb()?.id===kb.id" (click)="selectKb(kb)"><strong>{{kb.name}}</strong><small>{{kb.chunkingPolicy?.strategy}} · {{kb.retentionPolicy}}</small></button>
+        </aside>
+        <div class="knowledge-main">
+          <section class="panel" *ngIf="selectedKb() as kb; else selectKnowledge">
+            <div class="panel-head"><div><h2>{{kb.name}}</h2><p>{{kb.description}}</p></div><div class="actions"><button class="ghost" (click)="editKb(kb)">Edit</button><button class="danger" (click)="deleteKb(kb)">Delete</button></div></div>
+            <div class="metric-strip"><span><b>{{documents().length}}</b> documents</span><span><b>{{kb.chunkingPolicy?.strategy}}</b> chunking</span><span><b>{{kb.scope}}</b> scope</span></div>
+            <div class="section-row"><h3>Documents</h3><div class="actions"><label class="upload">Upload<input type="file" (change)="uploadFile($event)"></label><button class="ghost" (click)="addGoogle()">＋ Google document</button></div></div>
+            <div class="doc-list"><article *ngFor="let d of documents()"><div><strong>{{d.name}}</strong><small>{{d.sourceType}} · v{{d.version}} · {{d.mimeType||'—'}}</small></div><div class="actions"><span class="status-pill" [ngClass]="statusClass(d.status)">{{d.status}}</span><button class="ghost small" (click)="reindex(d)">Reindex</button><button class="icon-danger" (click)="deleteDocument(d)">×</button></div></article><div class="empty" *ngIf="!documents().length">No documents yet.</div></div>
+          </section>
+          <section class="panel" *ngIf="selectedKb()"><div class="panel-head"><div><h2>Retrieval playground</h2><p>Inspect hybrid retrieval results against this Knowledge Base.</p></div></div><div class="retrieval"><input [(ngModel)]="retrievalQuery" placeholder="Ask something..." (keyup.enter)="retrieve()"><input type="number" min="1" max="50" [(ngModel)]="retrievalTopK"><button class="primary" (click)="retrieve()">Retrieve</button></div><article class="hit" *ngFor="let h of retrievalHits()"><header><strong>{{h.documentName}}</strong><span>{{h.score|number:'1.3-3'}}</span></header><p>{{h.content}}</p></article></section>
+          <ng-template #selectKnowledge><section class="panel empty big">Select a Knowledge Base to inspect documents and retrieval.</section></ng-template>
+        </div>
+      </section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='runtime'">
+      <section class="stat-grid runtime-stats"><article class="stat-card" *ngFor="let dep of runtime()?.dependencies|keyvalue"><span>{{dep.key|uppercase}}</span><strong class="dep-status" [class.down]="dep.value.status==='DOWN'">{{dep.value.status}}</strong><small>{{dep.value.baseUrl||dep.value.endpoint||'connected'}}</small></article></section>
+      <section class="two-col">
+        <article class="panel"><div class="panel-head"><div><h2>Model profiles</h2><p>Profiles used by the current runtime.</p></div></div><dl class="config-list"><div *ngFor="let x of runtime()?.models|keyvalue"><dt>{{x.key}}</dt><dd>{{x.value}}</dd></div></dl></article>
+        <article class="panel"><div class="panel-head"><div><h2>Durable execution</h2><p>Worker lease and orchestration settings.</p></div></div><dl class="config-list"><div *ngFor="let x of runtime()?.durability|keyvalue"><dt>{{x.key}}</dt><dd>{{x.value}}</dd></div></dl></article>
+        <article class="panel"><div class="panel-head"><div><h2>Knowledge runtime</h2></div></div><dl class="config-list"><div *ngFor="let x of runtime()?.knowledge|keyvalue"><dt>{{x.key}}</dt><dd>{{x.value}}</dd></div></dl></article>
+        <article class="panel"><div class="panel-head"><div><h2>Observability</h2><p>Existing operational consoles.</p></div></div><div class="link-grid"><a href="http://localhost:3000" target="_blank">Grafana ↗</a><a href="http://localhost:9090" target="_blank">Prometheus ↗</a><a href="http://localhost:16686" target="_blank">Jaeger ↗</a><a href="http://localhost:8222" target="_blank">NATS Monitor ↗</a></div></article>
+      </section>
+    </ng-container>
+  </main>
+</div>
+
+<div class="modal-backdrop" *ngIf="modal()==='execution' && selectedExecution() as e">
+  <section class="modal wide execution-modal"><header><div><span class="eyebrow">EXECUTION</span><h2>{{e.command.name||'Execution'}}</h2><p class="mono">{{e.executionId}}</p></div><button class="icon-btn" (click)="closeModal()">×</button></header>
+    <div class="modal-body">
+      <div class="execution-summary"><span class="status-pill" [ngClass]="statusClass(e.status)">{{e.status}}</span><span>{{e.intent}}</span><span class="token-total">{{tokens(orchestration()?.usage?.totalTokens)}} tokens</span></div>
+      <div class="exec-actions"><button class="ghost" *ngIf="canPause()" (click)="execAction('pause')">Pause</button><button class="ghost" *ngIf="canResume()" (click)="execAction('resume')">Resume</button><button class="ghost" *ngIf="canRetry()" (click)="execAction('retry')">Retry</button><button class="danger" *ngIf="!['COMPLETED','FAILED','CANCELLED'].includes(e.status)" (click)="execAction('cancel')">Cancel</button></div>
+      <section class="plan-head"><div><span class="eyebrow">LOGICAL PLAN</span><h3>{{orchestration()?.plan?.objective||'Planning…'}}</h3></div><div class="planner-meta">Planner {{orchestration()?.plan?.planner?.model||'—'}} · {{tokens(orchestration()?.plan?.planner?.usage?.total_tokens)}} tokens</div></section>
+      <div class="dag" *ngIf="orchestration()?.steps?.length;else noPlan"><div class="dag-level" *ngFor="let level of executionLevels();let li=index"><div class="dag-step" *ngFor="let s of level" [ngClass]="statusClass(s.status)">
+        <div class="step-top"><span class="step-type">{{s.type}}</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span></div><strong>{{s.id}}</strong><p>{{s.description}}</p>
+        <div class="step-owner" *ngIf="s.agent||s.tool">{{s.agent?'◎ '+s.agent:'⌁ '+s.tool}}</div><div class="step-meta"><span>{{tokens(s.usage?.total_tokens)}} tok</span><span>attempt {{s.attemptCount}}/{{s.maxAttempts}}</span><span *ngIf="s.dependsOn?.length">after {{s.dependsOn.join(', ')}}</span></div>
+        <div class="approval-note" *ngIf="s.requiresApproval">Human approval · {{s.approvalSource}} · {{s.approval?.status}}</div>
+        <div class="step-error" *ngIf="s.error">{{s.error?.message||json(s.error)}}</div>
+        <div class="step-approval-actions" *ngIf="s.status==='WAITING_APPROVAL'"><button class="danger small" (click)="decide(e.executionId,s.id,false)">Reject</button><button class="approve small" (click)="decide(e.executionId,s.id,true)">Approve</button></div>
+      </div><span class="dag-arrow" *ngIf="li<executionLevels().length-1">↓</span></div></div>
+      <ng-template #noPlan><div class="empty">Planner has not produced a plan yet.</div></ng-template>
+      <div class="detail-grid"><article><span>Active agents</span><strong>{{orchestration()?.activeAgents?.length||0}}</strong></article><article><span>Prompt tokens</span><strong>{{tokens(orchestration()?.usage?.promptTokens)}}</strong></article><article><span>Completion tokens</span><strong>{{tokens(orchestration()?.usage?.completionTokens)}}</strong></article><article><span>Lease owner</span><strong class="small-text">{{e.lease?.owner||'—'}}</strong></article></div>
+      <details class="json-details"><summary>Result / technical details</summary><pre>{{json(e.result||e.error)}}</pre></details>
+    </div>
+  </section>
+</div>
+
+<div class="modal-backdrop" *ngIf="modal() && modal()!=='execution'">
+  <section class="modal" [class.wide]="modal()==='prompt'||modal()==='tool'||modal()==='agent'"><header><div><span class="eyebrow">CONTROL PLANE EDITOR</span><h2>{{modal()|titlecase}}</h2></div><button class="icon-btn" (click)="closeModal()">×</button></header>
+  <div class="modal-body">
+    <ng-container *ngIf="modal()==='create-execution'"><label>Name<input [(ngModel)]="draft.name"></label><label>Intent<textarea rows="4" [(ngModel)]="draft.intent"></textarea></label><label>Input JSON<textarea rows="5" class="mono" [(ngModel)]="draft.input"></textarea></label><label>Context JSON<textarea rows="3" class="mono" [(ngModel)]="draft.context"></textarea></label><label>Instructions · one per line<textarea rows="3" [(ngModel)]="draft.instructions"></textarea></label></ng-container>
+    <ng-container *ngIf="modal()==='skill'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Instructions<textarea rows="12" [(ngModel)]="draft.instructions"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='agent'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Instructions<textarea rows="10" [(ngModel)]="draft.instructions"></textarea></label><div class="checkbox-grid"><label class="check" *ngFor="let s of skills()"><input type="checkbox" [checked]="draft.skills?.includes(s.name)" (change)="toggleSkill(s.name,$any($event.target).checked)"> {{s.name}}</label></div><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='agent-knowledge'"><p>Knowledge assigned to <strong>{{draft.name}}</strong>. Choose usage mode or “Not assigned”.</p><div class="assignment-list"><label *ngFor="let kb of knowledgeBases()"><span>{{kb.name}}</span><select [ngModel]="knowledgeDraft[kb.name]||''" (ngModelChange)="setKbAssignment(kb.name,$event)"><option value="">Not assigned</option><option value="REFERENCE">REFERENCE</option><option value="GUARDRAIL">GUARDRAIL</option></select></label></div></ng-container>
+    <ng-container *ngIf="modal()==='prompt'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Version<input type="number" [(ngModel)]="draft.version"></label><label>Content<textarea rows="20" class="mono" [(ngModel)]="draft.content"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='tool'"><div class="form-grid two"><label>Name<input [(ngModel)]="draft.name"></label><label>Implementation<select [(ngModel)]="draft.implementationType"><option>MCP</option></select></label><label>Side effect<select [(ngModel)]="draft.sideEffect"><option>NONE</option><option>READ</option><option>WRITE</option><option>EXTERNAL_ACTION</option></select></label><label>Approval policy<select [(ngModel)]="draft.approvalPolicy"><option>NEVER</option><option>OPTIONAL</option><option>REQUIRED</option></select></label></div><label>Description<input [(ngModel)]="draft.description"></label><label>Instructions<textarea rows="5" [(ngModel)]="draft.instructions"></textarea></label><label>Configuration JSON<textarea rows="6" class="mono" [(ngModel)]="draft.configuration"></textarea></label><label>Input Schema JSON<textarea rows="8" class="mono" [(ngModel)]="draft.inputSchema"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='mcp'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Command<input [(ngModel)]="draft.command"></label><label>Args JSON<textarea rows="3" class="mono" [(ngModel)]="draft.args"></textarea></label><label>CWD<input [(ngModel)]="draft.cwd"></label><label>Environment JSON<textarea rows="5" class="mono" [(ngModel)]="draft.environment"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='kb'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><div class="form-grid two"><label>Scope<select [(ngModel)]="draft.scope"><option>TENANT</option><option>GLOBAL</option><option>EXECUTION</option></select></label><label>Retention<select [(ngModel)]="draft.retentionPolicy"><option>PERSISTENT</option><option>EPHEMERAL</option></select></label><label>Chunk strategy<select [(ngModel)]="draft.chunkingPolicy.strategy"><option>PARAGRAPH</option><option>FIXED</option><option>HEADING</option><option>PAGE</option><option>HIERARCHICAL</option></select></label><label>Chunk size<input type="number" [(ngModel)]="draft.chunkingPolicy.chunkSize"></label></div><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='google-doc'"><label>Source type<select [(ngModel)]="draft.sourceType"><option>GOOGLE_DOCS</option><option>GOOGLE_SLIDES</option><option>GOOGLE_SHEETS</option></select></label><label>Google resource ID<input [(ngModel)]="draft.sourceId"></label><label>Name<input [(ngModel)]="draft.name"></label><label>Source URI<input [(ngModel)]="draft.sourceUri"></label></ng-container>
+  </div>
+  <footer><button class="ghost" (click)="closeModal()">Cancel</button><button class="primary" *ngIf="modal()==='create-execution'" (click)="saveExecution()">Start</button><button class="primary" *ngIf="modal()==='skill'" (click)="saveSkill()">Save</button><button class="primary" *ngIf="modal()==='agent'" (click)="saveAgent()">Save</button><button class="primary" *ngIf="modal()==='agent-knowledge'" (click)="saveAgentKnowledge()">Save assignments</button><button class="primary" *ngIf="modal()==='prompt'" (click)="savePrompt()">Save</button><button class="primary" *ngIf="modal()==='tool'" (click)="saveTool()">Save</button><button class="primary" *ngIf="modal()==='mcp'" (click)="saveMcp()">Save</button><button class="primary" *ngIf="modal()==='kb'" (click)="saveKb()">Save</button><button class="primary" *ngIf="modal()==='google-doc'" (click)="saveGoogle()">Add document</button></footer>
+  </section>
+</div>
+
+<div class="loading" *ngIf="busy()">Working…</div>

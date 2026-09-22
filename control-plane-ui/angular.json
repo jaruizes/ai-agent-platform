@@ -1,0 +1,8 @@
+{
+  "$schema":"./node_modules/@angular/cli/lib/config/schema.json",
+  "version":1,
+  "projects":{"control-plane":{"projectType":"application","root":"","sourceRoot":"src","prefix":"app","architect":{
+    "build":{"builder":"@angular-devkit/build-angular:application","options":{"browser":"src/main.ts","index":"src/index.html","tsConfig":"tsconfig.app.json","assets":[],"styles":["src/styles.css"]},"configurations":{"production":{"optimization":true,"outputHashing":"all"},"development":{"optimization":false,"sourceMap":true}},"defaultConfiguration":"production"},
+    "serve":{"builder":"@angular-devkit/build-angular:dev-server","configurations":{"development":{"buildTarget":"control-plane:build:development"}},"defaultConfiguration":"development"}
+  }}}
+}
