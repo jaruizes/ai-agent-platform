@@ -118,6 +118,13 @@ class PostgresExecutionRepository:
                     status="ACCEPTED",
                     event_type="EXECUTION_ACCEPTED",
                     sequence=1,
+                    detail={
+                        "sessionId": (
+                            str(submission.session_id)
+                            if submission.session_id
+                            else None
+                        )
+                    },
                 )
                 await self._insert_outbox(
                     conn,
