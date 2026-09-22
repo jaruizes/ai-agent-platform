@@ -129,7 +129,7 @@ flowchart TB
             LG["LangGraph Engine"]
             SE["Step Executor"]
             CE["Context Engineering"]
-            DE["Durable Execution<br/>(M5)"]
+            DE["Durable Execution<br/>Leases / Recovery / Controls"]
         end
 
         subgraph Steps["STEP TYPES"]
@@ -157,7 +157,7 @@ flowchart TB
         subgraph State["MEMORY & EXECUTION STATE"]
             WM["Working Memory"]
             PM["Persistent Memory"]
-            RS["Execution + Plan + Step State"]
+            RS["Durable Execution State<br/>Execution + Plan + Step Checkpoints"]
             CACHE["Caches"]
         end
 
@@ -1823,24 +1823,491 @@ También facilita auditoría, debugging, cálculo de coste y futuras Evals por s
 
 ### ADR-021 — M4 no sustituye M5 Durable Runs
 
-**Estado:** Accepted  
+**Estado:** Implemented by M5  
 **Contexto:** frontera M4/M5
 
-LangGraph se utiliza actualmente sin checkpointer durable. PostgreSQL conserva el plan, el estado observable de cada step y sus resultados, pero **una caída de proceso durante el grafo no implica todavía resume automático desde el último checkpoint**.
+M4 introdujo planificación, LangGraph y estado observable. M5 añade semántica durable sobre ese runtime:
 
-M5 añadirá:
-
-- checkpointing durable;
-- recovery/resume;
-- retries configurables por step;
-- timeout/cancel;
+- recovery tras caída mediante leases;
+- checkpoints lógicos por step;
+- retries y backoff;
+- timeout por intento;
 - pause/resume;
+- cancelación;
 - human approval;
-- compensaciones/idempotencia avanzada.
-
-Por tanto:
+- reanudación sin volver a ejecutar steps ya completados.
 
 ```text
 M4 = planning + graph orchestration + visible step state
 M5 = durable/recoverable execution semantics
 ```
+
+LangGraph sigue siendo el motor de grafo. La durabilidad es una capacidad de plataforma y no una dependencia conceptual de LangGraph.
+
+
+---
+
+## 17. M5 — Durable Execution / Durable Runs
+
+M5 convierte las ejecuciones M4 en ejecuciones recuperables y controlables. El objetivo no es únicamente conservar logs del workflow, sino poder continuar una ejecución después de una caída de proceso y permitir acciones operativas explícitas.
+
+### Flujo durable
+
+```text
+Execution
+   |
+   v
+Worker claims lease
+   |
+   v
+Load existing LogicalPlan?
+   | yes
+   +------> recover plan + persisted step checkpoints
+   |
+   | no
+   v
+Planner -> LogicalPlan
+   |
+   v
+LangGraph
+   |
+   v
+StepExecutor
+   |
+   +--> checkpoint COMPLETED
+   +--> RETRYING
+   +--> WAITING_APPROVAL
+   +--> PAUSED
+   +--> FAILED
+```
+
+Si el proceso cae:
+
+```text
+RUNNING execution
+      |
+      v
+lease expires
+      |
+      v
+another worker claims execution
+      |
+      v
+stored LogicalPlan is loaded
+      |
+      v
+LangGraph graph is reconstructed
+      |
+      v
+COMPLETED steps return persisted output
+      |
+      v
+first incomplete step resumes
+```
+
+No se vuelve a llamar al Planner para una ejecución ya planificada.
+
+### Leases y recovery multi-worker
+
+Cada worker dispone de un identificador efímero y reclama una ejecución mediante:
+
+```text
+lease_owner
+lease_expires_at
+last_heartbeat_at
+```
+
+Mientras ejecuta, renueva el lease periódicamente.
+
+Una ejecución `RUNNING` o `RETRYING` cuyo lease expire puede ser reclamada por otro worker usando `FOR UPDATE SKIP LOCKED`.
+
+Esto evita que dos workers activos procesen voluntariamente la misma ejecución y permite recuperación tras caída de pod/proceso.
+
+Los parámetros iniciales son:
+
+```text
+EXECUTION_LEASE_SECONDS=30
+EXECUTION_HEARTBEAT_SECONDS=10
+EXECUTION_CONTROL_POLL_SECONDS=0.5
+```
+
+### Checkpoint durable por step
+
+La fuente durable es PostgreSQL:
+
+```text
+execution_plans
+execution_plan_steps
+```
+
+Un step `COMPLETED` contiene su output persistido. Durante recovery, `StepExecutor` devuelve ese output sin repetir la operación.
+
+Por tanto, el checkpoint lógico es:
+
+```text
+(step status + output + usage + attempts + approval state)
+```
+
+y no un objeto interno de LangGraph.
+
+### Retry y backoff
+
+Cada `PlanStep` admite:
+
+```json
+{
+  "timeoutSeconds": 120,
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "initialBackoffSeconds": 1,
+    "maxBackoffSeconds": 30,
+    "multiplier": 2
+  }
+}
+```
+
+Estados relevantes:
+
+```text
+RUNNING
+   |
+ transient error
+   v
+RETRYING
+   |
+ backoff
+   v
+RUNNING
+```
+
+Se persisten:
+
+- `attempt_count`;
+- `last_attempt_at`;
+- `next_retry_at`;
+- error del intento;
+- máximo de intentos.
+
+Errores de configuración/semánticos como `ValueError` o recursos inexistentes como `LookupError` no se consideran transitorios por defecto.
+
+### Timeout
+
+Cada intento se ejecuta con un timeout wall-clock.
+
+Cuando se supera:
+
+```text
+active model/tool operation
+      |
+      v
+timeout
+      |
+      v
+cancel asyncio task
+      |
+      v
+retry policy
+```
+
+El timeout es por intento, no por ejecución completa.
+
+### Pause / Resume
+
+API:
+
+```text
+POST /v1/executions/{id}/pause
+POST /v1/executions/{id}/resume
+```
+
+Estados:
+
+```text
+RUNNING
+   |
+ pause requested
+   v
+PAUSING
+   |
+ runtime observes control
+   v
+PAUSED
+   |
+ resume
+   v
+ACCEPTED
+   |
+ worker claims
+   v
+RUNNING
+```
+
+El control se comprueba también mientras una llamada de modelo/tool está activa. La task async se cancela cooperativamente y la ejecución queda suspendida.
+
+Los steps ya completados no vuelven a ejecutarse al reanudar.
+
+### Cancellation
+
+API:
+
+```text
+POST /v1/executions/{id}/cancel
+```
+
+Flujo:
+
+```text
+RUNNING
+   |
+ cancel requested
+   v
+CANCELLING
+   |
+ runtime observes control
+   v
+CANCELLED
+```
+
+Los steps incompletos pasan a `CANCELLED`; los ya `COMPLETED` conservan su output para auditoría.
+
+### Human approval
+
+El Planner puede marcar un step:
+
+```json
+{
+  "requiresApproval": true,
+  "approvalReason": "This step publishes the final artifact externally."
+}
+```
+
+Antes de ejecutarlo:
+
+```text
+PENDING
+   |
+   v
+WAITING_APPROVAL
+```
+
+La ejecución completa también queda en `WAITING_APPROVAL`.
+
+Decisión:
+
+```text
+POST /v1/executions/{executionId}/steps/{stepId}/approval
+```
+
+Body:
+
+```json
+{
+  "approved": true,
+  "actor": "user@example",
+  "comment": "Approved for publication"
+}
+```
+
+Si se aprueba, la ejecución vuelve a `ACCEPTED` y se reanuda desde checkpoints. Si se rechaza, la ejecución finaliza como `CANCELLED`.
+
+La plataforma conserva:
+
+- actor;
+- decisión;
+- comentario;
+- timestamp;
+- razón del approval gate.
+
+### Estados M5
+
+Estados de ejecución relevantes:
+
+```text
+ACCEPTED
+RUNNING
+RETRYING
+PAUSING
+PAUSED
+WAITING_APPROVAL
+CANCELLING
+CANCELLED
+COMPLETED
+FAILED
+```
+
+Estados de step:
+
+```text
+PENDING
+RUNNING
+RETRYING
+PAUSED
+WAITING_APPROVAL
+CANCELLED
+COMPLETED
+FAILED
+```
+
+### Observabilidad para la futura UI
+
+`GET /v1/executions/{executionId}/orchestration` incorpora ahora:
+
+```text
+activeAgents
+waitingApprovals
+retryingSteps
+attemptCount
+maxAttempts
+nextRetryAt
+timeoutSeconds
+approval
+idempotencyKey
+usage
+```
+
+Esto permite representar visualmente:
+
+```text
+[design] COMPLETED
+       |
+       v
+[deploy] WAITING_APPROVAL
+         "Requires publication approval"
+
+Approver: -
+Attempts: 0/2
+Tokens: 0
+```
+
+o:
+
+```text
+[analyse] RETRYING
+Attempt 2 / 3
+Next retry: 12:31:08
+Last error: HTTP 503
+```
+
+Los cambios de estado siguen publicándose mediante lifecycle/orchestration events:
+
+```text
+EXECUTION_RECOVERED
+EXECUTION_PAUSE_REQUESTED
+EXECUTION_PAUSED
+EXECUTION_RESUMED
+EXECUTION_CANCEL_REQUESTED
+EXECUTION_CANCELLED
+
+STEP_RETRYING
+STEP_WAITING_APPROVAL
+STEP_APPROVED
+STEP_REJECTED
+```
+
+### ADR-022 — La durabilidad pertenece a la plataforma, no a LangGraph
+
+**Estado:** Accepted  
+**Contexto:** M5
+
+#### Decisión
+
+No se utiliza el checkpoint interno de LangGraph como source of truth funcional.
+
+La plataforma persiste su propio estado durable:
+
+```text
+Execution
+LogicalPlan
+PlanStep status
+PlanStep output
+Retry state
+Approval state
+Usage
+```
+
+Tras recovery se reconstruye el `StateGraph` y los steps completados se resuelven desde checkpoint.
+
+#### Motivos
+
+- el dominio no queda acoplado al formato de checkpoint de LangGraph;
+- una futura implementación de `OrchestrationEnginePort` puede usar otro runtime;
+- el estado durable es directamente consultable por APIs/UI;
+- el plan y los steps siguen siendo la unidad de auditoría de la plataforma.
+
+LangGraph continúa aportando ejecución del DAG, branching, joins y paralelismo.
+
+### ADR-023 — Recovery mediante leases, no mediante ownership permanente
+
+**Estado:** Accepted  
+**Contexto:** M5
+
+#### Decisión
+
+Los workers usan leases renovables almacenados en PostgreSQL.
+
+```text
+claim -> lease -> heartbeat -> complete/release
+                    |
+                    X process crash
+                    |
+                    v
+               lease expires
+                    |
+                    v
+              another worker
+```
+
+La estrategia es compatible con múltiples réplicas Kubernetes del execution worker.
+
+### ADR-024 — La semántica de retry es at-least-once
+
+**Estado:** Accepted  
+**Contexto:** M5
+
+#### Decisión
+
+La plataforma garantiza que un step `COMPLETED` no se repite durante recovery. Sin embargo, si un proceso cae después de producir un side effect externo pero antes de persistir `COMPLETED`, el step puede ejecutarse de nuevo.
+
+Cada step dispone de un `idempotencyKey` estable:
+
+```text
+{executionId}:{stepId}
+```
+
+La clave se expone y persiste para que adapters/tools con side effects puedan adoptar idempotencia.
+
+#### Límite
+
+M5 no puede garantizar exactamente-once sobre un sistema externo que no soporte una operación idempotente/transaccional.
+
+Por tanto:
+
+> **Durable execution is at-least-once; side-effecting tools must be idempotent or support an idempotency key.**
+
+### ADR-025 — Pause/cancel son controles cooperativos
+
+**Estado:** Accepted  
+**Contexto:** M5
+
+La plataforma comprueba controles entre steps y durante operaciones async activas.
+
+Cuando es posible cancela la task activa. Un proveedor externo puede haber procesado ya una operación aunque el cliente local sea cancelado; esto se relaciona con la semántica at-least-once del ADR-024.
+
+### ADR-026 — Human approval es estado durable de plataforma
+
+**Estado:** Accepted  
+**Contexto:** M5
+
+Los approval gates no se modelan únicamente como un interrupt efímero de LangGraph.
+
+```text
+requiresApproval
+approvalStatus
+approvalActor
+approvalComment
+approvalUpdatedAt
+```
+
+forman parte del estado persistente del step y son visibles por API/eventos.
+
+Esto permite una futura UI, auditoría y reemplazo del motor de orquestación sin perder la semántica funcional del approval.
