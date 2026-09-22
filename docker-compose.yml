@@ -39,13 +39,19 @@ services:
       - ollama-data:/root/.ollama
     ports:
       - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
 
   ollama-init:
     image: ollama/ollama:0.11.10
     entrypoint: ["/bin/sh", "-c"]
     command: ["OLLAMA_HOST=http://ollama:11434 ollama pull nomic-embed-text"]
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
 
   litellm:
     platform: linux/amd64
