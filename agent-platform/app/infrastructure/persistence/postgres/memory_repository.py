@@ -363,29 +363,6 @@ class PostgresMemoryRepository:
             result.append(item)
         return result
 
-    async def list_policy_audit(
-        self,
-        *,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        async with self._db.require_pool().acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT id,memory_id,candidate,decision,source_execution_id,created_at
-                FROM memory_policy_audit
-                ORDER BY created_at DESC
-                LIMIT $1
-                """,
-                limit,
-            )
-        result: list[dict[str, Any]] = []
-        for row in rows:
-            item = dict(row)
-            item["candidate"] = self._decode(item["candidate"]) or {}
-            item["decision"] = self._decode(item["decision"]) or {}
-            result.append(item)
-        return result
-
     async def expire_sessions(self) -> int:
         pool = self._db.require_pool()
         async with pool.acquire() as conn:
