@@ -1,3 +1,14 @@
+FROM node:22-bookworm-slim AS mcp-builder
+
+WORKDIR /build/google-workspace
+COPY mcp/google-workspace/package.json ./
+COPY mcp/google-workspace/tsconfig.json ./
+RUN npm install
+
+COPY mcp/google-workspace/src ./src
+RUN npm run build && npm prune --omit=dev
+
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -5,12 +16,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY agent-platform/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
-COPY migrations ./migrations
-COPY bootstrap ./bootstrap
+COPY agent-platform/app ./app
+COPY agent-platform/migrations ./migrations
+COPY agent-platform/bootstrap ./bootstrap
+
+COPY --from=mcp-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=mcp-builder /build/google-workspace /opt/mcp/google-workspace
 
 EXPOSE 8080
 
