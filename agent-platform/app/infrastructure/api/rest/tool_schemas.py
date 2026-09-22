@@ -11,6 +11,8 @@ class ToolRequest(BaseModel):
     implementationType: str
     configuration: dict[str, Any] = Field(default_factory=dict)
     inputSchema: dict[str, Any] = Field(default_factory=dict)
+    sideEffect: str = "READ"
+    approvalPolicy: str = "NEVER"
     enabled: bool = True
 
 
