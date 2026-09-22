@@ -11,3 +11,4 @@ opentelemetry-sdk==1.36.0
 opentelemetry-exporter-otlp-proto-grpc==1.36.0
 opentelemetry-instrumentation-fastapi==0.57b0
 opentelemetry-instrumentation-httpx==0.57b0
+python-multipart==0.0.20\nPyMuPDF==1.26.4\npython-docx==1.2.0\npython-pptx==1.0.2\nopenpyxl==3.1.5\n
