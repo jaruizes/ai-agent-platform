@@ -27,6 +27,7 @@ def _kb_response(kb: KnowledgeBase) -> KnowledgeBaseResponse:
         retentionPolicy=kb.retention_policy,
         expiresAt=kb.expires_at,
         enabled=kb.enabled,
+        chunkingPolicy=kb.chunking_policy,
         metadata=kb.metadata,
     )
 
@@ -69,6 +70,7 @@ def create_knowledge_router(service: KnowledgeService) -> APIRouter:
                 retention_policy=request.retentionPolicy,
                 ttl_seconds=request.ttlSeconds,
                 enabled=request.enabled,
+                chunking_policy=request.chunkingPolicy.model_dump(),
                 metadata=request.metadata,
             )
             return _kb_response(kb)
@@ -89,6 +91,7 @@ def create_knowledge_router(service: KnowledgeService) -> APIRouter:
                 retention_policy=request.retentionPolicy,
                 ttl_seconds=request.ttlSeconds,
                 enabled=request.enabled,
+                chunking_policy=request.chunkingPolicy.model_dump(),
                 metadata=request.metadata,
             )
         except ValueError as exc:
