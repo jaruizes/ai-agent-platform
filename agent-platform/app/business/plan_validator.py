@@ -37,7 +37,13 @@ class PlanValidator:
         if plan.final_step_id not in id_set:
             errors.append(f"finalStepId '{plan.final_step_id}' does not exist")
 
+        allowed_types = {"AGENT", "TOOL", "KNOWLEDGE", "MODEL", "VALIDATE"}
+
         for step in plan.steps:
+            if step.type not in allowed_types:
+                errors.append(
+                    f"Step '{step.id}' has unsupported type '{step.type}'"
+                )
             if not step.id or any(ch.isspace() for ch in step.id):
                 errors.append(f"Invalid step id '{step.id}'")
             if step.id in step.depends_on:
