@@ -48,7 +48,7 @@ services:
   ollama-init:
     image: ollama/ollama:0.11.10
     entrypoint: ["/bin/sh", "-c"]
-    command: ["OLLAMA_HOST=http://ollama:11434 ollama pull nomic-embed-text"]
+    command: ["OLLAMA_HOST=http://ollama:11434 ollama pull nomic-embed-text-v2-moe"]
     depends_on:
       ollama:
         condition: service_healthy
