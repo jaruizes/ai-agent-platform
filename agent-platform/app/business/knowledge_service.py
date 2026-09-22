@@ -302,7 +302,7 @@ class KnowledgeService:
         if not kbs:
             return []
         embeddings = await self._model_gateway.embed(
-            [query],
+            [f"search_query: {query}"],
             model_profile=self._embedding_model_profile,
         )
         self._validate_embedding(embeddings[0])
@@ -365,7 +365,7 @@ class KnowledgeService:
             for start in range(0, len(texts), self._embedding_batch_size):
                 batch = texts[start:start + self._embedding_batch_size]
                 batch_vectors = await self._model_gateway.embed(
-                    batch,
+                    [f"search_document: {value}" for value in batch],
                     model_profile=self._embedding_model_profile,
                 )
                 for vector in batch_vectors:
