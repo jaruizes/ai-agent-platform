@@ -15,6 +15,7 @@ class KnowledgeBase:
     retention_policy: str = "PERSISTENT"
     expires_at: datetime | None = None
     enabled: bool = True
+    chunking_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -57,7 +58,7 @@ class KnowledgeChunk:
     content: str
     token_estimate: int
     metadata: dict[str, Any] = field(default_factory=dict)
-    embedding: list[float] = field(default_factory=list)
+    embedding: list[float] | None = None
 
 
 @dataclass(frozen=True)
