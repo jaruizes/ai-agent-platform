@@ -77,6 +77,7 @@ if settings.memory_auto_extract_session:
         model_gateway,
         model_profile=settings.memory_extractor_model_profile,
         max_candidates=settings.memory_extractor_max_candidates,
+        max_input_chars=settings.memory_extractor_max_input_chars,
     )
 else:
     memory_extractor = None
