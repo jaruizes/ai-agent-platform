@@ -161,7 +161,7 @@ class ExecutionService:
                     result=result,
                 )
             except Exception as exc:
-                if plan is not None:
+                if plan is not None and stage == "PLAN":
                     try:
                         await self._repository.mark_plan_failed(execution)
                     except Exception:
