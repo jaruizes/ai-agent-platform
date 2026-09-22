@@ -425,3 +425,183 @@ ANTHROPIC_EXECUTION_MODEL=anthropic/claude-sonnet-4-5-20250929
 ```
 
 The platform code only knows the profile names `router-fast` and `reasoning-default`, not the provider model IDs.
+
+
+---
+
+# M2 — Declarative Tools & MCP
+
+M2 adds tools as first-class platform resources. A tool is declarative and persisted in PostgreSQL; MCP is one implementation mechanism, not a business abstraction.
+
+The resolver can now select:
+
+```text
+DIRECT_LLM
+AGENT
+TOOL
+TOOL_LLM
+AGENT_TOOL_LLM
+```
+
+There is still no business mapping in code. The resolver receives the enabled agents and tools, their descriptions and tool input schemas, and chooses the smallest valid execution strategy.
+
+## Persistent registries
+
+M2 adds:
+
+```text
+tools
+mcp_servers
+```
+
+and bootstrap folders:
+
+```text
+bootstrap/
+├── tools/
+└── mcp-servers/
+```
+
+The same precedence rule applies to skills, agents, prompts, tools and MCP servers:
+
+```text
+Markdown exists + DB missing       -> insert bootstrap definition
+Markdown exists + DB already exists -> keep DB definition unchanged
+```
+
+PostgreSQL remains the runtime source of truth.
+
+## Google Workspace MCP
+
+The Google Workspace MCP from `jaruizes/proposal-app` is included under:
+
+```text
+mcp/google-workspace/
+```
+
+The agent-platform image builds and packages this MCP server and launches it through stdio only when an MCP-backed tool is invoked.
+
+M2 bootstraps:
+
+```text
+MCP server:
+  google-workspace
+
+Tools:
+  google-docs-get-document
+  google-drive-search-files
+```
+
+The tool definition points to a logical MCP server and remote tool:
+
+```yaml
+configuration:
+  server: google-workspace
+  tool: docs_get_document
+```
+
+No Google-specific code exists in the business layer.
+
+## Google OAuth setup
+
+The compose mounts:
+
+```text
+./.secrets:/run/secrets/google:ro
+```
+
+For the Google Workspace MCP place these files in the repository root:
+
+```text
+.secrets/
+├── google-oauth-credentials.json
+└── google-token.json
+```
+
+If you already authenticated the MCP in `proposal-app`, the simplest local setup is to copy/reuse those two files.
+
+Do not commit this directory; `.secrets/` is ignored by git.
+
+## Tool and MCP APIs
+
+```text
+GET    /v1/tools
+POST   /v1/tools
+PUT    /v1/tools/{id}
+DELETE /v1/tools/{id}
+
+GET    /v1/mcp-servers
+POST   /v1/mcp-servers
+PUT    /v1/mcp-servers/{id}
+DELETE /v1/mcp-servers/{id}
+```
+
+## E2E: summarize a Google Doc
+
+Rebuild because M2 adds Node/MCP assets to the agent-platform image:
+
+```bash
+docker compose build --no-cache agent-platform
+docker compose up -d
+```
+
+Validate bootstrap:
+
+```bash
+curl http://localhost:8080/v1/mcp-servers
+curl http://localhost:8080/v1/tools
+```
+
+Take a Google Docs URL such as:
+
+```text
+https://docs.google.com/document/d/<DOCUMENT_ID>/edit
+```
+
+and submit:
+
+```bash
+curl -X POST http://localhost:8080/v1/executions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "correlationId": "m2-drive-summary-001",
+    "command": {
+      "name": "summarize-drive-document",
+      "intent": "Read this Google Docs document and give me a concise summary in Spanish with the main conclusions.",
+      "input": {
+        "documentId": "<DOCUMENT_ID>"
+      },
+      "context": {},
+      "instructions": [
+        "Do not invent information that is not present in the document."
+      ]
+    }
+  }'
+```
+
+Query the returned execution:
+
+```bash
+curl http://localhost:8080/v1/executions/<executionId>
+```
+
+The resolver should choose a tool-based route. Depending on whether the specialized `drive-document-analyst` materially helps, either of these is valid:
+
+```json
+{
+  "strategy": "TOOL_LLM",
+  "tool": "google-docs-get-document"
+}
+```
+
+or:
+
+```json
+{
+  "strategy": "AGENT_TOOL_LLM",
+  "agent": "drive-document-analyst",
+  "tool": "google-docs-get-document"
+}
+```
+
+The important M2 invariant is that the platform discovers/selects the declarative tool, invokes the Google Workspace MCP, obtains the Docs content and then uses the configured execution model to satisfy the intent.
