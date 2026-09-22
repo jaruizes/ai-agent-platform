@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from app.business.memory_policy import MemoryPolicyEngine
+from app.business.ports import MemoryRepositoryPort
 from app.domain.execution import Command
 from app.domain.memory import (
     CONTEXT_ENTRY_TYPES,
@@ -19,15 +20,11 @@ from app.domain.memory import (
     Session,
     WorkingContextEntry,
 )
-from app.infrastructure.persistence.postgres.memory_repository import (
-    PostgresMemoryRepository,
-)
-
 
 class MemoryService:
     def __init__(
         self,
-        repository: PostgresMemoryRepository,
+        repository: MemoryRepositoryPort,
         policy: MemoryPolicyEngine,
         *,
         cleanup_poll_seconds: float,
