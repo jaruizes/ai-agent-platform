@@ -159,6 +159,8 @@ def create_admin_router(
                     (SELECT COUNT(*) FROM prompts) AS prompts,
                     (SELECT COUNT(*) FROM knowledge_bases) AS knowledge_bases,
                     (SELECT COUNT(*) FROM knowledge_documents) AS documents,
+                    (SELECT COUNT(*) FROM sessions WHERE status='ACTIVE') AS sessions,
+                    (SELECT COUNT(*) FROM memory_entries WHERE status='ACTIVE') AS memories,
                     (
                         SELECT COUNT(*) FROM execution_plan_steps
                         WHERE status='WAITING_APPROVAL'
@@ -221,6 +223,12 @@ def create_admin_router(
                 "embeddingModel": settings.knowledge_embedding_model,
                 "dimensions": settings.knowledge_embedding_dimensions,
                 "topK": settings.knowledge_top_k,
+            },
+            "memory": {
+                "allowInferredPersistence": settings.memory_allow_inferred_persistence,
+                "minInferredConfidence": settings.memory_min_inferred_confidence,
+                "maxContentChars": settings.memory_max_content_chars,
+                "cleanupPollSeconds": settings.memory_cleanup_poll_seconds,
             },
             "durability": {
                 "leaseSeconds": settings.execution_lease_seconds,
