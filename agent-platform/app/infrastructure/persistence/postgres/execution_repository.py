@@ -83,6 +83,7 @@ class PostgresExecutionRepository:
                     FROM executions
                     WHERE
                         status = 'ACCEPTED'
+                        OR status IN ('PAUSING','CANCELLING')
                         OR (
                             status IN ('RUNNING','RETRYING')
                             AND (
@@ -341,7 +342,8 @@ class PostgresExecutionRepository:
                 SET control_action=$2,status=$3,control_reason=$4,updated_at=now()
                 WHERE id=$1
                   AND status IN (
-                    'ACCEPTED','RUNNING','RETRYING','PAUSING','CANCELLING'
+                    'ACCEPTED','RUNNING','RETRYING','PAUSING','CANCELLING',
+                    'PAUSED','WAITING_APPROVAL'
                   )
                 """,
                 execution_id,
