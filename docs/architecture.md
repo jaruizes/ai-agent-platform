@@ -2995,7 +2995,32 @@ Inferred candidate
   -> persist / reject
 ```
 
-M7.2 proporciona el contrato para candidatos inferidos, pero **no ejecuta todavía un extractor LLM automático al final de cada ejecución**. Los productores futuros de candidatos pueden ser un extractor dedicado, un Agent o lógica de aplicación. La decisión de persistencia seguirá siendo siempre de plataforma.
+M7.2 incorpora además un **Memory Candidate Extractor** asistido por LLM para ejecuciones asociadas a una `Session`.
+
+El extractor se ejecuta únicamente después de completar con éxito la ejecución:
+
+```text
+Execution COMPLETED
+      |
+      v
+MemoryCandidateExtractor
+      |
+      v
+SESSION-scoped candidates
+      |
+      v
+MemoryPolicyEngine
+      |
+   +--+--------+
+   |           |
+ REJECT      PERSIST
+```
+
+El extractor sólo puede proponer candidatos con scope `SESSION`; no puede promover por sí mismo información a `USER`, `TEAM`, `TENANT` o `AGENT`. Esas memorias cross-session requieren una escritura explícita por API hasta que exista una capa de identidad/governance que permita decidir ese scope con garantías.
+
+La extracción es **best-effort**: si el modelo extractor falla, la ejecución ya completada permanece `COMPLETED`. El fallo no degrada el resultado funcional.
+
+La decisión de persistencia sigue siendo siempre determinista y autoritativa en `MemoryPolicyEngine`.
 
 ### Memory Policy Engine
 
@@ -3021,6 +3046,9 @@ La configuración inicial incluye:
 MEMORY_ALLOW_INFERRED_PERSISTENCE=true
 MEMORY_MIN_INFERRED_CONFIDENCE=0.80
 MEMORY_MAX_CONTENT_CHARS=8000
+MEMORY_AUTO_EXTRACT_SESSION=true
+MEMORY_EXTRACTOR_MODEL_PROFILE=router-fast
+MEMORY_EXTRACTOR_MAX_CANDIDATES=8
 ```
 
 Reglas implementadas:
@@ -3270,4 +3298,39 @@ Este ADR evita volver a caer en el patrón:
 
 ```text
 context = concatenate(everything)
+```
+
+
+### ADR-038 — La extracción LLM propone memoria; no autoriza persistencia
+
+**Estado:** Accepted  
+**Contexto:** M7.2
+
+El `MemoryCandidateExtractor` puede usar un LLM para identificar información potencialmente reutilizable, pero su salida no se escribe directamente en `memory_entries`.
+
+```text
+LLM extractor
+    |
+    v
+MemoryCandidate
+    |
+    v
+MemoryPolicyEngine   <-- authoritative
+    |
+    +--> REJECT
+    |
+    +--> PERSIST
+```
+
+La extracción automática se limita inicialmente a memoria `SESSION` porque la sesión constituye una frontera explícita de continuidad ya validada por la plataforma.
+
+El extractor no decide por sí mismo memoria `USER`, `TEAM`, `TENANT` o `AGENT`. La promoción a scopes cross-session requiere una operación explícita de plataforma.
+
+La extracción ocurre después de `Execution COMPLETED` y es best-effort. Un fallo en el extractor no cambia el resultado durable de la ejecución.
+
+Este ADR mantiene separadas dos responsabilidades:
+
+```text
+LLM      -> descubre candidatos
+Platform -> decide qué se recuerda
 ```
