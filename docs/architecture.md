@@ -119,6 +119,20 @@ flowchart TB
         CG["Command Gateway"]
     end
 
+    subgraph Control["CONTROL PLANE - M6"]
+        CPUI["Angular Admin UI"]
+        CPAPI["Control Plane Admin API"]
+        EXPL["Execution Explorer"]
+        APPR["Approval Inbox"]
+        RES["Resource Management"]
+        DIAG["Runtime Diagnostics"]
+        CPUI --> CPAPI
+        CPUI --> EXPL
+        CPUI --> APPR
+        CPUI --> RES
+        CPUI --> DIAG
+    end
+
     subgraph Platform["AI AGENT PLATFORM - No determinista"]
         IR["Intent Resolver / Normalizer"]
 
@@ -189,6 +203,11 @@ flowchart TB
         ART["Artifact Storage"]
     end
 
+    CPAPI --> REST
+    EXPL --> REST
+    APPR --> REST
+    RES --> REST
+    DIAG --> REST
     APP1 --> REST
     APP2 --> NATSIN
     APP3 --> REST
@@ -2467,3 +2486,243 @@ approvalPolicy: REQUIRED
 ```
 
 si la organización exige aprobación humana antes del side effect.
+
+
+---
+
+## 18. M6 — Control Plane / Angular Admin UI
+
+M6 separa explícitamente la **administración y operación de la plataforma** del runtime de ejecución.
+
+La plataforma dispone ahora de dos planos conceptuales:
+
+```text
+CONTROL PLANE
+  Angular Admin UI
+  Admin/Query APIs
+  Resource management
+  Execution explorer
+  Approval inbox
+  Diagnostics
+
+RUNTIME PLANE
+  Planner
+  PlanPolicyEnricher
+  PlanValidator
+  LangGraph
+  StepExecutor
+  Agents / Tools / Knowledge
+  Durable Execution
+```
+
+### UI Angular
+
+El Control Plane se implementa en:
+
+```text
+control-plane-ui/
+```
+
+con Angular 20 y una aplicación standalone. El estilo visual toma como referencia la aplicación `proposal-app` de la rama `feat/agent-platform-integration`: sidebar oscura, paneles de alto contraste, cards, tablas operativas, badges de estado y modales de edición.
+
+Se despliega como un contenedor Nginx independiente:
+
+```text
+control-plane-ui:8081
+        |
+        +-- static Angular assets
+        |
+        +-- /api/* -> agent-platform:8080/*
+```
+
+La UI no se conecta directamente a PostgreSQL, NATS, MCP o LiteLLM.
+
+### Capacidades M6
+
+El Control Plane incluye:
+
+```text
+Dashboard
+Executions
+Approvals
+Agents
+Skills
+Prompts
+Tools
+MCP Servers
+Knowledge Bases
+Documents / upload / reindex
+RAG retrieval playground
+Agent -> Knowledge assignments
+Runtime configuration
+Diagnostics / observability links
+```
+
+#### Execution Explorer
+
+La UI consume el estado funcional persistido de M4/M5 y representa:
+
+- estado global de la ejecución;
+- objetivo del plan;
+- grafo lógico por niveles de dependencia;
+- step type;
+- agente o Tool responsable;
+- estado de cada step;
+- tokens;
+- intentos y retry;
+- approval gates;
+- policy source;
+- errores;
+- lease owner;
+- controles `pause/resume/retry/cancel`.
+
+No reconstruye el workflow a partir de logs.
+
+#### Approval Inbox
+
+La Approval Inbox consulta steps en `WAITING_APPROVAL` y muestra de forma explícita:
+
+```text
+execution
+step
+agent/tool
+reason
+approvalSource
+sideEffect
+approvalPolicy
+```
+
+Las decisiones llaman al contrato durable M5:
+
+```text
+POST /v1/executions/{executionId}/steps/{stepId}/approval
+```
+
+La UI es únicamente un operador del estado durable; la semántica de aprobación sigue perteneciendo al runtime.
+
+#### Resource Management
+
+Desde el Control Plane se administran mediante las APIs ya existentes:
+
+```text
+Agents
+Skills
+Prompts
+Tools
+MCP Servers
+Knowledge Bases
+Knowledge Documents
+Agent Knowledge assignments
+```
+
+La edición de Tools expone especialmente:
+
+```text
+sideEffect
+approvalPolicy
+```
+
+para hacer visible la política determinista introducida en M5.
+
+### Admin query API
+
+M6 incorpora endpoints orientados a lectura agregada del Control Plane:
+
+```text
+GET /v1/admin/overview
+GET /v1/admin/executions
+GET /v1/admin/approvals
+GET /v1/admin/runtime
+```
+
+No sustituyen a los contratos de runtime. Son read models/queries optimizadas para operación humana.
+
+`/v1/admin/overview` expone contadores de recursos, ejecuciones, approvals, retries y outbox pendiente.
+
+`/v1/admin/executions` devuelve la lista reciente de ejecuciones con estado de plan, approvals y retries.
+
+`/v1/admin/approvals` representa la bandeja global de decisiones pendientes.
+
+`/v1/admin/runtime` muestra perfiles de modelo activos, configuración de durabilidad, embeddings y salud básica de PostgreSQL/NATS.
+
+### Observabilidad externa
+
+El Control Plane enlaza, pero no reemplaza, las herramientas especializadas:
+
+```text
+Grafana
+Prometheus
+Jaeger
+NATS Monitor
+```
+
+El principio es:
+
+> **Control Plane muestra estado funcional y operativo de plataforma; las herramientas de observabilidad siguen siendo la fuente especializada de métricas y trazas.**
+
+### ADR-028 — Control Plane y Runtime Plane son responsabilidades separadas
+
+**Estado:** Accepted  
+**Contexto:** M6
+
+La UI y las APIs administrativas no forman parte del camino crítico de ejecución.
+
+```text
+Control Plane unavailable
+        |
+        X
+        |
+Runtime continues processing commands/events
+```
+
+Consecuencias:
+
+- una caída del Angular/Nginx no detiene ejecuciones;
+- el runtime no depende de sesiones de UI;
+- la UI opera exclusivamente mediante contratos de plataforma;
+- Kubernetes puede escalar/desplegar ambos planos independientemente.
+
+### ADR-029 — La UI representa estado persistido, no infiere estado desde logs
+
+**Estado:** Accepted  
+**Contexto:** M6
+
+Plan, steps, approvals, retries, tokens y leases se consultan desde el estado funcional ya persistido.
+
+Esto evita que el frontend tenga lógica para interpretar trazas o recomponer workflows y mantiene una única fuente de verdad.
+
+### ADR-030 — Admin APIs son read models del Control Plane
+
+**Estado:** Accepted  
+**Contexto:** M6
+
+Se permiten endpoints `/v1/admin/*` específicos para operación porque son consultas del Control Plane, no nuevos comandos de negocio.
+
+No contradicen el contrato genérico de integración de aplicaciones:
+
+```text
+Applications -> ExecutionCommand
+Operators    -> Control Plane Admin Queries/Controls
+```
+
+Ambos actores tienen necesidades distintas y se mantienen explícitamente separados.
+
+### ADR-031 — Angular/Nginx es un deployment independiente
+
+**Estado:** Accepted  
+**Contexto:** M6
+
+La UI Angular se compila a assets estáticos y se sirve con Nginx. Nginx proxyfica `/api/` hacia `agent-platform`.
+
+Esto proporciona:
+
+- same-origin para el navegador;
+- ausencia de dependencia CORS en local;
+- imagen de UI independiente;
+- sustitución futura del frontend sin afectar al runtime.
+
+El puerto local por defecto es:
+
+```text
+http://localhost:8081
+```
