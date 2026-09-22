@@ -35,6 +35,7 @@ def create_admin_router(
                 SELECT
                     e.id,
                     e.correlation_id,
+                    e.session_id,
                     e.command_name,
                     e.intent,
                     e.status,
@@ -76,6 +77,11 @@ def create_admin_router(
             {
                 "executionId": str(row["id"]),
                 "correlationId": row["correlation_id"],
+                "sessionId": (
+                    str(row["session_id"])
+                    if row["session_id"]
+                    else None
+                ),
                 "commandName": row["command_name"],
                 "intent": row["intent"],
                 "status": row["status"],
