@@ -7,7 +7,12 @@ from langgraph.graph import END, START, StateGraph
 from app.business.ports import ExecutionRepositoryPort
 from app.business.step_executor import StepExecutor
 from app.domain.execution import Command
-from app.domain.orchestration import LogicalPlan, PlanStep
+from app.domain.orchestration import (
+    LogicalPlan,
+    OrchestrationCancelled,
+    OrchestrationSuspended,
+    PlanStep,
+)
 
 
 def _merge_results(
@@ -70,6 +75,8 @@ class LangGraphOrchestrationEngine:
                     f"Final plan step '{plan.final_step_id}' did not produce a result"
                 )
             await self._repository.mark_plan_completed(execution)
+        except (OrchestrationSuspended, OrchestrationCancelled):
+            raise
         except Exception:
             await self._repository.mark_plan_failed(execution)
             raise
