@@ -136,7 +136,7 @@ flowchart TB
     subgraph Platform["AI AGENT PLATFORM - No determinista"]
         IR["Intent Resolver / Normalizer"]
 
-        subgraph Runtime["AGENTIC RUNTIME - M4"]
+        subgraph Runtime["RUNTIME PLANE - M4/M5"]
             PL["LLM Planner<br/>planner-default"]
             PE["Plan Policy Enricher<br/>approval determinista"]
             PV["Plan Validator / Feasibility<br/>determinista"]
