@@ -15,7 +15,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_status_updated
     ON sessions(status, updated_at DESC);
 
 ALTER TABLE executions
-    ADD COLUMN IF NOT EXISTS session_id UUID NULL REFERENCES sessions(id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS session_id UUID NULL REFERENCES sessions(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS command_metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_executions_session_created
     ON executions(session_id, created_at DESC)
