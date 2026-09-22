@@ -64,6 +64,14 @@ server.tool("drive_move_file","Move a Drive file to another folder.",{fileId:z.s
 
 server.tool("slides_create_presentation","Create a blank Google Slides presentation.",{title:z.string()},async({title})=>text((await slides.presentations.create({requestBody:{title}})).data));
 server.tool("slides_get_presentation","Read Slides structure, IDs, text, transforms, layouts and masters. Read-only.",{presentationId:z.string()},async({presentationId})=>text(summarize((await slides.presentations.get({presentationId})).data)));
+server.tool("slides_get_text","Read compact semantic text from a Google Slides presentation for summarization and RAG ingestion. Read-only.",{presentationId:z.string()},async({presentationId})=>{
+  const p=summarize((await slides.presentations.get({presentationId})).data);
+  const content=(p.slides??[]).map((slide:any,index:number)=>{
+    const value=(slide.pageElements??[]).map((element:any)=>element.text??"").filter(Boolean).join("\n");
+    return value?`[Slide ${index+1}]\n${value}`:"";
+  }).filter(Boolean).join("\n\n");
+  return text({presentationId:p.presentationId,title:p.title,text:content,slideCount:p.slides?.length??0,characterCount:content.length});
+});
 server.tool("slides_get_thumbnail","Fetch a PNG thumbnail of one slide for visual inspection. Read-only.",{presentationId:z.string(),slideObjectId:z.string(),size:z.enum(["SMALL","MEDIUM","LARGE"]).default("MEDIUM")},async({presentationId,slideObjectId,size})=>{const meta=await slides.presentations.pages.getThumbnail({presentationId,pageObjectId:slideObjectId,"thumbnailProperties.mimeType":"PNG","thumbnailProperties.thumbnailSize":size});if(!meta.data.contentUrl)throw new Error("Google Slides returned no thumbnail URL");const r=await fetch(meta.data.contentUrl);if(!r.ok)throw new Error(`Thumbnail download failed with HTTP ${r.status}`);const b=Buffer.from(await r.arrayBuffer());return {content:[{type:"image" as const,data:b.toString("base64"),mimeType:"image/png"},{type:"text" as const,text:JSON.stringify({presentationId,slideObjectId,width:meta.data.width,height:meta.data.height},null,2)}]};});
 server.tool("slides_duplicate_slide","Duplicate a slide within a generated presentation.",{presentationId:z.string(),slideObjectId:z.string(),objectIds:z.record(z.string()).optional()},async({presentationId,slideObjectId,objectIds})=>{
   const response=await slides.presentations.batchUpdate({presentationId,requestBody:{requests:[{duplicateObject:{objectId:slideObjectId,...(objectIds?{objectIds}: {})}}]}});
@@ -144,6 +152,20 @@ server.tool("docs_create_document","Create a new Google Docs document.",{title:z
 server.tool("docs_batch_update","Apply Google Docs batchUpdate requests.",{documentId:z.string(),requests:z.array(z.record(z.any())).min(1)},async({documentId,requests})=>text((await docs.documents.batchUpdate({documentId,requestBody:{requests}})).data));
 
 server.tool("sheets_get_spreadsheet","Read spreadsheet metadata and sheet structure.",{spreadsheetId:z.string()},async({spreadsheetId})=>text((await sheets.spreadsheets.get({spreadsheetId,includeGridData:false})).data));
+server.tool("sheets_get_text","Read compact semantic text from all sheets in a Google Sheets spreadsheet for analysis and RAG ingestion. Read-only.",{spreadsheetId:z.string()},async({spreadsheetId})=>{
+  const meta=(await sheets.spreadsheets.get({spreadsheetId,includeGridData:false})).data;
+  const sections:string[]=[];
+  for(const sheet of meta.sheets??[]){
+    const title=sheet.properties?.title;
+    if(!title)continue;
+    const escapedTitle=title.replace(/'/g,"''");
+    const values=(await sheets.spreadsheets.values.get({spreadsheetId,range:`'${escapedTitle}'`})).data.values??[];
+    const rows=values.map(row=>row.map(value=>value==null?"":String(value)).join(" | ")).filter(Boolean);
+    if(rows.length)sections.push(`[Sheet: ${title}]\n${rows.join("\n")}`);
+  }
+  const content=sections.join("\n\n");
+  return text({spreadsheetId,title:meta.properties?.title,text:content,sheetCount:meta.sheets?.length??0,characterCount:content.length});
+});
 server.tool("sheets_get_values","Read a range from Google Sheets.",{spreadsheetId:z.string(),range:z.string()},async({spreadsheetId,range})=>text((await sheets.spreadsheets.values.get({spreadsheetId,range})).data));
 server.tool("sheets_update_values","Write values to a range in Google Sheets.",{spreadsheetId:z.string(),range:z.string(),values:z.array(z.array(z.any())),valueInputOption:z.enum(["RAW","USER_ENTERED"]).default("USER_ENTERED")},async({spreadsheetId,range,values,valueInputOption})=>text((await sheets.spreadsheets.values.update({spreadsheetId,range,valueInputOption,requestBody:{values}})).data));
 
