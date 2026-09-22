@@ -90,6 +90,22 @@ class PostgresKnowledgeRepository:
             row = await conn.fetchrow("SELECT * FROM knowledge_documents WHERE id=$1", document_id)
             return self._document(row) if row else None
 
+    async def get_document_by_source(
+        self,
+        kb_id: UUID,
+        source_type: str,
+        source_id: str,
+    ) -> KnowledgeDocument | None:
+        async with self._db.require_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT * FROM knowledge_documents
+                WHERE knowledge_base_id=$1 AND source_type=$2 AND source_id=$3
+                """,
+                kb_id, source_type, source_id,
+            )
+            return self._document(row) if row else None
+
     async def create_document(self, document: KnowledgeDocument) -> KnowledgeDocument:
         async with self._db.require_pool().acquire() as conn:
             await conn.execute(
