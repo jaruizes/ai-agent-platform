@@ -83,9 +83,8 @@ class PostgresExecutionRepository:
                     FROM executions
                     WHERE
                         status = 'ACCEPTED'
-                        OR status IN ('PAUSING','CANCELLING')
                         OR (
-                            status IN ('RUNNING','RETRYING')
+                            status IN ('RUNNING','RETRYING','PAUSING','CANCELLING')
                             AND (
                                 lease_expires_at IS NULL
                                 OR lease_expires_at < now()
@@ -101,7 +100,9 @@ class PostgresExecutionRepository:
                 if not row:
                     return None
 
-                recovering = row["status"] in {"RUNNING", "RETRYING"}
+                recovering = row["status"] in {
+                    "RUNNING", "RETRYING", "PAUSING", "CANCELLING"
+                }
                 await conn.execute(
                     """
                     UPDATE executions
@@ -219,7 +220,7 @@ class PostgresExecutionRepository:
                     execution_id,
                 )
                 if not row or row["status"] not in {
-                    "PAUSED", "WAITING_APPROVAL", "RETRYING"
+                    "PAUSED", "WAITING_APPROVAL"
                 }:
                     return False
                 await conn.execute(
