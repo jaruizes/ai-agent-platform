@@ -2018,6 +2018,7 @@ API:
 ```text
 POST /v1/executions/{id}/pause
 POST /v1/executions/{id}/resume
+POST /v1/executions/{id}/retry   # only FAILED executions
 ```
 
 Estados:
