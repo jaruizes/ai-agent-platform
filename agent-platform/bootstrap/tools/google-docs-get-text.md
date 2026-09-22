@@ -3,6 +3,8 @@ name: google-docs-get-text
 description: Read compact semantic text from a Google Docs document by document ID, optimized for summarization and LLM analysis.
 implementationType: MCP
 enabled: true
+sideEffect: READ
+approvalPolicy: NEVER
 configuration:
   server: google-workspace
   tool: docs_get_text
