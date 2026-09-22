@@ -7,12 +7,14 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 from app.business.catalog_service import CatalogService
 from app.business.execution_service import ExecutionService
+from app.business.knowledge_service import KnowledgeService
 from app.business.prompt_service import PromptService
 from app.business.tool_service import ToolService
 from app.business.intent_resolver import IntentResolver
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
 from app.infrastructure.api.rest.prompt_router import create_prompt_router
+from app.infrastructure.api.rest.knowledge_router import create_knowledge_router
 from app.infrastructure.api.rest.tool_router import create_tool_router
 from app.infrastructure.api.rest.router import create_router
 from app.infrastructure.bootstrap.markdown_loader import MarkdownCatalogLoader
@@ -20,10 +22,12 @@ from app.infrastructure.config.settings import get_settings
 from app.infrastructure.externalservices.litellm.model_gateway import LiteLLMModelGateway
 from app.infrastructure.externalservices.mcp.stdio_client import McpStdioClient
 from app.infrastructure.externalservices.mcp.tool_executor import InfrastructureToolExecutor
+from app.infrastructure.knowledge.parsers import DocumentParser
 from app.infrastructure.observability.telemetry import configure_telemetry
 from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
 from app.infrastructure.persistence.postgres.database import Database
 from app.infrastructure.persistence.postgres.execution_repository import PostgresExecutionRepository
+from app.infrastructure.persistence.postgres.knowledge_repository import PostgresKnowledgeRepository
 from app.infrastructure.persistence.postgres.prompt_repository import PostgresPromptRepository
 from app.infrastructure.persistence.postgres.tool_repository import PostgresToolRepository
 
@@ -46,10 +50,25 @@ mcp_client = McpStdioClient(
 tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
 tool_service = ToolService(tool_repository, tool_executor)
 model_gateway = LiteLLMModelGateway(settings)
+knowledge_repository = PostgresKnowledgeRepository(database)
+knowledge_service = KnowledgeService(
+    repository=knowledge_repository,
+    model_gateway=model_gateway,
+    tool_service=tool_service,
+    parser=DocumentParser(),
+    storage_root=settings.knowledge_storage_root,
+    embedding_model_profile=settings.embedding_model_profile,
+    chunk_size_chars=settings.knowledge_chunk_size_chars,
+    chunk_overlap_chars=settings.knowledge_chunk_overlap_chars,
+    embedding_batch_size=settings.knowledge_embedding_batch_size,
+    worker_poll_seconds=settings.knowledge_worker_poll_seconds,
+    cleanup_poll_seconds=settings.knowledge_cleanup_poll_seconds,
+)
 intent_resolver = IntentResolver(
     catalog_repository,
     prompt_service,
     tool_service,
+    knowledge_service,
     model_gateway,
     router_model_profile=settings.router_model_profile,
     execution_model_profile=settings.execution_model_profile,
@@ -61,10 +80,12 @@ execution_service = ExecutionService(
     resolver=intent_resolver,
     model_gateway=model_gateway,
     tool_service=tool_service,
+    knowledge_service=knowledge_service,
     event_publisher=nats_adapter,
     worker_poll_seconds=settings.worker_poll_seconds,
     outbox_poll_seconds=settings.outbox_poll_seconds,
     max_tool_result_chars_for_model=settings.max_tool_result_chars_for_model,
+    knowledge_top_k=settings.knowledge_top_k,
 )
 
 bootstrap_loader = MarkdownCatalogLoader(
@@ -88,12 +109,21 @@ async def lifespan(_: FastAPI):
 
     worker = asyncio.create_task(execution_service.worker_loop(), name="execution-worker")
     outbox = asyncio.create_task(execution_service.outbox_loop(), name="outbox-publisher")
+    knowledge_worker = asyncio.create_task(
+        knowledge_service.worker_loop(),
+        name="knowledge-worker",
+    )
+    knowledge_cleanup = asyncio.create_task(
+        knowledge_service.cleanup_loop(),
+        name="knowledge-cleanup",
+    )
 
     try:
         yield
     finally:
         await execution_service.stop()
-        for task in (worker, outbox):
+        await knowledge_service.stop()
+        for task in (worker, outbox, knowledge_worker, knowledge_cleanup):
             task.cancel()
         await model_gateway.close()
         await nats_adapter.close()
@@ -108,6 +138,7 @@ app = FastAPI(
 app.include_router(create_router(execution_service))
 app.include_router(create_catalog_router(catalog_service))
 app.include_router(create_prompt_router(prompt_service))
+app.include_router(create_knowledge_router(knowledge_service))
 app.include_router(create_tool_router(tool_service))
 FastAPIInstrumentor.instrument_app(app)
 
