@@ -780,3 +780,57 @@ EXECUTION_CONTROL_POLL_SECONDS=0.5
 ```
 
 M5 uses at-least-once semantics for external side effects. Completed steps are not re-executed after recovery, but a process failure between an external side effect and checkpoint persistence can repeat that side effect. Side-effecting tools should therefore use the stable `executionId:stepId` idempotency key when the external system supports it.
+
+
+## Deterministic human approval for Tools
+
+Human approval is not trusted to the LLM alone. Each Tool now declares:
+
+```text
+sideEffect:
+  NONE
+  READ
+  WRITE
+  EXTERNAL_ACTION
+
+approvalPolicy:
+  NEVER
+  OPTIONAL
+  REQUIRED
+```
+
+The Planner sees this metadata, but the platform is authoritative:
+
+```text
+Planner
+  -> LogicalPlan
+  -> PlanPolicyEnricher
+  -> PlanValidator
+  -> persist effective plan
+  -> LangGraph
+  -> StepExecutor rechecks current Tool policy
+  -> WAITING_APPROVAL when REQUIRED
+```
+
+`REQUIRED` forces `requiresApproval=true` even when the Planner returned false. `NEVER` suppresses a Tool-level approval proposed by the Planner. `OPTIONAL` preserves the Planner decision.
+
+The runtime rechecks the current Tool policy immediately before execution. If a Tool changes to `REQUIRED` after the plan was created, the step is promoted to an approval gate and `STEP_APPROVAL_POLICY_ENFORCED` is emitted.
+
+The orchestration API exposes:
+
+```text
+steps[].requiresApproval
+steps[].approvalSource
+steps[].toolPolicy.sideEffect
+steps[].toolPolicy.approvalPolicy
+steps[].approval
+```
+
+All current Google bootstrap tools are read-only and default to:
+
+```text
+sideEffect = READ
+approvalPolicy = NEVER
+```
+
+To test the deterministic gate with an existing read Tool, temporarily update that Tool through `PUT /v1/tools/{toolId}` and set `approvalPolicy` to `REQUIRED`. The next plan that uses that Tool must enter `WAITING_APPROVAL` before the Tool call, regardless of what the Planner proposed.
