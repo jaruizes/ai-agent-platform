@@ -15,12 +15,14 @@ class CommandRequest(BaseModel):
 
 class RestExecutionRequest(BaseModel):
     correlationId: str | None = None
+    sessionId: UUID | None = None
     command: CommandRequest
 
 
 class RestExecutionAccepted(BaseModel):
     executionId: UUID
     correlationId: str
+    sessionId: UUID | None = None
     status: Literal["ACCEPTED"] = "ACCEPTED"
 
 
