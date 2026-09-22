@@ -180,6 +180,9 @@ class ExecutionService:
                     input=self._as_object(execution["input"]),
                     context=self._as_object(execution["context"]),
                     instructions=self._as_list(execution["instructions"]),
+                    metadata=self._as_object(
+                        execution.get("command_metadata") or {}
+                    ),
                 )
 
                 await self._honor_control_before_plan(execution)
