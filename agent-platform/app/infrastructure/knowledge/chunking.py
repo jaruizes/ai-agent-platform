@@ -169,6 +169,25 @@ class HeadingAwareChunker:
             ]
 
         chunks: list[ChunkCandidate] = []
+        if headings[0].start() > 0 and text[:headings[0].start()].strip():
+            prefix = text[:headings[0].start()]
+            for item in ParagraphChunker(
+                chunk_size=self.chunk_size,
+                overlap=self.overlap,
+            ).split(prefix):
+                chunks.append(
+                    ChunkCandidate(
+                        item.content,
+                        item.start,
+                        item.end,
+                        {
+                            **item.metadata,
+                            "chunkingStrategy": "HEADING",
+                            "heading": None,
+                        },
+                    )
+                )
+
         for index, heading in enumerate(headings):
             section_start = heading.start()
             section_end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
