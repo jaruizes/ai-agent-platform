@@ -33,6 +33,29 @@ class MemoryService:
         self._cleanup_poll_seconds = cleanup_poll_seconds
         self._stop = asyncio.Event()
 
+    @staticmethod
+    def _validate_session_definition(
+        *,
+        scope: str,
+        owner_key: str | None,
+        expires_at: datetime | None,
+    ) -> tuple[str, datetime | None]:
+        normalized_scope = scope.upper()
+        if normalized_scope not in SESSION_SCOPES:
+            raise ValueError(
+                "Session scope must be one of USER, TEAM or TENANT"
+            )
+        if normalized_scope in {"USER", "TEAM"} and not (
+            owner_key and owner_key.strip()
+        ):
+            raise ValueError(
+                f"ownerKey is required for {normalized_scope} sessions"
+            )
+        normalized_expiry = MemoryService._normalize_datetime(expires_at)
+        if normalized_expiry and normalized_expiry <= datetime.now(timezone.utc):
+            raise ValueError("expiresAt must be in the future")
+        return normalized_scope, normalized_expiry
+
     async def create_session(
         self,
         *,
@@ -42,18 +65,18 @@ class MemoryService:
         metadata: dict[str, Any],
         expires_at: datetime | None,
     ) -> Session:
-        normalized_scope = scope.upper()
-        if normalized_scope not in SESSION_SCOPES:
-            raise ValueError(
-                "Session scope must be one of USER, TEAM or TENANT"
-            )
+        normalized_scope, normalized_expiry = self._validate_session_definition(
+            scope=scope,
+            owner_key=owner_key,
+            expires_at=expires_at,
+        )
         return await self._repository.create_session(
             Session(
                 name=name,
                 scope=normalized_scope,
                 owner_key=owner_key,
                 metadata=metadata,
-                expires_at=self._normalize_datetime(expires_at),
+                expires_at=normalized_expiry,
             )
         )
 
@@ -96,18 +119,18 @@ class MemoryService:
         metadata: dict[str, Any],
         expires_at: datetime | None,
     ) -> Session | None:
-        normalized_scope = scope.upper()
-        if normalized_scope not in SESSION_SCOPES:
-            raise ValueError(
-                "Session scope must be one of USER, TEAM or TENANT"
-            )
+        normalized_scope, normalized_expiry = self._validate_session_definition(
+            scope=scope,
+            owner_key=owner_key,
+            expires_at=expires_at,
+        )
         return await self._repository.update_session(
             session_id,
             name=name,
             scope=normalized_scope,
             owner_key=owner_key,
             metadata=metadata,
-            expires_at=self._normalize_datetime(expires_at),
+            expires_at=normalized_expiry,
         )
 
     async def close_session(self, session_id: UUID) -> Session | None:
@@ -178,6 +201,16 @@ class MemoryService:
                         reasons=[
                             "SESSION-scoped memory requires an ACTIVE session"
                         ],
+                        normalized_scope_type="SESSION",
+                        normalized_memory_type=decision.normalized_memory_type,
+                    )
+                elif session.expires_at and session.expires_at <= datetime.now(
+                    session.expires_at.tzinfo or timezone.utc
+                ):
+                    decision = MemoryPolicyDecision(
+                        allowed=False,
+                        action="REJECT",
+                        reasons=["SESSION-scoped memory cannot target an expired session"],
                         normalized_scope_type="SESSION",
                         normalized_memory_type=decision.normalized_memory_type,
                     )
