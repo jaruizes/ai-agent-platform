@@ -163,6 +163,9 @@ class KnowledgeService:
     async def list_documents(self, kb_id: UUID) -> list[KnowledgeDocument]:
         return await self._repository.list_documents(kb_id)
 
+    async def get_document(self, document_id: UUID) -> KnowledgeDocument | None:
+        return await self._repository.get_document(document_id)
+
     async def create_uploaded_document(
         self,
         kb_id: UUID,
