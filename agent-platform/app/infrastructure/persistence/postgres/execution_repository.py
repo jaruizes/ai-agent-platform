@@ -939,6 +939,75 @@ class PostgresExecutionRepository:
                     conn, execution["id"], ORCHESTRATION_SUBJECT, event
                 )
 
+    async def enforce_step_approval_policy(
+        self,
+        execution: dict[str, Any],
+        *,
+        step_id: str,
+        reason: str,
+        approval_source: str,
+        tool_side_effect: str,
+        tool_approval_policy: str,
+    ) -> None:
+        pool = self._db.require_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    SELECT requires_approval,approval_status
+                    FROM execution_plan_steps
+                    WHERE execution_id=$1 AND step_id=$2
+                    FOR UPDATE
+                    """,
+                    execution["id"],
+                    step_id,
+                )
+                if not row:
+                    raise LookupError(
+                        f"Execution step '{step_id}' does not exist"
+                    )
+                if row["requires_approval"]:
+                    return
+
+                await conn.execute(
+                    """
+                    UPDATE execution_plan_steps
+                    SET requires_approval=true,
+                        approval_reason=COALESCE(approval_reason,$3),
+                        approval_source=$4,
+                        tool_side_effect=$5,
+                        tool_approval_policy=$6,
+                        approval_status=CASE
+                            WHEN approval_status='NOT_REQUIRED' THEN 'PENDING'
+                            ELSE approval_status
+                        END
+                    WHERE execution_id=$1 AND step_id=$2
+                    """,
+                    execution["id"],
+                    step_id,
+                    reason,
+                    approval_source,
+                    tool_side_effect,
+                    tool_approval_policy,
+                )
+                event = orchestration_event(
+                    execution_id=execution["id"],
+                    correlation_id=execution["correlation_id"],
+                    causation_id=execution["request_message_id"],
+                    command_name=execution["command_name"],
+                    event_type="STEP_APPROVAL_POLICY_ENFORCED",
+                    detail={
+                        "stepId": step_id,
+                        "approvalSource": approval_source,
+                        "toolSideEffect": tool_side_effect,
+                        "toolApprovalPolicy": tool_approval_policy,
+                        "reason": reason,
+                    },
+                )
+                await self._insert_outbox(
+                    conn, execution["id"], ORCHESTRATION_SUBJECT, event
+                )
+
     async def mark_step_waiting_approval(
         self,
         execution: dict[str, Any],
