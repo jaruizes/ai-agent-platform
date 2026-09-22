@@ -277,38 +277,55 @@ class PostgresExecutionRepository:
                     event,
                 )
 
-    async def mark_plan_running(self, execution_id: UUID) -> None:
-        async with self._db.require_pool().acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE execution_plans
-                SET status='RUNNING',started_at=COALESCE(started_at,now()),updated_at=now()
-                WHERE execution_id=$1
-                """,
-                execution_id,
-            )
+    async def mark_plan_running(self, execution: dict[str, Any]) -> None:
+        await self._update_plan_status(execution, "RUNNING", "PLAN_STARTED")
 
-    async def mark_plan_completed(self, execution_id: UUID) -> None:
-        async with self._db.require_pool().acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE execution_plans
-                SET status='COMPLETED',completed_at=now(),updated_at=now()
-                WHERE execution_id=$1
-                """,
-                execution_id,
-            )
+    async def mark_plan_completed(self, execution: dict[str, Any]) -> None:
+        await self._update_plan_status(execution, "COMPLETED", "PLAN_COMPLETED")
 
-    async def mark_plan_failed(self, execution_id: UUID) -> None:
-        async with self._db.require_pool().acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE execution_plans
-                SET status='FAILED',completed_at=now(),updated_at=now()
-                WHERE execution_id=$1
-                """,
-                execution_id,
-            )
+    async def mark_plan_failed(self, execution: dict[str, Any]) -> None:
+        await self._update_plan_status(execution, "FAILED", "PLAN_FAILED")
+
+    async def _update_plan_status(
+        self,
+        execution: dict[str, Any],
+        status: str,
+        event_type: str,
+    ) -> None:
+        pool = self._db.require_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                if status == "RUNNING":
+                    await conn.execute(
+                        """
+                        UPDATE execution_plans
+                        SET status=$2,started_at=COALESCE(started_at,now()),updated_at=now()
+                        WHERE execution_id=$1
+                        """,
+                        execution["id"],
+                        status,
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        UPDATE execution_plans
+                        SET status=$2,completed_at=now(),updated_at=now()
+                        WHERE execution_id=$1
+                        """,
+                        execution["id"],
+                        status,
+                    )
+                event = orchestration_event(
+                    execution_id=execution["id"],
+                    correlation_id=execution["correlation_id"],
+                    causation_id=execution["request_message_id"],
+                    command_name=execution["command_name"],
+                    event_type=event_type,
+                    detail={"status": status},
+                )
+                await self._insert_outbox(
+                    conn, execution["id"], ORCHESTRATION_SUBJECT, event
+                )
 
     async def mark_step_started(
         self,
