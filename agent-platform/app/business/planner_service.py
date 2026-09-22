@@ -192,6 +192,15 @@ class PlannerService:
                     instructions=[
                         str(value) for value in (item.get("instructions") or [])
                     ],
+                    requires_approval=bool(item.get("requiresApproval", False)),
+                    approval_reason=item.get("approvalReason"),
+                    timeout_seconds=float(item.get("timeoutSeconds") or 120.0),
+                    retry_policy=item.get("retryPolicy") or {
+                        "maxAttempts": 3,
+                        "initialBackoffSeconds": 1.0,
+                        "maxBackoffSeconds": 30.0,
+                        "multiplier": 2.0,
+                    },
                 )
             )
 
