@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from app.business.memory_policy import MemoryPolicyEngine
 from app.business.ports import MemoryRepositoryPort
+from app.business.ports import MemoryRepositoryPort
 from app.domain.memory import (
     MEMORY_STATUSES,
     SESSION_SCOPES,
@@ -242,6 +243,29 @@ class MemoryService:
             query=query,
             limit=limit,
         )
+
+    async def persist_candidates(
+        self,
+        candidates: list[MemoryCandidate],
+    ) -> list[dict[str, Any]]:
+        decisions: list[dict[str, Any]] = []
+        for candidate in candidates:
+            memory, decision = await self.create_memory(candidate)
+            decisions.append(
+                {
+                    "persisted": memory is not None,
+                    "memoryId": str(memory.id) if memory else None,
+                    "policy": decision.as_dict(),
+                }
+            )
+        return decisions
+
+    async def list_policy_audit(
+        self,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return await self._repository.list_policy_audit(limit=limit)
 
     async def get_memory(self, memory_id: UUID) -> MemoryEntry | None:
         return await self._repository.get_memory(memory_id)
