@@ -122,6 +122,8 @@ def create_router(service: ExecutionService) -> APIRouter:
                 for step in orchestration["steps"]
             ],
             "activeAgents": orchestration["activeAgents"],
+            "waitingApprovals": orchestration.get("waitingApprovals", []),
+            "retryingSteps": orchestration.get("retryingSteps", []),
             "usage": orchestration["usage"],
         }
 
@@ -232,6 +234,8 @@ def create_router(service: ExecutionService) -> APIRouter:
                 "status": orchestration["plan"]["status"],
                 "objective": orchestration["plan"]["objective"],
                 "activeAgents": orchestration["activeAgents"],
+                "waitingApprovals": orchestration.get("waitingApprovals", []),
+                "retryingSteps": orchestration.get("retryingSteps", []),
                 "usage": orchestration["usage"],
             } if orchestration else None,
             "createdAt": execution["created_at"],
