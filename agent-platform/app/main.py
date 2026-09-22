@@ -1,20 +1,21 @@
 import asyncio
 from contextlib import asynccontextmanager
-from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import FastAPI, HTTPException
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-from app.config import get_settings
-from app.db import Database
-from app.intent_resolver import IntentResolver
-from app.model_gateway import ModelGateway
-from app.models import RestExecutionAccepted, RestExecutionRequest
-from app.nats_client import NatsClient
-from app.repository import ExecutionRepository
-from app.service import ExecutionService
-from app.telemetry import configure_telemetry
+from app.business.execution_service import ExecutionService
+from app.business.intent_resolver import IntentResolver
+from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
+from app.infrastructure.api.rest.router import create_router
+from app.infrastructure.config.settings import get_settings
+from app.infrastructure.externalservices.litellm.model_gateway import LiteLLMModelGateway
+from app.infrastructure.observability.telemetry import configure_telemetry
+from app.infrastructure.persistence.postgres.database import Database
+from app.infrastructure.persistence.postgres.execution_repository import (
+    PostgresExecutionRepository,
+)
 
 
 settings = get_settings()
@@ -22,28 +23,44 @@ configure_telemetry(settings)
 HTTPXClientInstrumentor().instrument()
 
 database = Database(settings.database_url)
-nats_client = NatsClient(settings)
-repository = ExecutionRepository(database)
-resolver = IntentResolver()
-model_gateway = ModelGateway(settings)
-service = ExecutionService(settings, repository, resolver, model_gateway, nats_client)
+repository = PostgresExecutionRepository(database)
+intent_resolver = IntentResolver()
+model_gateway = LiteLLMModelGateway(settings)
+nats_adapter = NatsAdapter(settings)
+
+execution_service = ExecutionService(
+    repository=repository,
+    resolver=intent_resolver,
+    model_gateway=model_gateway,
+    event_publisher=nats_adapter,
+    worker_poll_seconds=settings.worker_poll_seconds,
+    outbox_poll_seconds=settings.outbox_poll_seconds,
+)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await database.connect()
-    await nats_client.connect()
-    await nats_client.subscribe_commands(service.submit_nats)
-    worker = asyncio.create_task(service.worker_loop(), name="execution-worker")
-    outbox = asyncio.create_task(service.outbox_loop(), name="outbox-publisher")
+    await nats_adapter.connect()
+    await nats_adapter.subscribe_commands(execution_service)
+
+    worker = asyncio.create_task(
+        execution_service.worker_loop(),
+        name="execution-worker",
+    )
+    outbox = asyncio.create_task(
+        execution_service.outbox_loop(),
+        name="outbox-publisher",
+    )
+
     try:
         yield
     finally:
-        await service.stop()
+        await execution_service.stop()
         for task in (worker, outbox):
             task.cancel()
         await model_gateway.close()
-        await nats_client.close()
+        await nats_adapter.close()
         await database.close()
 
 
@@ -52,6 +69,7 @@ app = FastAPI(
     version=settings.service_version,
     lifespan=lifespan,
 )
+app.include_router(create_router(execution_service))
 FastAPIInstrumentor.instrument_app(app)
 
 
@@ -62,42 +80,6 @@ async def live() -> dict:
 
 @app.get("/health/ready")
 async def ready() -> dict:
-    if database.pool is None or nats_client.nc is None or not nats_client.nc.is_connected:
+    if database.pool is None or nats_adapter.nc is None or not nats_adapter.nc.is_connected:
         raise HTTPException(status_code=503, detail="Dependencies are not ready")
     return {"status": "UP"}
-
-
-@app.post(
-    "/v1/executions",
-    response_model=RestExecutionAccepted,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-async def create_execution(request: RestExecutionRequest, response: Response):
-    execution_id, correlation_id = await service.submit_rest(
-        correlation_id=request.correlationId,
-        command=request.command,
-    )
-    response.headers["Location"] = f"/v1/executions/{execution_id}"
-    return RestExecutionAccepted(
-        executionId=execution_id,
-        correlationId=correlation_id,
-    )
-
-
-@app.get("/v1/executions/{execution_id}")
-async def get_execution(execution_id: UUID):
-    execution = await repository.get(execution_id)
-    if not execution:
-        raise HTTPException(status_code=404, detail="Execution not found")
-    return {
-        "executionId": str(execution["id"]),
-        "correlationId": execution["correlation_id"],
-        "command": {"name": execution["command_name"]},
-        "intent": execution["intent"],
-        "status": execution["status"],
-        "result": execution["result"],
-        "error": execution["error"],
-        "createdAt": execution["created_at"],
-        "updatedAt": execution["updated_at"],
-        "completedAt": execution["completed_at"],
-    }

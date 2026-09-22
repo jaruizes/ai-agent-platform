@@ -1,14 +1,16 @@
+from typing import Any
+
 import httpx
 from opentelemetry import trace
 
-from app.config import Settings
-from app.models import ExecutionPlan
+from app.domain.execution import ExecutionPlan
+from app.infrastructure.config.settings import Settings
 
 
 tracer = trace.get_tracer(__name__)
 
 
-class ModelGateway:
+class LiteLLMModelGateway:
     def __init__(self, settings: Settings):
         self._settings = settings
         self._client = httpx.AsyncClient(
@@ -20,10 +22,11 @@ class ModelGateway:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def execute(self, plan: ExecutionPlan) -> dict:
+    async def execute(self, plan: ExecutionPlan) -> dict[str, Any]:
         with tracer.start_as_current_span("model_gateway.chat_completion") as span:
             span.set_attribute("gen_ai.system", "litellm")
             span.set_attribute("gen_ai.request.model", self._settings.default_model)
+
             response = await self._client.post(
                 "/v1/chat/completions",
                 json={
@@ -37,14 +40,14 @@ class ModelGateway:
             )
             response.raise_for_status()
             body = response.json()
-            choice = body["choices"][0]["message"]["content"]
-            usage = body.get("usage", {})
+            content = body["choices"][0]["message"]["content"]
+
             return {
                 "type": "direct-llm-response",
-                "summary": choice,
+                "summary": content,
                 "data": {
                     "model": body.get("model", self._settings.default_model),
-                    "usage": usage,
+                    "usage": body.get("usage", {}),
                 },
                 "artifacts": [],
             }

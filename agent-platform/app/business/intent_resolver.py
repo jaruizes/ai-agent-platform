@@ -1,16 +1,16 @@
 import json
 
-from app.models import Command, ExecutionPlan
+from app.domain.execution import Command, ExecutionPlan
 
 
 class IntentResolver:
     """
-    M0 resolver.
+    M0 intent resolver.
 
-    The architectural boundary is already present, but M0 intentionally supports
-    a single execution strategy: DIRECT_LLM. Future milestones can make this
-    resolver intelligent and choose tools, agents, skills, RAG or multi-step plans
-    without changing the external ExecutionCommand contract.
+    M0 deliberately has a single execution strategy: DIRECT_LLM.
+    The resolver is isolated here so future milestones can decide dynamically
+    between direct model calls, tools, agents, RAG or multi-step plans without
+    changing the external ExecutionCommand contract.
     """
 
     def resolve(self, command: Command) -> ExecutionPlan:

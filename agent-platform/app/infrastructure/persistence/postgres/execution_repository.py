@@ -2,29 +2,23 @@ import json
 from typing import Any
 from uuid import UUID
 
-from app.db import Database
-from app.events import lifecycle_event, result_event
-from app.models import Command
+from app.domain.events import lifecycle_event, result_event
+from app.domain.execution import ExecutionSubmission
+from app.infrastructure.persistence.postgres.database import Database
 
 
 LIFECYCLE_SUBJECT = "platform.events.execution.lifecycle"
 RESULT_SUBJECT = "platform.events.execution.result"
 
 
-class ExecutionRepository:
+class PostgresExecutionRepository:
     def __init__(self, database: Database):
         self._db = database
 
-    async def create_execution(
-        self,
-        *,
-        execution_id: UUID,
-        message_id: str,
-        correlation_id: str,
-        source: dict[str, Any],
-        command: Command,
-    ) -> tuple[UUID, bool]:
+    async def create_execution(self, submission: ExecutionSubmission) -> tuple[UUID, bool]:
         pool = self._db.require_pool()
+        command = submission.command
+
         async with pool.acquire() as conn:
             async with conn.transaction():
                 row = await conn.fetchrow(
@@ -37,33 +31,40 @@ class ExecutionRepository:
                     ON CONFLICT (request_message_id) DO NOTHING
                     RETURNING id
                     """,
-                    execution_id,
-                    message_id,
-                    correlation_id,
-                    json.dumps(source),
+                    submission.execution_id,
+                    submission.message_id,
+                    submission.correlation_id,
+                    json.dumps(submission.source),
                     command.name,
                     command.intent,
                     json.dumps(command.input),
                     json.dumps(command.context),
                     json.dumps(command.instructions),
                 )
+
                 if not row:
                     existing = await conn.fetchrow(
-                        "SELECT id FROM executions WHERE request_message_id = $1", message_id
+                        "SELECT id FROM executions WHERE request_message_id = $1",
+                        submission.message_id,
                     )
                     return existing["id"], False
 
                 event = lifecycle_event(
-                    execution_id=execution_id,
-                    correlation_id=correlation_id,
-                    causation_id=message_id,
+                    execution_id=submission.execution_id,
+                    correlation_id=submission.correlation_id,
+                    causation_id=submission.message_id,
                     command_name=command.name,
                     status="ACCEPTED",
                     event_type="EXECUTION_ACCEPTED",
                     sequence=1,
                 )
-                await self._insert_outbox(conn, execution_id, LIFECYCLE_SUBJECT, event)
-                return execution_id, True
+                await self._insert_outbox(
+                    conn,
+                    submission.execution_id,
+                    LIFECYCLE_SUBJECT,
+                    event,
+                )
+                return submission.execution_id, True
 
     async def claim_next(self) -> dict[str, Any] | None:
         pool = self._db.require_pool()
@@ -96,6 +97,7 @@ class ExecutionRepository:
                     sequence=2,
                 )
                 await self._insert_outbox(conn, row["id"], LIFECYCLE_SUBJECT, event)
+
                 data = dict(row)
                 data["status"] = "RUNNING"
                 return data
@@ -124,6 +126,7 @@ class ExecutionRepository:
                     normalized_intent,
                     json.dumps(result),
                 )
+
                 output = result_event(
                     execution_id=execution["id"],
                     correlation_id=execution["correlation_id"],
@@ -157,6 +160,7 @@ class ExecutionRepository:
                     execution["id"],
                     json.dumps(error),
                 )
+
                 failed = lifecycle_event(
                     execution_id=execution["id"],
                     correlation_id=execution["correlation_id"],
@@ -175,6 +179,7 @@ class ExecutionRepository:
             row = await conn.fetchrow("SELECT * FROM executions WHERE id=$1", execution_id)
             if not row:
                 return None
+
             data = dict(row)
             for field in ("source", "input", "context", "instructions", "result", "error"):
                 if isinstance(data.get(field), str):
@@ -208,11 +213,17 @@ class ExecutionRepository:
         pool = self._db.require_pool()
         async with pool.acquire() as conn:
             await conn.execute(
-                "UPDATE outbox_events SET attempts=attempts+1 WHERE id=$1", event_id
+                "UPDATE outbox_events SET attempts=attempts+1 WHERE id=$1",
+                event_id,
             )
 
     @staticmethod
-    async def _insert_outbox(conn, execution_id: UUID, subject: str, payload: dict[str, Any]) -> None:
+    async def _insert_outbox(
+        conn,
+        execution_id: UUID,
+        subject: str,
+        payload: dict[str, Any],
+    ) -> None:
         await conn.execute(
             """
             INSERT INTO outbox_events (id, execution_id, subject, payload)

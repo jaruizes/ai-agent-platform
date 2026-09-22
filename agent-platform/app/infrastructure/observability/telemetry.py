@@ -4,7 +4,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from app.config import Settings
+from app.infrastructure.config.settings import Settings
 
 
 def configure_telemetry(settings: Settings) -> None:
