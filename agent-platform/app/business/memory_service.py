@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
@@ -19,6 +18,7 @@ from app.domain.memory import (
     Session,
     WorkingContextEntry,
 )
+
 
 class MemoryService:
     def __init__(
@@ -309,11 +309,3 @@ class MemoryService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value
-
-    @staticmethod
-    def _estimate_tokens(value: Any) -> int:
-        if isinstance(value, str):
-            text = value
-        else:
-            text = json.dumps(value, ensure_ascii=False, default=str)
-        return max(1, len(text) // 4)
