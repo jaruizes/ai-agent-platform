@@ -94,6 +94,7 @@ step_executor = StepExecutor(
     execution_model_profile=settings.execution_model_profile,
     knowledge_top_k=settings.knowledge_top_k,
     max_context_chars=settings.max_tool_result_chars_for_model,
+    control_poll_seconds=settings.execution_control_poll_seconds,
 )
 orchestration_engine = LangGraphOrchestrationEngine(
     step_executor=step_executor,
@@ -108,6 +109,8 @@ execution_service = ExecutionService(
     event_publisher=nats_adapter,
     worker_poll_seconds=settings.worker_poll_seconds,
     outbox_poll_seconds=settings.outbox_poll_seconds,
+    execution_lease_seconds=settings.execution_lease_seconds,
+    execution_heartbeat_seconds=settings.execution_heartbeat_seconds,
 )
 
 bootstrap_loader = MarkdownCatalogLoader(
