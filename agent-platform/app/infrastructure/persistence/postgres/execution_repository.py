@@ -28,11 +28,11 @@ class PostgresExecutionRepository:
                     INSERT INTO executions (
                         id, request_message_id, correlation_id, source,
                         command_name, intent, input, context, instructions,
-                        session_id, status
+                        command_metadata, session_id, status
                     )
                     VALUES (
                         $1,$2,$3,$4::jsonb,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,
-                        $10,'ACCEPTED'
+                        $10::jsonb,$11,'ACCEPTED'
                     )
                     ON CONFLICT (request_message_id) DO NOTHING
                     RETURNING id
@@ -46,6 +46,7 @@ class PostgresExecutionRepository:
                     json.dumps(command.input),
                     json.dumps(command.context),
                     json.dumps(command.instructions),
+                    json.dumps(command.metadata),
                     submission.session_id,
                 )
 
@@ -645,7 +646,15 @@ class PostgresExecutionRepository:
                 return None
 
             data = dict(row)
-            for field in ("source", "input", "context", "instructions", "result", "error"):
+            for field in (
+                "source",
+                "input",
+                "context",
+                "instructions",
+                "command_metadata",
+                "result",
+                "error",
+            ):
                 if isinstance(data.get(field), str):
                     data[field] = json.loads(data[field])
             return data
