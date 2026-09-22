@@ -40,7 +40,7 @@ class LangGraphOrchestrationEngine:
         command: Command,
         plan: LogicalPlan,
     ) -> dict[str, Any]:
-        await self._repository.mark_plan_running(execution["id"])
+        await self._repository.mark_plan_running(execution)
         graph = StateGraph(OrchestrationState)
 
         for step in plan.steps:
@@ -64,9 +64,9 @@ class LangGraphOrchestrationEngine:
 
         try:
             state = await compiled.ainvoke({"results": {}})
-            await self._repository.mark_plan_completed(execution["id"])
+            await self._repository.mark_plan_completed(execution)
         except Exception:
-            await self._repository.mark_plan_failed(execution["id"])
+            await self._repository.mark_plan_failed(execution)
             raise
 
         final = state.get("results", {}).get(plan.final_step_id)
