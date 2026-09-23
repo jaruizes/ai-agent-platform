@@ -72,6 +72,36 @@ def create_governance_router(service)->APIRouter:
             raise HTTPException(status_code=404,detail="Budget not found")
         return {"deleted":True}
 
+    @router.get("/budget-decisions")
+    async def budget_decisions(
+        executionId: UUID | None = None,
+        limit: int = Query(default=200, ge=1, le=1000),
+    ):
+        rows = await service.list_budget_decisions(
+            execution_id=executionId,
+            limit=limit,
+        )
+        return [
+            {
+                "id": str(row["id"]),
+                "executionId": str(row["execution_id"]),
+                "stepId": row["step_id"],
+                "budgetId": (
+                    str(row["budget_id"]) if row["budget_id"] else None
+                ),
+                "budgetName": row["budget_name"],
+                "action": row["action"],
+                "allowed": row["allowed"],
+                "requestedModelProfile": row["requested_model_profile"],
+                "effectiveModelProfile": row["effective_model_profile"],
+                "reason": row["reason"],
+                "current": row["current_usage"],
+                "projected": row["projected_usage"],
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
     @router.get("/executions/{execution_id}/usage")
     async def usage(execution_id:UUID):
         return await service.usage_summary(execution_id)
