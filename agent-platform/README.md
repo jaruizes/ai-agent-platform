@@ -1153,3 +1153,123 @@ bash scripts/m7-smoke.sh
 It creates a Session, persists TENANT + SESSION memory, exercises hybrid retrieval, launches a session-aware execution, waits for completion, verifies that at least one MEMORY component was selected by ContextEngine, and prints Working Context, snapshots and policy state.
 
 The script intentionally uses explicit memories for its hard assertions so the test does not depend on whether the LLM extractor chooses a specific inferred candidate. Automatically inferred SESSION memories are printed separately for inspection.
+
+
+---
+
+# M8.1 / M8.2 — Governance and Budget / Cost Control
+
+M8.1 introduces a deterministic platform Policy Engine. Planner and Agents can request resources, but the runtime remains authoritative.
+
+```text
+Planner / Agent
+      |
+      v
+Governance Policy Engine
+      |
+      +--> ALLOW
+      +--> DENY
+      +--> REQUIRE_APPROVAL
+```
+
+Governed resources:
+
+```text
+AGENT
+TOOL
+KNOWLEDGE
+MODEL
+MEMORY_SCOPE
+```
+
+Policy APIs:
+
+```text
+GET    /v1/governance/policies
+POST   /v1/governance/policies
+PUT    /v1/governance/policies/{id}
+DELETE /v1/governance/policies/{id}
+POST   /v1/governance/policies/evaluate
+GET    /v1/governance/decisions
+```
+
+Policies are checked after planning and again immediately before step execution. Model access is additionally checked at `GovernedModelGateway`, and Memory scopes are authorized before ContextEngine retrieves them.
+
+Example policy requiring approval for externally visible tools:
+
+```json
+{
+  "name": "external-actions-require-approval",
+  "policyType": "SIDE_EFFECT",
+  "effect": "REQUIRE_APPROVAL",
+  "resourceType": "TOOL",
+  "resourcePattern": "*",
+  "subjectType": "GLOBAL",
+  "subjectPattern": "*",
+  "conditions": {
+    "sideEffect": "EXTERNAL_ACTION"
+  },
+  "priority": 100,
+  "enabled": true
+}
+```
+
+Policy resolution is priority-first. At equal priority:
+
+```text
+DENY > REQUIRE_APPROVAL > ALLOW
+```
+
+M8.2 adds model token/cost budgets:
+
+```text
+GLOBAL | EXECUTION | TENANT | TEAM | USER | AGENT
+
+EXECUTION | DAILY | MONTHLY
+```
+
+Budget APIs:
+
+```text
+GET    /v1/governance/budgets
+POST   /v1/governance/budgets
+PUT    /v1/governance/budgets/{id}
+DELETE /v1/governance/budgets/{id}
+POST   /v1/governance/budgets/evaluate
+GET    /v1/governance/budget-decisions
+GET    /v1/governance/executions/{executionId}/usage
+```
+
+Example hard token budget:
+
+```json
+{
+  "name": "global-dev-token-limit",
+  "scopeType": "GLOBAL",
+  "scopeId": "*",
+  "period": "EXECUTION",
+  "maxTotalTokens": 50000,
+  "action": "DENY",
+  "enabled": true
+}
+```
+
+Cost budgets require explicit pricing configuration. No provider price is guessed.
+
+```env
+GOVERNANCE_DEFAULT_PROJECTED_COMPLETION_TOKENS=4096
+GOVERNANCE_PROMPT_ESTIMATE_MULTIPLIER=1.25
+
+GOVERNANCE_ROUTER_INPUT_USD_PER_MILLION=0
+GOVERNANCE_ROUTER_OUTPUT_USD_PER_MILLION=0
+GOVERNANCE_EXECUTION_INPUT_USD_PER_MILLION=0
+GOVERNANCE_EXECUTION_OUTPUT_USD_PER_MILLION=0
+GOVERNANCE_PLANNER_INPUT_USD_PER_MILLION=0
+GOVERNANCE_PLANNER_OUTPUT_USD_PER_MILLION=0
+```
+
+`DEGRADE` is intentionally restricted to cost-only budgets. It changes to `degradeModelProfile` only when the cheaper profile satisfies the budget, and the target model is then re-authorized by MODEL_ACCESS.
+
+Provider usage is persisted after each model call in `governance_usage`; policy and budget decisions are persisted separately for audit.
+
+Full Governance Control Plane screens are intentionally deferred to M8.4. M8.1/M8.2 deliver the runtime enforcement, APIs, audit state and admin runtime diagnostics first.
