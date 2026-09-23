@@ -20,7 +20,7 @@ public class ProcessRuntimeService {
     private final ProcessContractValidator contracts;
     private final ProcessServiceHandlerRegistry serviceHandlers;
     private final AgentPlatformIntegrationService agentPlatform;
-    private final long staleServiceSeconds;
+    private final long staleStepSeconds;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public ProcessRuntimeService(
@@ -29,14 +29,14 @@ public class ProcessRuntimeService {
             ProcessContractValidator contracts,
             ProcessServiceHandlerRegistry serviceHandlers,
             AgentPlatformIntegrationService agentPlatform,
-            @Value("${process.runtime.service-stale-seconds:60}")
-            long staleServiceSeconds) {
+            @Value("${process.runtime.step-stale-seconds:60}")
+            long staleStepSeconds) {
         this.runtime = runtime;
         this.definitions = definitions;
         this.contracts = contracts;
         this.serviceHandlers = serviceHandlers;
         this.agentPlatform = agentPlatform;
-        this.staleServiceSeconds = Math.max(1, staleServiceSeconds);
+        this.staleStepSeconds = Math.max(1, staleStepSeconds);
     }
 
     public ProcessInstance start(UUID instanceId) {
@@ -78,10 +78,11 @@ public class ProcessRuntimeService {
 
     @Scheduled(fixedDelayString = "${process.runtime.recovery-delay-ms:2000}")
     public void recoverRunnableInstances() {
-        var cutoff = java.time.Instant.now().minusSeconds(staleServiceSeconds);
+        var cutoff = java.time.Instant.now().minusSeconds(staleStepSeconds);
         for (var instance : runtime.findRunnableInstances()) {
             for (var step : instance.steps()) {
-                if (step.type() == ProcessStepType.SERVICE
+                if ((step.type() == ProcessStepType.SERVICE
+                        || step.type() == ProcessStepType.AGENTIC_EXECUTION)
                         && step.status() == ProcessStepStatus.RUNNING
                         && step.startedAt() != null
                         && step.startedAt().isBefore(cutoff)) {
@@ -117,15 +118,23 @@ public class ProcessRuntimeService {
                 && stepInstances.values().stream()
                 .allMatch(step -> step.status() == ProcessStepStatus.COMPLETED
                         || step.status() == ProcessStepStatus.SKIPPED)) {
-            contracts.validate(
-                    "process.output",
-                    definition.outputSchema(),
-                    instance.context());
-            runtime.completeInstance(instanceId);
+            try {
+                contracts.validate(
+                        "process.output",
+                        definition.outputSchema(),
+                        instance.context());
+                runtime.completeInstance(instanceId);
+            } catch (Exception outputContractError) {
+                runtime.failInstance(instanceId);
+            }
             return;
         }
 
         var ready = new ArrayList<String>();
+        stepInstances.values().stream()
+                .filter(step -> step.status() == ProcessStepStatus.READY)
+                .map(ProcessStepInstance::stepKey)
+                .forEach(ready::add);
         for (var stepDefinition : definition.steps()) {
             var step = stepInstances.get(stepDefinition.stepKey());
             if (step == null || step.status() != ProcessStepStatus.PENDING) {
