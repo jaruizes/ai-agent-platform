@@ -27,7 +27,7 @@ public class ProcessStepDefinitionJpaEntity {
     @Column(nullable = false, length = 300)
     private String name;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String description;
 
     @Enumerated(EnumType.STRING)
