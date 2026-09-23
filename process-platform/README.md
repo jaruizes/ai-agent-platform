@@ -301,7 +301,6 @@ Step types prepared for later milestones:
 ```text
 SERVICE
 TOOL
-AGENT
 AGENTIC_EXECUTION
 DECISION
 HUMAN
