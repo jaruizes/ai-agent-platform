@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS context_snapshots (
     id UUID PRIMARY KEY,
     execution_id UUID NOT NULL REFERENCES executions(id) ON DELETE CASCADE,
     step_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1,
     model_profile TEXT NOT NULL,
     budget JSONB NOT NULL DEFAULT '{}'::jsonb,
     components JSONB NOT NULL DEFAULT '[]'::jsonb,
