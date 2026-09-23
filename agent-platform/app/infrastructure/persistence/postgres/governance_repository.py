@@ -239,7 +239,7 @@ class PostgresGovernanceRepository:
         async with self._db.require_pool().acquire() as conn:
             row=await conn.fetchrow(
                 """
-                SELECT e.id,e.command_metadata,s.scope,s.owner_key
+                SELECT e.id,s.scope,s.owner_key
                 FROM executions e
                 LEFT JOIN sessions s ON s.id=e.session_id
                 WHERE e.id=$1
@@ -249,12 +249,8 @@ class PostgresGovernanceRepository:
         if not row:
             return [("GLOBAL","*"),("EXECUTION",str(execution_id))]
         subjects=[("GLOBAL","*"),("EXECUTION",str(execution_id))]
-        metadata=self._decode(row["command_metadata"]) or {}
         if row["scope"] and row["owner_key"]:
             subjects.append((str(row["scope"]).upper(),str(row["owner_key"])))
-        for key,stype in (("tenantId","TENANT"),("teamId","TEAM"),("userId","USER")):
-            if metadata.get(key):
-                subjects.append((stype,str(metadata[key])))
         return list(dict.fromkeys(subjects))
 
     async def aggregate_usage(
