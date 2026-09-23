@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from app.business.context_engine import ContextEngine
 from app.business.knowledge_service import KnowledgeService
 from app.business.ports import (
     CatalogRepositoryPort,
@@ -36,6 +37,7 @@ class StepExecutor:
         knowledge_service: KnowledgeService,
         model_gateway: ModelGatewayPort,
         execution_repository: ExecutionRepositoryPort,
+        context_engine: ContextEngine,
         execution_model_profile: str,
         knowledge_top_k: int,
         max_context_chars: int,
@@ -47,6 +49,7 @@ class StepExecutor:
         self._knowledge_service = knowledge_service
         self._model_gateway = model_gateway
         self._repository = execution_repository
+        self._context_engine = context_engine
         self._execution_model_profile = execution_model_profile
         self._knowledge_top_k = knowledge_top_k
         self._max_context_chars = max_context_chars
@@ -176,6 +179,7 @@ class StepExecutor:
                     execution=execution,
                     timeout_seconds=step.timeout_seconds,
                     operation=self._dispatch(
+                        execution=execution,
                         command=command,
                         step=step,
                         previous_results=previous_results,
@@ -236,6 +240,7 @@ class StepExecutor:
     async def _dispatch(
         self,
         *,
+        execution: dict[str, Any],
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -245,10 +250,16 @@ class StepExecutor:
         if step.type == "KNOWLEDGE":
             return await self._knowledge_step(command, step, previous_results)
         if step.type == "AGENT":
-            return await self._agent_step(command, step, previous_results)
+            return await self._agent_step(
+                execution, command, step, previous_results
+            )
         if step.type == "VALIDATE":
-            return await self._validation_step(command, step, previous_results)
-        return await self._model_step(command, step, previous_results)
+            return await self._validation_step(
+                execution, command, step, previous_results
+            )
+        return await self._model_step(
+            execution, command, step, previous_results
+        )
 
     async def _run_with_controls(
         self,
@@ -375,6 +386,7 @@ class StepExecutor:
 
     async def _agent_step(
         self,
+        execution: dict[str, Any],
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -406,12 +418,32 @@ class StepExecutor:
             agent_instructions=agent.instructions,
             skills=self._skills_text(agent),
         )
+        effective = await self._context_engine.build(
+            execution=execution,
+            command=command,
+            step=step,
+            previous_results=previous_results,
+            system_prompt=system_prompt,
+            model_profile=self._execution_model_profile,
+            knowledge_context=knowledge_context,
+            knowledge_provenance=(
+                [
+                    {
+                        "type": "KNOWLEDGE",
+                        "chunkId": str(hit.chunk_id),
+                        "documentId": str(hit.document_id),
+                        "documentName": hit.document_name,
+                        "score": hit.score,
+                    }
+                    for hit in hits
+                ]
+                if step.knowledge_base_names
+                else []
+            ),
+        )
         detail = await self._model_gateway.complete_detailed(
             system_prompt=system_prompt,
-            user_prompt=(
-                self._reasoning_input(command, step, previous_results)
-                + knowledge_context
-            ),
+            user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
         )
@@ -423,18 +455,33 @@ class StepExecutor:
             "modelProfile": detail.get("modelProfile"),
             "agent": agent.name,
             "tool": None,
+            "context": {
+                "promptTokenEstimate": effective.prompt_token_estimate,
+                "selectedTokenEstimate": effective.selected_token_estimate,
+                "droppedTokenEstimate": effective.dropped_token_estimate,
+                "compressed": effective.compressed,
+            },
         }
 
     async def _model_step(
         self,
+        execution: dict[str, Any],
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
     ) -> dict[str, Any]:
         prompt = await self._prompt_service.get_by_name("direct-executor")
+        effective = await self._context_engine.build(
+            execution=execution,
+            command=command,
+            step=step,
+            previous_results=previous_results,
+            system_prompt=prompt.content,
+            model_profile=self._execution_model_profile,
+        )
         detail = await self._model_gateway.complete_detailed(
             system_prompt=prompt.content,
-            user_prompt=self._reasoning_input(command, step, previous_results),
+            user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
         )
@@ -446,10 +493,17 @@ class StepExecutor:
             "modelProfile": detail.get("modelProfile"),
             "agent": None,
             "tool": None,
+            "context": {
+                "promptTokenEstimate": effective.prompt_token_estimate,
+                "selectedTokenEstimate": effective.selected_token_estimate,
+                "droppedTokenEstimate": effective.dropped_token_estimate,
+                "compressed": effective.compressed,
+            },
         }
 
     async def _validation_step(
         self,
+        execution: dict[str, Any],
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -460,15 +514,34 @@ class StepExecutor:
             top_k=self._knowledge_top_k,
         )
         prompt = await self._prompt_service.get_by_name("validation-executor")
+        knowledge_context = (
+            "Knowledge usage mode: "
+            + step.knowledge_usage_mode
+            + "\n\n"
+            + self._knowledge_service.format_context(hits)
+        )
+        effective = await self._context_engine.build(
+            execution=execution,
+            command=command,
+            step=step,
+            previous_results=previous_results,
+            system_prompt=prompt.content,
+            model_profile=self._execution_model_profile,
+            knowledge_context=knowledge_context,
+            knowledge_provenance=[
+                {
+                    "type": "KNOWLEDGE",
+                    "chunkId": str(hit.chunk_id),
+                    "documentId": str(hit.document_id),
+                    "documentName": hit.document_name,
+                    "score": hit.score,
+                }
+                for hit in hits
+            ],
+        )
         detail = await self._model_gateway.complete_detailed(
             system_prompt=prompt.content,
-            user_prompt=(
-                self._reasoning_input(command, step, previous_results)
-                + "\n\nKnowledge usage mode: "
-                + step.knowledge_usage_mode
-                + "\n\nManaged knowledge:\n"
-                + self._knowledge_service.format_context(hits)
-            ),
+            user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.0,
         )
@@ -492,6 +565,12 @@ class StepExecutor:
             "modelProfile": detail.get("modelProfile"),
             "agent": None,
             "tool": None,
+            "context": {
+                "promptTokenEstimate": effective.prompt_token_estimate,
+                "selectedTokenEstimate": effective.selected_token_estimate,
+                "droppedTokenEstimate": effective.dropped_token_estimate,
+                "compressed": effective.compressed,
+            },
         }
 
     def _reasoning_input(
