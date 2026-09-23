@@ -395,7 +395,6 @@ class GovernanceService:
                 and budget.scope_id == "*"
             )
         ]
-
         if not applicable:
             return BudgetEvaluation(
                 allowed=True,
@@ -407,15 +406,14 @@ class GovernanceService:
                 projected={},
             )
 
-        input_rate, output_rate = self._pricing.get(
-            model_profile,
-            (0.0, 0.0),
+        effective_profile = model_profile
+        # Hard DENY constraints are evaluated before optional cost degradation.
+        applicable.sort(
+            key=lambda budget: (
+                0 if budget.action == "DENY" else 1,
+                budget.name,
+            )
         )
-        projected_cost = (
-            projected_prompt_tokens / 1_000_000
-        ) * input_rate + (
-            projected_completion_tokens / 1_000_000
-        ) * output_rate
 
         for budget in applicable:
             current = await self._repository.aggregate_usage(
@@ -424,27 +422,48 @@ class GovernanceService:
                 period=budget.period,
                 execution_id=execution_id,
             )
-            projected = {
-                "prompt_tokens": (
-                    current["prompt_tokens"]
-                    + projected_prompt_tokens
-                ),
-                "completion_tokens": (
-                    current["completion_tokens"]
-                    + projected_completion_tokens
-                ),
-                "total_tokens": (
-                    current["total_tokens"]
-                    + projected_prompt_tokens
-                    + projected_completion_tokens
-                ),
-                "estimated_cost_usd": (
-                    current["estimated_cost_usd"]
-                    + projected_cost
-                ),
-            }
 
+            rates = self._pricing.get(effective_profile, (0.0, 0.0))
+            if (
+                budget.max_cost_usd is not None
+                and not any(rate > 0 for rate in rates)
+            ):
+                evaluation = BudgetEvaluation(
+                    allowed=False,
+                    action="DENY",
+                    model_profile=effective_profile,
+                    reason=(
+                        f"Budget '{budget.name}' cannot evaluate cost because "
+                        f"pricing is not configured for '{effective_profile}'."
+                    ),
+                    budget_name=budget.name,
+                    current=current,
+                    projected={},
+                )
+                await self._repository.record_budget_decision(
+                    execution_id=execution_id,
+                    step_id=step_id,
+                    budget_id=budget.id,
+                    budget_name=budget.name,
+                    action=evaluation.action,
+                    allowed=False,
+                    requested_model_profile=model_profile,
+                    effective_model_profile=effective_profile,
+                    reason=evaluation.reason,
+                    current=current,
+                    projected={},
+                )
+                return evaluation
+
+            projected = self._project_usage(
+                current=current,
+                prompt_tokens=projected_prompt_tokens,
+                completion_tokens=projected_completion_tokens,
+                input_rate=rates[0],
+                output_rate=rates[1],
+            )
             exceeded = self._exceeded_dimensions(budget, projected)
+
             if not exceeded:
                 await self._repository.record_budget_decision(
                     execution_id=execution_id,
@@ -454,71 +473,52 @@ class GovernanceService:
                     action="ALLOW",
                     allowed=True,
                     requested_model_profile=model_profile,
-                    effective_model_profile=model_profile,
+                    effective_model_profile=effective_profile,
                     reason=f"Budget '{budget.name}' remains within limits.",
                     current=current,
                     projected=projected,
                 )
                 continue
 
-            if (
-                budget.action == "DEGRADE"
-                and exceeded == {"estimated_cost_usd"}
-                and budget.degrade_model_profile
-                and budget.degrade_model_profile != model_profile
-            ):
-                degraded_input, degraded_output = self._pricing.get(
-                    budget.degrade_model_profile,
-                    (0.0, 0.0),
+            if budget.action == "DEGRADE":
+                target = budget.degrade_model_profile
+                target_rates = self._pricing.get(target or "", (0.0, 0.0))
+                degraded_projected = self._project_usage(
+                    current=current,
+                    prompt_tokens=projected_prompt_tokens,
+                    completion_tokens=projected_completion_tokens,
+                    input_rate=target_rates[0],
+                    output_rate=target_rates[1],
                 )
-                degraded_cost = (
-                    projected_prompt_tokens / 1_000_000
-                ) * degraded_input + (
-                    projected_completion_tokens / 1_000_000
-                ) * degraded_output
-                degraded_projected = {
-                    **projected,
-                    "estimated_cost_usd": (
-                        current["estimated_cost_usd"]
-                        + degraded_cost
-                    ),
-                }
-                if not self._exceeded_dimensions(
+                degraded_exceeded = self._exceeded_dimensions(
                     budget,
                     degraded_projected,
-                ):
-                    evaluation = BudgetEvaluation(
-                        allowed=True,
-                        action="DEGRADE",
-                        model_profile=budget.degrade_model_profile,
-                        reason=(
-                            f"Budget '{budget.name}' projected cost limit "
-                            "exceeded; degrading model profile to "
-                            f"'{budget.degrade_model_profile}'."
-                        ),
-                        budget_name=budget.name,
-                        current=current,
-                        projected=degraded_projected,
-                    )
+                )
+                if not degraded_exceeded and target:
+                    effective_profile = target
                     await self._repository.record_budget_decision(
                         execution_id=execution_id,
                         step_id=step_id,
                         budget_id=budget.id,
                         budget_name=budget.name,
-                        action=evaluation.action,
-                        allowed=evaluation.allowed,
+                        action="DEGRADE",
+                        allowed=True,
                         requested_model_profile=model_profile,
-                        effective_model_profile=evaluation.model_profile,
-                        reason=evaluation.reason,
+                        effective_model_profile=effective_profile,
+                        reason=(
+                            f"Budget '{budget.name}' projected cost limit "
+                            f"exceeded; degrading model profile to "
+                            f"'{effective_profile}'."
+                        ),
                         current=current,
                         projected=degraded_projected,
                     )
-                    return evaluation
+                    continue
 
             evaluation = BudgetEvaluation(
                 allowed=False,
                 action="DENY",
-                model_profile=model_profile,
+                model_profile=effective_profile,
                 reason=(
                     f"Budget '{budget.name}' projected limit exceeded: "
                     + ", ".join(sorted(exceeded))
@@ -533,9 +533,9 @@ class GovernanceService:
                 budget_id=budget.id,
                 budget_name=budget.name,
                 action=evaluation.action,
-                allowed=evaluation.allowed,
+                allowed=False,
                 requested_model_profile=model_profile,
-                effective_model_profile=evaluation.model_profile,
+                effective_model_profile=effective_profile,
                 reason=evaluation.reason,
                 current=current,
                 projected=projected,
@@ -544,9 +544,13 @@ class GovernanceService:
 
         return BudgetEvaluation(
             allowed=True,
-            action="ALLOW",
-            model_profile=model_profile,
-            reason=None,
+            action=("DEGRADE" if effective_profile != model_profile else "ALLOW"),
+            model_profile=effective_profile,
+            reason=(
+                f"Budget policy selected degraded model '{effective_profile}'."
+                if effective_profile != model_profile
+                else None
+            ),
             budget_name=None,
             current={},
             projected={},
@@ -603,6 +607,33 @@ class GovernanceService:
                 estimated_cost_usd=cost,
             )
         return cost
+
+    @staticmethod
+    def _project_usage(
+        *,
+        current: dict[str, float],
+        prompt_tokens: int,
+        completion_tokens: int,
+        input_rate: float,
+        output_rate: float,
+    ) -> dict[str, float]:
+        incremental_cost = (
+            prompt_tokens / 1_000_000
+        ) * input_rate + (
+            completion_tokens / 1_000_000
+        ) * output_rate
+        return {
+            "prompt_tokens": current["prompt_tokens"] + prompt_tokens,
+            "completion_tokens": (
+                current["completion_tokens"] + completion_tokens
+            ),
+            "total_tokens": (
+                current["total_tokens"] + prompt_tokens + completion_tokens
+            ),
+            "estimated_cost_usd": (
+                current["estimated_cost_usd"] + incremental_cost
+            ),
+        }
 
     @staticmethod
     def _exceeded_dimensions(
