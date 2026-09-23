@@ -1140,3 +1140,16 @@ Execution State != Working Context != Persistent Memory != Knowledge
 ```
 
 M8 can now build Governance/Evals on top of persisted plan state, model usage, memory policy audit and context provenance.
+
+
+## M7 end-to-end smoke test
+
+After rebuilding the branch, a deterministic smoke test is available:
+
+```bash
+bash scripts/m7-smoke.sh
+```
+
+It creates a Session, persists TENANT + SESSION memory, exercises hybrid retrieval, launches a session-aware execution, waits for completion, verifies that at least one MEMORY component was selected by ContextEngine, and prints Working Context, snapshots and policy state.
+
+The script intentionally uses explicit memories for its hard assertions so the test does not depend on whether the LLM extractor chooses a specific inferred candidate. Automatically inferred SESSION memories are printed separately for inspection.
