@@ -387,6 +387,16 @@ class PostgresMemoryRepository:
                 """
                 SELECT m.*,
                     (
+                        0.80 * CASE
+                            WHEN m.embedding IS NULL THEN 0.0
+                            ELSE GREATEST(0.0, 1.0 - (m.embedding <=> $3::vector))
+                        END
+                        + 0.20 * ts_rank_cd(
+                            m.search_vector,
+                            plainto_tsquery('simple', $4)
+                        )
+                    ) AS relevance_score,
+                    (
                         (
                             0.65 * CASE
                                 WHEN m.embedding IS NULL THEN 0.0
@@ -437,6 +447,7 @@ class PostgresMemoryRepository:
                         "metadata": {
                             **item.metadata,
                             "retrievalScore": float(row["retrieval_score"] or 0.0),
+                            "relevanceScore": float(row["relevance_score"] or 0.0),
                         },
                     }
                 )
