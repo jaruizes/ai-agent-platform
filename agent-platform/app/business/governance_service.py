@@ -424,6 +424,7 @@ class GovernanceService:
             )
 
         effective_profile = model_profile
+        applied_budget_names = [budget.name for budget in applicable]
         # Hard DENY constraints are evaluated before optional cost degradation.
         applicable.sort(
             key=lambda budget: (
@@ -578,7 +579,7 @@ class GovernanceService:
                 if effective_profile != model_profile
                 else None
             ),
-            budget_name=None,
+            budget_name=",".join(applied_budget_names),
             current={},
             projected={},
         )
