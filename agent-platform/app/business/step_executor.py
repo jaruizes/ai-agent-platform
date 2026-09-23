@@ -356,7 +356,7 @@ class StepExecutor:
         step: PlanStep,
         previous_results: dict[str, Any],
     ) -> dict[str, Any]:
-        query = self._reasoning_input(command, step, previous_results)
+        query = self._retrieval_input(command, step, previous_results)
         hits = await self._knowledge_service.retrieve(
             query=query,
             knowledge_base_names=step.knowledge_base_names,
@@ -398,7 +398,7 @@ class StepExecutor:
         knowledge_context = ""
         if step.knowledge_base_names:
             hits = await self._knowledge_service.retrieve(
-                query=self._reasoning_input(command, step, previous_results),
+                query=self._retrieval_input(command, step, previous_results),
                 knowledge_base_names=step.knowledge_base_names,
                 top_k=self._knowledge_top_k,
             )
@@ -573,31 +573,39 @@ class StepExecutor:
             },
         }
 
-    def _reasoning_input(
+    def _retrieval_input(
         self,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
     ) -> str:
-        dependencies = {
-            dependency: previous_results.get(dependency)
-            for dependency in step.depends_on
-        }
+        dependencies: dict[str, Any] = {}
+        for dependency in step.depends_on:
+            value = previous_results.get(dependency)
+            if isinstance(value, dict):
+                dependencies[dependency] = (
+                    value.get("summary")
+                    or (value.get("output") or {}).get("content")
+                    or str(value)
+                )
+            elif value is not None:
+                dependencies[dependency] = str(value)
+
         payload = {
             "task": step.description,
             "intent": command.intent,
             "input": command.input,
             "context": command.context,
-            "instructions": [*command.instructions, *step.instructions],
-            "dependencyResults": dependencies,
+            "dependencySummaries": dependencies,
         }
-        serialized = json.dumps(payload, ensure_ascii=False, indent=2)
-        if len(serialized) > self._max_context_chars:
-            raise ValueError(
-                "Planned step context is too large to inject safely into the model: "
-                f"{len(serialized)} characters > {self._max_context_chars}"
-            )
-        return serialized
+        serialized = json.dumps(
+            payload,
+            ensure_ascii=False,
+            default=str,
+        )
+        # Retrieval queries are intentionally compact. Large source material belongs
+        # to Knowledge/Artifacts and is selected later by ContextEngine.
+        return serialized[: min(self._max_context_chars, 8000)]
 
     def _resolve_value(
         self,
