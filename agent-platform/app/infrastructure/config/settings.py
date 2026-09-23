@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     context_safety_margin_tokens: int = 10000
     context_session_max_entries: int = 24
     context_memory_top_k: int = 8
+    context_memory_min_score: float = 0.12
     context_min_compression_tokens: int = 128
 
     otel_exporter_otlp_endpoint: str = "http://otel-collector:4317"
