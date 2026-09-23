@@ -439,17 +439,18 @@ class PostgresMemoryRepository:
             row = await conn.fetchrow(
                 """
                 INSERT INTO context_snapshots(
-                    id,execution_id,step_id,model_profile,budget,components,
+                    id,execution_id,step_id,attempt,model_profile,budget,components,
                     provenance,prompt_token_estimate,selected_token_estimate,
                     dropped_token_estimate,compressed
                 ) VALUES(
-                    $1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11
+                    $1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,$10,$11,$12
                 )
                 RETURNING *
                 """,
                 snapshot.id,
                 snapshot.execution_id,
                 snapshot.step_id,
+                snapshot.attempt,
                 snapshot.model_profile,
                 json.dumps(snapshot.budget),
                 json.dumps(snapshot.components),
@@ -572,6 +573,7 @@ class PostgresMemoryRepository:
             id=row["id"],
             execution_id=row["execution_id"],
             step_id=row["step_id"],
+            attempt=row["attempt"],
             model_profile=row["model_profile"],
             budget=dict(cls._decode(row["budget"]) or {}),
             components=list(cls._decode(row["components"]) or []),
