@@ -4112,3 +4112,152 @@ consumer metadata != authenticated principal
 M8.1 puede gobernar scopes de Session y Agent porque son recursos de plataforma ya persistidos, pero una futura integración IAM deberá aportar claims autenticados para convertir USER/TEAM/TENANT en fronteras de seguridad fuertes.
 
 Esto evita que un consumidor pueda autoasignarse un subject privilegiado escribiendo un identificador en metadata.
+
+
+---
+
+## M8.3 / M8.4 — Eval Framework, Regression and Control Plane
+
+### M8.3 — Evals as platform resources
+
+Evaluation is modeled independently from agents and orchestration:
+
+```text
+EvalDataset
+  |
+  +-- EvalDatasetItem[]
+        |
+        +-- canonical Command
+        +-- expected output
+        +-- deterministic assertions
+
+EvalDefinition
+  |
+  +-- Dataset
+  +-- metrics
+  +-- thresholds
+  +-- judge model profile
+
+EvalRun
+  |
+  +-- normal Execution per case
+  +-- EvalResult per case
+  +-- aggregate scores
+  +-- baseline comparison
+```
+
+An Eval worker is a consumer of the same durable execution boundary used by REST/NATS callers. It never invokes Planner, Agent, Tool or Model adapters directly for the system-under-test.
+
+```text
+Eval worker
+   -> ExecutionSubmission
+   -> ExecutionService
+   -> Planner
+   -> Governance
+   -> LangGraph
+   -> Result
+   -> deterministic assertions
+   -> optional governed LLM judge
+```
+
+This preserves a single execution semantics and makes eval failures inspectable with the normal Execution Explorer.
+
+### Deterministic + model-based evaluation
+
+Deterministic assertions are evaluated without an LLM:
+
+```text
+CONTAINS
+NOT_CONTAINS
+REGEX
+MIN_LENGTH
+MAX_LENGTH
+```
+
+Semantic quality metrics can use LLM-as-judge:
+
+```text
+relevance
+completeness
+groundedness
+coherence
+instruction_adherence
+```
+
+Judge access goes through GovernedModelGateway. An approval-gated model cannot be implicitly approved by an eval: because the judge is not a durable orchestration step, REQUIRE_APPROVAL fails closed.
+
+### Regression
+
+Each run stores a configuration snapshot and dataset version.
+
+A run can reference a previous completed run of the same definition as baseline:
+
+```text
+current aggregate scores
+          |
+          +---- thresholds -> violations
+          |
+          +---- baseline -> metric deltas
+          |
+          v
+      regression
+```
+
+Per-case outputs, scores, checks, latency, tokens, cost and underlying execution id are persisted.
+
+### M8.4 — Control Plane
+
+The Control Plane adds two explicit areas:
+
+```text
+Governance
+  - policies
+  - budgets
+  - policy audit
+  - budget audit
+
+Evals
+  - datasets
+  - definitions
+  - runs
+  - metrics / checks
+  - baseline regression
+  - execution drill-down
+```
+
+The UI remains an administrative/read-model client. Scheduling, execution, scoring and regression decisions remain backend responsibilities.
+
+### ADR-056 — Eval cases execute through ExecutionService
+
+**Estado:** Accepted  
+**Contexto:** M8.3
+
+A regression test must exercise the same platform path as a production request. Evals therefore submit canonical ExecutionSubmission objects and wait for durable terminal state instead of invoking internal agents/models directly.
+
+### ADR-057 — Deterministic assertions precede LLM-as-judge
+
+**Estado:** Accepted  
+**Contexto:** M8.3
+
+Checks that can be expressed deterministically do not spend model tokens. LLM judges are reserved for semantic dimensions and return normalized 0..1 structured scores.
+
+### ADR-058 — Eval judge remains governed
+
+**Estado:** Accepted  
+**Contexto:** M8.3
+
+The judge uses GovernedModelGateway. MODEL_ACCESS and budgets therefore apply. REQUIRE_APPROVAL fails closed because the judge is not a durable approval-capable orchestration step.
+
+### ADR-059 — Regression datasets are versioned platform state
+
+**Estado:** Accepted  
+**Contexto:** M8.4
+
+A dataset version is captured on every EvalRun. Historical results remain tied to the effective dataset/configuration even when a dataset is edited later.
+
+### ADR-060 — Control Plane does not own evaluation logic
+
+**Estado:** Accepted  
+**Contexto:** M8.4
+
+The Angular application creates/edits resources and displays persisted state. It does not iterate cases, call agents/models, calculate scores or decide whether a run regressed.
