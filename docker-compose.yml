@@ -159,6 +159,29 @@ services:
       otel-collector:
         condition: service_started
 
+
+  process-platform:
+    build:
+      context: .
+      dockerfile: process-platform/Dockerfile
+    environment:
+      SERVER_PORT: 8090
+      NATS_URL: nats://nats:4222
+      AGENT_PLATFORM_COMMAND_SUBJECT: ${AGENT_PLATFORM_COMMAND_SUBJECT:-platform.commands.execution}
+      AGENT_PLATFORM_EVENTS_SUBJECT: ${AGENT_PLATFORM_EVENTS_SUBJECT:-platform.events.execution.>}
+      AGENT_PLATFORM_EVENTS_DURABLE: ${AGENT_PLATFORM_EVENTS_DURABLE:-process-platform-agent-events}
+      AGENT_PLATFORM_NATS_MAX_COMMAND_BYTES: ${AGENT_PLATFORM_NATS_MAX_COMMAND_BYTES:-900000}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    ports:
+      - "${PROCESS_PLATFORM_PORT:-8090}:8090"
+    depends_on:
+      nats:
+        condition: service_started
+      agent-platform:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+
   control-plane-ui:
     build:
       context: .
