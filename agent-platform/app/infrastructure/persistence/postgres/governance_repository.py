@@ -204,7 +204,7 @@ class PostgresGovernanceRepository:
         execution_id: UUID,
     ) -> dict[str,float]:
         clauses=["scope_type=$1","scope_id=$2"]
-        values:[Any]=[scope_type,scope_id]
+        values: list[Any] = [scope_type, scope_id]
         if period=="EXECUTION":
             clauses.append("execution_id=$3")
             values.append(execution_id)
@@ -250,6 +250,81 @@ class PostgresGovernanceRepository:
                         model_profile,prompt_tokens,completion_tokens,
                         total_tokens,estimated_cost_usd,
                     )
+
+    async def record_budget_decision(
+        self,
+        *,
+        execution_id: UUID,
+        step_id: str | None,
+        budget_id: UUID | None,
+        budget_name: str | None,
+        action: str,
+        allowed: bool,
+        requested_model_profile: str,
+        effective_model_profile: str,
+        reason: str | None,
+        current: dict[str, Any],
+        projected: dict[str, Any],
+    ) -> None:
+        async with self._db.require_pool().acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO governance_budget_decisions(
+                    id,execution_id,step_id,budget_id,budget_name,action,allowed,
+                    requested_model_profile,effective_model_profile,reason,
+                    current_usage,projected_usage
+                ) VALUES(
+                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb
+                )
+                """,
+                uuid4(),
+                execution_id,
+                step_id,
+                budget_id,
+                budget_name,
+                action,
+                allowed,
+                requested_model_profile,
+                effective_model_profile,
+                reason,
+                json.dumps(current),
+                json.dumps(projected),
+            )
+
+    async def list_budget_decisions(
+        self,
+        *,
+        execution_id: UUID | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        async with self._db.require_pool().acquire() as conn:
+            if execution_id:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM governance_budget_decisions
+                    WHERE execution_id=$1
+                    ORDER BY created_at
+                    LIMIT $2
+                    """,
+                    execution_id,
+                    limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM governance_budget_decisions
+                    ORDER BY created_at DESC
+                    LIMIT $1
+                    """,
+                    limit,
+                )
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["current_usage"] = self._decode(item["current_usage"]) or {}
+            item["projected_usage"] = self._decode(item["projected_usage"]) or {}
+            result.append(item)
+        return result
 
     async def usage_summary(self, execution_id: UUID) -> dict[str,Any]:
         async with self._db.require_pool().acquire() as conn:
