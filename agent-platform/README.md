@@ -899,8 +899,8 @@ Implemented:
 ```text
 M7.1 Sessions + Working Context       ✅
 M7.2 Persistent Memory + Policies     ✅
-M7.3 Context Engine + Budget Manager  pending
-M7.4 Context snapshots + UI           pending
+M7.3 Context Engine + Budget Manager  ✅
+M7.4 Context snapshots + UI           ✅
 ```
 
 ## Sessions
@@ -1044,3 +1044,96 @@ This does **not** mean memory is automatically injected into future model calls.
 
 
 > If inferred persistence is disabled, automatic extraction is skipped entirely, avoiding an unnecessary model call.
+
+
+---
+
+# M7.3 / M7.4 — Context Engine, Budgets and Context Inspector
+
+M7 is now complete.
+
+Model-backed AGENT, MODEL and VALIDATE steps route their model input through a platform-owned Context Engine:
+
+```text
+Command
++ current PlanStep
++ dependency results
++ previous Session Working Context
++ relevant Persistent Memory
++ managed Knowledge
++ system prompt
+        |
+        v
+Context Engine
+        |
+        v
+Budget Manager
+        |
+        +-- INCLUDE
+        +-- COMPRESS_TRUNCATE
+        +-- DROP_BUDGET
+        |
+        v
+EffectiveContext
+        |
+        v
+Model Gateway
+```
+
+Default budget:
+
+```env
+CONTEXT_MODEL_WINDOW_TOKENS=200000
+CONTEXT_RESERVED_OUTPUT_TOKENS=16000
+CONTEXT_SAFETY_MARGIN_TOKENS=10000
+CONTEXT_SESSION_MAX_ENTRIES=24
+CONTEXT_MEMORY_TOP_K=8
+CONTEXT_MIN_COMPRESSION_TOKENS=128
+```
+
+Persistent Memory now supports hybrid retrieval with pgvector + full-text search + importance. A Session always exposes its own SESSION memory to the Context Engine and, when it has an `ownerKey`, also exposes the declared USER/TEAM/TENANT scope for that owner.
+
+Memory retrieval playground:
+
+```text
+POST /v1/memories/retrieve
+```
+
+Example:
+
+```json
+{
+  "query": "Which cloud constraints apply?",
+  "scopes": [
+    {"scopeType": "TENANT", "scopeId": "demo"}
+  ],
+  "topK": 8
+}
+```
+
+Every model call persists a logical Context Snapshot before the provider invocation:
+
+```text
+GET /v1/executions/{executionId}/context-snapshots
+GET /v1/executions/{executionId}/context-snapshots?stepId=<stepId>
+```
+
+A snapshot contains the model budget, component types, token estimates, selected/compressed/dropped decisions and provenance. It intentionally does not duplicate the complete final prompt.
+
+The Angular Control Plane now contains:
+
+- Sessions management and Working Context inspection;
+- Persistent Memory browser and explicit memory creation/revoke;
+- Memory Policy and audit;
+- hybrid Memory retrieval playground;
+- Context Engine runtime settings;
+- per-execution Context Snapshots showing composition, budget, compression and provenance;
+- Session selector when starting an execution from the UI.
+
+This completes the M7 boundary:
+
+```text
+Execution State != Working Context != Persistent Memory != Knowledge
+```
+
+M8 can now build Governance/Evals on top of persisted plan state, model usage, memory policy audit and context provenance.
