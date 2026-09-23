@@ -4390,3 +4390,231 @@ event and therefore remain independent of NATS.
 The bounded in-memory event journal exists only to validate and inspect the
 integration. Durable ProcessDefinition, ProcessInstance, ProcessStep and
 ProcessContext state are deferred to M9.2.
+
+
+---
+
+## M9.2 — Process Domain & Durable State
+
+M9.2 introduces the deterministic process model inside the independent Process Platform.
+
+### Domain
+
+```text
+ProcessDefinition
+      |
+      +-- definitionKey
+      +-- version
+      +-- status
+      +-- input/output contracts
+      +-- ProcessStepDefinition[]
+               |
+               +-- stepKey
+               +-- type
+               +-- dependsOn[]
+               +-- inputSchema
+               +-- outputSchema
+               +-- configuration
+
+ProcessInstance
+      |
+      +-- exact ProcessDefinition id/version
+      +-- input
+      +-- ProcessContext
+      +-- ProcessStepInstance[]
+```
+
+The deterministic definition and the agentic LogicalPlan remain different models:
+
+```text
+ProcessDefinition
+  design-time
+  human/configuration defined
+  reusable
+  versioned
+  deterministic
+
+LogicalPlan
+  runtime
+  planner generated
+  execution-specific
+  agentic
+```
+
+### Version semantics
+
+A process version is mutable only while DRAFT.
+
+```text
+DRAFT -> ACTIVE -> RETIRED
+```
+
+An ACTIVE definition is immutable. Changes require a new version.
+
+A ProcessInstance stores both the concrete `definitionId` and
+`definitionVersion`. It never follows a moving "latest" reference after creation.
+
+When callers create an instance without specifying a version, the highest ACTIVE
+version is selected at that instant.
+
+### Dependency graph
+
+Dependencies are explicit in `dependsOn`.
+
+```text
+A
+├── B
+└── C
+    |
+B + C
+  |
+  D
+```
+
+This model naturally expresses sequential and parallel paths. M9.2 validates that:
+
+- step keys are unique;
+- dependencies reference existing steps;
+- self-dependencies are rejected;
+- cycles are rejected.
+
+Execution/scheduling of the graph is intentionally deferred to M9.3.
+
+### Step types
+
+The domain reserves the following deterministic process step kinds:
+
+```text
+SERVICE
+TOOL
+AGENT
+AGENTIC_EXECUTION
+DECISION
+HUMAN
+WAIT_EVENT
+SUBPROCESS
+```
+
+The distinction between the two agent-related types is preserved:
+
+```text
+AGENT
+  -> known agent/delegation target
+
+AGENTIC_EXECUTION
+  -> open-ended objective delegated through standard ExecutionCommand
+     so Agent Platform decides the plan/resources
+```
+
+M9.2 only models these step types. Their runtime adapters belong to M9.3.
+
+### Step contracts
+
+Every ProcessStepDefinition has independent `inputSchema` and `outputSchema`.
+
+This creates a deterministic contract around probabilistic steps:
+
+```text
+validated input
+      |
+      v
+ AGENTIC STEP
+      |
+      v
+validated output
+```
+
+M9.2 persists/version-controls the schemas. M9.3 will enforce them at execution time.
+
+### Process Context
+
+ProcessContext is durable state owned by Process Platform.
+
+```text
+Process input
+     |
+     v
+ProcessInstance
+     |
+     +--> ProcessContext
+             |
+             +-- step A output
+             +-- step B output
+             +-- business/process variables
+```
+
+It is intentionally distinct from Agent Platform Working Context, Session,
+Persistent Memory and Knowledge.
+
+### Independent persistence
+
+Process Platform owns a separate PostgreSQL database.
+
+```text
+Agent Platform  ---> agent_platform DB
+
+Process Platform ---> process_platform DB
+```
+
+There are no foreign keys, shared JPA entities or cross-database reads between
+the two bounded contexts.
+
+M9.2 tables:
+
+```text
+process_definitions
+process_step_definitions
+process_instances
+process_step_instances
+```
+
+### ADR-066 — ProcessDefinition and LogicalPlan are separate models
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+A ProcessDefinition describes a known deterministic process designed before
+execution. A LogicalPlan is generated dynamically by Agent Platform to solve an
+open-ended execution. Similar graph shape does not justify sharing the aggregate.
+
+### ADR-067 — Process versions become immutable when ACTIVE
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+Only DRAFT definitions are editable. Changes to a published process create a new
+version. Historical ProcessInstances therefore remain reproducible.
+
+### ADR-068 — ProcessInstance is pinned to an exact definition version
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+Resolution of "latest active" happens only when the instance is created. The
+resolved definition id/version are persisted and never silently upgraded.
+
+### ADR-069 — Parallelism is dependency semantics, not a container step
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+The graph uses `dependsOn`. Independent ready steps can later run concurrently.
+A synthetic PARALLEL step is not required for basic fan-out/fan-in semantics.
+
+### ADR-070 — ProcessContext is process state, not Agent Memory
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+Intermediate deterministic workflow data is persisted in Process Platform.
+Persistent Memory and Working Context in Agent Platform are not used as the
+source of truth for process progression.
+
+### ADR-071 — Process Platform owns independent persistence
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+The Process Platform database is physically/logically independent from Agent
+Platform persistence. Integration remains exclusively through public
+ExecutionCommand / ExecutionEvent contracts.
