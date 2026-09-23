@@ -45,3 +45,9 @@ management:
 logging:
   pattern:
     correlation: "[%X{traceId:-},%X{spanId:-}] "
+
+process:
+  runtime:
+    recovery-delay-ms: ${PROCESS_RUNTIME_RECOVERY_DELAY_MS:2000}
+    outbox-poll-ms: ${PROCESS_RUNTIME_OUTBOX_POLL_MS:250}
+    service-stale-seconds: ${PROCESS_RUNTIME_SERVICE_STALE_SECONDS:60}
