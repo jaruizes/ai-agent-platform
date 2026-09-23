@@ -42,6 +42,7 @@ class ContextEngine:
         previous_results: dict[str, Any],
         system_prompt: str,
         model_profile: str,
+        attempt: int = 1,
         knowledge_context: str = "",
         knowledge_provenance: list[dict[str, Any]] | None = None,
     ) -> EffectiveContext:
@@ -263,6 +264,7 @@ class ContextEngine:
             ContextSnapshot(
                 execution_id=UUID(str(execution["id"])),
                 step_id=step.id,
+                attempt=max(1, attempt),
                 model_profile=model_profile,
                 budget=effective.budget,
                 components=[self._component_dict(item) for item in selected],
