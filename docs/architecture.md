@@ -3189,7 +3189,7 @@ q
 limit
 ```
 
-M7.3 incorpora retrieval híbrido de memoria mediante pgvector + full-text search + importance. Las memorias se embeben al persistirse y la selección se limita a scopes explícitamente asociados a la Session.
+M7.3 incorpora retrieval híbrido de memoria mediante pgvector + full-text search + importance. Con el provider local `hash`, la componente vectorial es lexical-feature hashing; un embedding provider semántico de producción podrá sustituirlo sin cambiar el contrato. Las memorias se embeben al persistirse y la selección se limita a scopes explícitamente asociados a la Session.
 
 ### Command metadata
 
@@ -3282,7 +3282,7 @@ search_vector tsvector
 El score inicial combina:
 
 ```text
-0.72 semantic similarity
+0.72 vector similarity
 0.18 lexical rank
 0.10 importance
 ```
