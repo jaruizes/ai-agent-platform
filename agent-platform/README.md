@@ -890,9 +890,9 @@ The Angular container is independent from the execution runtime. Nginx serves th
 
 ---
 
-# M7.1 / M7.2 — Sessions, Working Context and Persistent Memory
+# M7 — Context & Memory
 
-This branch introduces the first half of M7.
+M7 is complete in this branch. The first half introduces Sessions, Working Context and Persistent Memory; M7.3/M7.4 add runtime context composition, budgeting, retrieval and inspection.
 
 Implemented:
 
@@ -1013,7 +1013,7 @@ ACTIVE
 
 Session-scoped memory is expired automatically when its Session closes or expires.
 
-Important M7 boundary: memory is persisted and queryable, but is **not automatically injected into model prompts yet**. Retrieval, context selection, budgeting and compression belong to M7.3.
+At the M7.2 boundary memory is persisted and queryable without being blindly appended to prompts. M7.3 then introduces scoped retrieval, selection and budgeting through ContextEngine.
 
 
 ## Automatic session-memory extraction
@@ -1040,7 +1040,7 @@ Automatic candidates are always `scopeType=SESSION`. Cross-session scopes such a
 
 Extraction is best-effort and runs after the execution result is already durable. An extraction/model failure never changes a successful execution into FAILED.
 
-This does **not** mean memory is automatically injected into future model calls. Retrieval and context composition remain M7.3.
+Automatic extraction only proposes/persists memory. M7.3 independently decides whether a memory is relevant enough and fits the effective context budget.
 
 
 > If inferred persistence is disabled, automatic extraction is skipped entirely, avoiding an unnecessary model call.
@@ -1080,6 +1080,8 @@ EffectiveContext
 Model Gateway
 ```
 
+The budget applies to the effective system prompt too. The Model Gateway receives the budgeted system and user prompts, so the snapshot and the actual provider input cannot diverge.
+
 Default budget:
 
 ```env
@@ -1092,7 +1094,7 @@ CONTEXT_MEMORY_MIN_SCORE=0.12
 CONTEXT_MIN_COMPRESSION_TOKENS=128
 ```
 
-Persistent Memory now supports hybrid retrieval with pgvector + full-text search + importance. A Session always exposes its own SESSION memory to the Context Engine and, when it has an `ownerKey`, also exposes the declared USER/TEAM/TENANT scope for that owner.
+Persistent Memory now supports hybrid retrieval with pgvector + full-text search. Relevance (vector + lexical) is gated first; confidence, importance and freshness then affect ranking. A Session exposes its own SESSION memory and, when it has an `ownerKey`, the declared USER/TEAM/TENANT scope. AGENT steps additionally expose deterministic AGENT:<name> and AGENT:<id> scopes from the Agent Registry.
 
 Memory retrieval playground:
 
@@ -1112,7 +1114,7 @@ Example:
 }
 ```
 
-Every model call persists a logical Context Snapshot before the provider invocation:
+Every AGENT/MODEL/VALIDATE step model call persists a logical Context Snapshot before the provider invocation:
 
 ```text
 GET /v1/executions/{executionId}/context-snapshots
