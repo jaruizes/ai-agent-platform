@@ -234,19 +234,44 @@ class GovernanceService:
                 "total_tokens":current["total_tokens"]+projected_prompt_tokens+projected_completion_tokens,
                 "estimated_cost_usd":current["estimated_cost_usd"]+projected_cost,
             }
-            exceeded=self._budget_exceeded(budget,projected)
+            exceeded=self._exceeded_dimensions(budget,projected)
             if not exceeded:
                 continue
-            if budget.action=="DEGRADE" and budget.degrade_model_profile and budget.degrade_model_profile!=model_profile:
-                return BudgetEvaluation(
-                    allowed=True,action="DEGRADE",
-                    model_profile=budget.degrade_model_profile,
-                    reason=f"Budget '{budget.name}' projected limit exceeded; degrading model profile.",
-                    budget_name=budget.name,current=current,projected=projected,
+            if (
+                budget.action=="DEGRADE"
+                and exceeded == {"estimated_cost_usd"}
+                and budget.degrade_model_profile
+                and budget.degrade_model_profile!=model_profile
+            ):
+                degraded_in,degraded_out=self._pricing.get(
+                    budget.degrade_model_profile,(0.0,0.0)
                 )
+                degraded_cost=(
+                    projected_prompt_tokens/1_000_000
+                )*degraded_in + (
+                    projected_completion_tokens/1_000_000
+                )*degraded_out
+                degraded_projected={
+                    **projected,
+                    "estimated_cost_usd": current["estimated_cost_usd"] + degraded_cost,
+                }
+                if not self._exceeded_dimensions(budget,degraded_projected):
+                    return BudgetEvaluation(
+                        allowed=True,action="DEGRADE",
+                        model_profile=budget.degrade_model_profile,
+                        reason=(
+                            f"Budget '{budget.name}' projected cost limit exceeded; "
+                            f"degrading model profile to '{budget.degrade_model_profile}'."
+                        ),
+                        budget_name=budget.name,current=current,
+                        projected=degraded_projected,
+                    )
             return BudgetEvaluation(
                 allowed=False,action="DENY",model_profile=model_profile,
-                reason=f"Budget '{budget.name}' projected limit exceeded.",
+                reason=(
+                    f"Budget '{budget.name}' projected limit exceeded: "
+                    + ", ".join(sorted(exceeded))
+                ),
                 budget_name=budget.name,current=current,projected=projected,
             )
         return BudgetEvaluation(
@@ -274,14 +299,17 @@ class GovernanceService:
         return cost
 
     @staticmethod
-    def _budget_exceeded(budget, projected):
+    def _exceeded_dimensions(budget, projected)->set[str]:
         checks=(
             (budget.max_prompt_tokens,"prompt_tokens"),
             (budget.max_completion_tokens,"completion_tokens"),
             (budget.max_total_tokens,"total_tokens"),
             (budget.max_cost_usd,"estimated_cost_usd"),
         )
-        return any(limit is not None and projected[key]>limit for limit,key in checks)
+        return {
+            key for limit,key in checks
+            if limit is not None and projected[key]>limit
+        }
 
     @staticmethod
     def _conditions_match(conditions:dict[str,Any],context:dict[str,Any])->bool:
