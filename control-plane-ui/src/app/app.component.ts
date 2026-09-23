@@ -13,7 +13,7 @@ export class AppComponent implements OnInit,OnDestroy {
   executions=signal<ExecutionSummary[]>([]); approvals=signal<PendingApproval[]>([]);
   agents=signal<Agent[]>([]); skills=signal<Skill[]>([]); prompts=signal<Prompt[]>([]); tools=signal<Tool[]>([]); mcpServers=signal<McpServer[]>([]);
   knowledgeBases=signal<KnowledgeBase[]>([]); documents=signal<KnowledgeDocument[]>([]); retrievalHits=signal<RetrievalHit[]>([]);
-  sessions=signal<SessionInfo[]>([]); memories=signal<MemoryInfo[]>([]); contextSnapshots=signal<ContextSnapshot[]>([]);
+  sessions=signal<SessionInfo[]>([]); memories=signal<MemoryInfo[]>([]); contextSnapshots=signal<ContextSnapshot[]>([]); executionContext=signal<any[]>([]);
   memoryPolicy=signal<any>(null); memoryAudit=signal<any[]>([]); selectedSession=signal<SessionInfo|null>(null); sessionContext=signal<any[]>([]); sessionExecutions=signal<any[]>([]);
   memoryQuery=''; memoryScopeType='SESSION'; memoryScopeId=''; memoryTopK=8; memoryHits=signal<MemoryInfo[]>([]);
   selectedExecution=signal<ExecutionDetail|null>(null); orchestration=signal<Orchestration|null>(null); selectedKb=signal<KnowledgeBase|null>(null);
@@ -29,7 +29,7 @@ export class AppComponent implements OnInit,OnDestroy {
   async loadRuntime(){try{this.runtime.set(await this.api.runtime());}catch(e:any){this.error.set(this.message(e));}}
   filteredExecutions(){const q=this.search.toLowerCase();return this.executions().filter(x=>(!q||[x.executionId,x.commandName,x.intent,x.objective].some(v=>(v||'').toLowerCase().includes(q)))&&(!this.executionStatus||x.status===this.executionStatus));}
   async filterExecutions(){this.executions.set(await this.api.executions(this.executionStatus));}
-  async openExecution(id:string,show=true){try{const [d,o,s]=await Promise.all([this.api.execution(id),this.api.orchestration(id),this.api.contextSnapshots(id)]);this.selectedExecution.set(d);this.orchestration.set(o);this.contextSnapshots.set(s);if(show)this.modal.set('execution');}catch(e:any){this.error.set(this.message(e));}}
+  async openExecution(id:string,show=true){try{const [d,o,s,c]=await Promise.all([this.api.execution(id),this.api.orchestration(id),this.api.contextSnapshots(id),this.api.executionContext(id)]);this.selectedExecution.set(d);this.orchestration.set(o);this.contextSnapshots.set(s);this.executionContext.set(c);if(show)this.modal.set('execution');}catch(e:any){this.error.set(this.message(e));}}
   closeModal(){this.modal.set(null);this.draft={};this.approvalComment='';}
   statusClass(s:string){return (s||'').toLowerCase().replaceAll('_','-');}
   tokens(v:any){return new Intl.NumberFormat('es-ES').format(Number(v||0));}
