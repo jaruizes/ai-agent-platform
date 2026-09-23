@@ -1,11 +1,12 @@
 CREATE TABLE IF NOT EXISTS eval_datasets (
     id UUID PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     version INTEGER NOT NULL DEFAULT 1,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(name, version)
 );
 
 CREATE TABLE IF NOT EXISTS eval_dataset_items (
