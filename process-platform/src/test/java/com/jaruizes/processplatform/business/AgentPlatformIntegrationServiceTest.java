@@ -68,13 +68,15 @@ class AgentPlatformIntegrationServiceTest {
                 "corr",
                 "cause",
                 new ExecutionEvent.Source("platform", "ai-agent-platform", null),
-                new ExecutionEvent.ExecutionData(
-                        executionId,
-                        new ExecutionEvent.CommandRef("security-analysis"),
-                        "COMPLETED",
-                        null,
-                        Map.of("summary", "done"),
-                        null
+                new ExecutionEvent.Data(
+                        new ExecutionEvent.ExecutionData(
+                                executionId,
+                                new ExecutionEvent.CommandRef("security-analysis"),
+                                "COMPLETED",
+                                null,
+                                Map.of("summary", "done"),
+                                null
+                        )
                 )
         );
 
