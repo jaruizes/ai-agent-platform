@@ -583,8 +583,7 @@ class GovernanceService:
         if policy.subject_type not in SUBJECT_TYPES:
             raise ValueError("Invalid subjectType")
 
-    @staticmethod
-    def _validate_budget(budget: GovernanceBudget) -> None:
+    def _validate_budget(self, budget: GovernanceBudget) -> None:
         if budget.period not in BUDGET_PERIODS:
             raise ValueError("Invalid budget period")
         if budget.action not in BUDGET_ACTIONS:
@@ -594,6 +593,13 @@ class GovernanceService:
         if budget.action == "DEGRADE" and not budget.degrade_model_profile:
             raise ValueError(
                 "DEGRADE budget requires degradeModelProfile"
+            )
+        if budget.max_cost_usd is not None and not any(
+            input_rate > 0 or output_rate > 0
+            for input_rate, output_rate in self._pricing.values()
+        ):
+            raise ValueError(
+                "Cost budgets require configured model pricing"
             )
         limits = [
             budget.max_prompt_tokens,
