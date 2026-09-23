@@ -174,6 +174,11 @@ class ContextEngine:
                 execution_id=execution["id"],
                 step_id=step.id,
                 scopes=scopes,
+                extra_subjects=(
+                    [("AGENT", step.agent_name)]
+                    if step.agent_name
+                    else []
+                ),
             )
 
         memories = await self._memory_service.retrieve_relevant(
