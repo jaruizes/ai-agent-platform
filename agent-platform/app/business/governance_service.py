@@ -38,6 +38,14 @@ class GovernanceService:
         self._validate_policy(policy)
         return await self._repository.save_policy(policy)
 
+    async def update_policy(
+        self,
+        policy_id: UUID,
+        policy: GovernancePolicy,
+    ):
+        self._validate_policy(policy)
+        return await self._repository.update_policy(policy_id, policy)
+
     async def delete_policy(self, policy_id: UUID):
         return await self._repository.delete_policy(policy_id)
 
@@ -47,6 +55,14 @@ class GovernanceService:
     async def save_budget(self, budget: GovernanceBudget):
         self._validate_budget(budget)
         return await self._repository.save_budget(budget)
+
+    async def update_budget(
+        self,
+        budget_id: UUID,
+        budget: GovernanceBudget,
+    ):
+        self._validate_budget(budget)
+        return await self._repository.update_budget(budget_id, budget)
 
     async def delete_budget(self, budget_id: UUID):
         return await self._repository.delete_budget(budget_id)
