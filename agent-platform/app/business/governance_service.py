@@ -681,6 +681,28 @@ class GovernanceService:
             raise ValueError(
                 "DEGRADE budget requires degradeModelProfile"
             )
+        if budget.action == "DEGRADE" and any(
+            value is not None
+            for value in (
+                budget.max_prompt_tokens,
+                budget.max_completion_tokens,
+                budget.max_total_tokens,
+            )
+        ):
+            raise ValueError(
+                "DEGRADE is supported only for cost-only budgets; "
+                "token budgets must use DENY"
+            )
+        if budget.action == "DEGRADE" and budget.degrade_model_profile:
+            degrade_rates = self._pricing.get(
+                budget.degrade_model_profile,
+                (0.0, 0.0),
+            )
+            if not any(rate > 0 for rate in degrade_rates):
+                raise ValueError(
+                    "DEGRADE budget requires configured pricing for "
+                    f"'{budget.degrade_model_profile}'"
+                )
         if budget.max_cost_usd is not None and not any(
             input_rate > 0 or output_rate > 0
             for input_rate, output_rate in self._pricing.values()
