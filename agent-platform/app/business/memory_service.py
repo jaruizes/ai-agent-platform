@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.business.embeddings import EmbeddingProvider
 from app.business.memory_policy import MemoryPolicyEngine
 from app.business.ports import MemoryRepositoryPort
+from app.domain.context import ContextSnapshot
 from app.domain.memory import (
     MEMORY_STATUSES,
     SESSION_SCOPES,
@@ -25,11 +27,13 @@ class MemoryService:
         self,
         repository: MemoryRepositoryPort,
         policy: MemoryPolicyEngine,
+        embedding_provider: EmbeddingProvider,
         *,
         cleanup_poll_seconds: float,
     ):
         self._repository = repository
         self._policy = policy
+        self._embedding_provider = embedding_provider
         self._cleanup_poll_seconds = cleanup_poll_seconds
         self._stop = asyncio.Event()
 
@@ -225,6 +229,14 @@ class MemoryService:
             )
             return None, decision
 
+        embedding_result = await self._embedding_provider.embed(
+            [candidate.content.strip()[:8000]]
+        )
+        if not embedding_result.vectors or len(embedding_result.vectors[0]) != 768:
+            raise RuntimeError(
+                "Persistent Memory storage expects 768-dimensional embeddings"
+            )
+
         memory = MemoryEntry(
             scope_type=decision.normalized_scope_type or candidate.scope_type,
             scope_id=candidate.scope_id.strip(),
@@ -243,6 +255,7 @@ class MemoryService:
             source_execution_id=candidate.source_execution_id,
             source_step_id=candidate.source_step_id,
             expires_at=self._normalize_datetime(candidate.expires_at),
+            embedding=embedding_result.vectors[0],
         )
         persisted = await self._repository.create_memory(memory)
         await self._repository.record_policy_audit(
@@ -291,6 +304,57 @@ class MemoryService:
                 }
             )
         return decisions
+
+    async def retrieve_relevant(
+        self,
+        *,
+        query: str,
+        scopes: list[tuple[str, str]],
+        limit: int = 8,
+    ) -> list[MemoryEntry]:
+        normalized_scopes = list(
+            dict.fromkeys(
+                (
+                    scope_type.upper().strip(),
+                    scope_id.strip(),
+                )
+                for scope_type, scope_id in scopes
+                if scope_type and scope_id
+            )
+        )
+        if not query.strip() or not normalized_scopes:
+            return []
+        embedding_result = await self._embedding_provider.embed(
+            [query.strip()[:1600]]
+        )
+        vector = embedding_result.vectors[0]
+        if len(vector) != 768:
+            raise RuntimeError(
+                "Persistent Memory storage expects 768-dimensional embeddings"
+            )
+        return await self._repository.retrieve_memories(
+            scopes=normalized_scopes,
+            query=query.strip()[:1600],
+            query_embedding=vector,
+            limit=max(1, min(limit, 50)),
+        )
+
+    async def save_context_snapshot(
+        self,
+        snapshot: ContextSnapshot,
+    ) -> ContextSnapshot:
+        return await self._repository.save_context_snapshot(snapshot)
+
+    async def context_snapshots(
+        self,
+        execution_id: UUID,
+        *,
+        step_id: str | None = None,
+    ) -> list[ContextSnapshot]:
+        return await self._repository.list_context_snapshots(
+            execution_id,
+            step_id=step_id,
+        )
 
     async def get_memory(self, memory_id: UUID) -> MemoryEntry | None:
         return await self._repository.get_memory(memory_id)
