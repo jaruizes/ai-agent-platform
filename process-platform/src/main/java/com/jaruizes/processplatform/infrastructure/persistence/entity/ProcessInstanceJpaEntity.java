@@ -53,7 +53,7 @@ public class ProcessInstanceJpaEntity {
     @Column(name = "completed_at")
     private Instant completedAt;
 
-    protected ProcessInstanceJpaEntity() {}
+    public ProcessInstanceJpaEntity() {}
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
