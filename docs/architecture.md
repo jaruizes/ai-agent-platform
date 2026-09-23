@@ -4616,3 +4616,247 @@ source of truth for process progression.
 The Process Platform database is physically/logically independent from Agent
 Platform persistence. Integration remains exclusively through public
 ExecutionCommand / ExecutionEvent contracts.
+
+
+---
+
+## M9.3 — Deterministic Process Runtime
+
+M9.3 executes the persisted M9.2 deterministic DAG.
+
+### Runtime progression
+
+```text
+ProcessInstance
+      |
+      v
+dependency evaluation
+      |
+      v
+PENDING -> READY -> RUNNING
+                    |
+                    +-- SERVICE ------------> COMPLETED
+                    |
+                    +-- AGENTIC_EXECUTION
+                              |
+                              v
+                            WAITING
+                              |
+                       ExecutionEvent
+                              |
+                              v
+                         COMPLETED
+```
+
+Ready branches are submitted concurrently using Java virtual threads, but thread
+state is never authoritative. PostgreSQL ProcessInstance/ProcessStepInstance
+state is the source of truth.
+
+### Supported executable step types
+
+M9.3 executes:
+
+```text
+SERVICE
+AGENTIC_EXECUTION
+```
+
+TOOL, DECISION, HUMAN, WAIT_EVENT and SUBPROCESS remain part of the domain model
+but are deferred to later runtime milestones.
+
+### SERVICE adapter model
+
+A SERVICE step resolves `configuration.handler` through
+`ProcessServiceHandlerPort`.
+
+```text
+Process Runtime
+     |
+     v
+ProcessServiceHandlerRegistry
+     |
+     v
+ProcessServiceHandlerPort
+```
+
+The runtime contains no business-specific switch/case. Deterministic capabilities
+are adapters/plugins.
+
+SERVICE execution is at-least-once under crash recovery; handlers must therefore
+be idempotent.
+
+### AGENTIC_EXECUTION
+
+The process runtime never resolves a concrete Agent Platform agent.
+
+It creates only the standard public `ExecutionCommand`.
+
+```text
+AGENTIC_EXECUTION
+      |
+      v
+AgentPlatformIntegrationService.prepare()
+      |
+      v
+ExecutionCommand
+      |
+      v
+Process command outbox
+      |
+      v
+NATS
+      |
+      v
+Agent Platform
+```
+
+### Transactional outbox
+
+Agent delegation commits these changes in one Process Platform transaction:
+
+```text
+step.status = WAITING
+step.delegatedExecutionId = executionId
+outbox(messageId, ExecutionCommand) = PENDING
+```
+
+A scheduled publisher sends pending commands via `AgentPlatformCommandPort`.
+
+This avoids the dual-write failure window between process state and NATS.
+
+Delivery remains at-least-once. Duplicate command publication is safe because
+the canonical command retains the same messageId and Agent Platform already
+deduplicates request message IDs.
+
+### Event-driven continuation
+
+M9.1 converts NATS execution events into `AgentExecutionEventReceived`.
+
+M9.3 subscribes to that internal application event:
+
+```text
+execution.result / terminal lifecycle
+        |
+        v
+delegatedExecutionId
+        |
+        v
+ProcessStepInstance
+        |
+        +-- COMPLETED -> validate output -> merge context -> advance DAG
+        |
+        +-- FAILED/CANCELLED -> fail step + process
+```
+
+No Process Runtime code knows NATS.
+
+### Process-neutral step input
+
+The deterministic runtime builds:
+
+```json
+{
+  "processInput": {},
+  "context": {},
+  "dependencies": {
+    "step-a": {}
+  }
+}
+```
+
+This is validated against the step input contract and then supplied to the
+handler/delegated execution.
+
+### Parallel context safety
+
+Parallel branches may complete concurrently.
+
+M9.3 pessimistically locks the ProcessInstance row while merging:
+
+```text
+ProcessContext[stepKey] = output
+```
+
+This prevents lost updates when multiple branches join.
+
+### Durable recovery
+
+A scheduled recovery loop reloads RUNNING/WAITING instances from PostgreSQL.
+
+It:
+
+- re-schedules persisted READY steps;
+- recalculates newly READY dependencies;
+- detects stale RUNNING SERVICE steps and returns them to READY;
+- detects stale pre-outbox AGENTIC_EXECUTION steps and returns them to READY;
+- never re-delegates a WAITING agent step;
+- lets the command outbox retry unpublished execution commands independently.
+
+The stale threshold is configurable because local SERVICE execution has
+at-least-once semantics.
+
+### Contract enforcement
+
+Before progression:
+
+```text
+Process input -> ProcessDefinition.inputSchema
+
+Step input    -> ProcessStepDefinition.inputSchema
+
+Step output   -> ProcessStepDefinition.outputSchema
+
+Final context -> ProcessDefinition.outputSchema
+```
+
+M9.3 implements a deterministic JSON-schema subset: `type`, `required`,
+`properties` and `items`.
+
+### ADR-072 — PostgreSQL is authoritative runtime state
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+Virtual threads are execution workers only. Recovery and progression are derived
+from persisted ProcessInstance and ProcessStepInstance state.
+
+### ADR-073 — Ready steps are claimed before execution
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+A durable READY step must atomically transition to RUNNING before its handler is
+invoked. Pessimistic step locking prevents duplicate local execution caused by
+concurrent progression signals.
+
+### ADR-074 — Agent delegation uses a Process Platform transactional outbox
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+The delegated execution id and pending ExecutionCommand are committed together.
+NATS publication happens asynchronously afterwards.
+
+### ADR-075 — SERVICE handlers are idempotent activities
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+A crash can cause a stale RUNNING deterministic activity to be retried. SERVICE
+handlers therefore have at-least-once semantics and must tolerate repetition.
+
+### ADR-076 — ProcessContext merge is serialized per instance
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+Parallel step completions lock the ProcessInstance while merging output. No
+branch may replace ProcessContext based on a stale in-memory snapshot.
+
+### ADR-077 — Agent Platform remains the only owner of agent selection
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+Process Platform exposes only AGENTIC_EXECUTION. It delegates an objective with a
+canonical ExecutionCommand and cannot select concrete Agent Platform agents.
