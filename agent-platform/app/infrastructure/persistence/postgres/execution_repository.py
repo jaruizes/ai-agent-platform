@@ -1482,6 +1482,7 @@ class PostgresExecutionRepository:
         return max(1, len(text) // 4)
 
     async def _insert_outbox(
+        self,
         conn,
         execution_id: UUID,
         subject: str,
