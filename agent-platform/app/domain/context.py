@@ -35,6 +35,7 @@ class EffectiveContext:
 class ContextSnapshot:
     execution_id: UUID
     step_id: str
+    attempt: int
     model_profile: str
     budget: dict[str, Any]
     components: list[dict[str, Any]]
