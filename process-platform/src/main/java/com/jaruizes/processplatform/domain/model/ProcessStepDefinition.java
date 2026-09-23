@@ -1,5 +1,7 @@
 package com.jaruizes.processplatform.domain.model;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -17,8 +19,8 @@ public record ProcessStepDefinition(
 
     public ProcessStepDefinition {
         dependsOn = dependsOn == null ? List.of() : List.copyOf(dependsOn);
-        inputSchema = inputSchema == null ? Map.of() : Map.copyOf(inputSchema);
-        outputSchema = outputSchema == null ? Map.of() : Map.copyOf(outputSchema);
-        configuration = configuration == null ? Map.of() : Map.copyOf(configuration);
+        inputSchema = inputSchema == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(inputSchema));
+        outputSchema = outputSchema == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(outputSchema));
+        configuration = configuration == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(configuration));
     }
 }
