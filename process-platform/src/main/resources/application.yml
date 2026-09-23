@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: process-platform
+
+server:
+  port: ${SERVER_PORT:8090}
+
+agent-platform:
+  nats:
+    url: ${NATS_URL:nats://localhost:4222}
+    command-subject: ${AGENT_PLATFORM_COMMAND_SUBJECT:platform.commands.execution}
+    events-subject: ${AGENT_PLATFORM_EVENTS_SUBJECT:platform.events.execution.>}
+    events-durable: ${AGENT_PLATFORM_EVENTS_DURABLE:process-platform-agent-events}
+    max-command-bytes: ${AGENT_PLATFORM_NATS_MAX_COMMAND_BYTES:900000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  pattern:
+    correlation: "[%X{traceId:-},%X{spanId:-}] "
