@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+from typing import Any
+
+from app.business.governance_runtime import get_governance_context
+from app.domain.execution import ExecutionPlan
+from app.domain.governance import GovernanceBudgetExceeded, GovernanceDenied
+
+
+class GovernedModelGateway:
+    """Budget-governed wrapper around the real model gateway."""
+
+    def __init__(
+        self,
+        delegate,
+        governance_service,
+        *,
+        default_projected_completion_tokens: int,
+        prompt_estimate_multiplier: float = 1.25,
+    ):
+        self._delegate=delegate
+        self._governance=governance_service
+        self._default_projected_completion_tokens=default_projected_completion_tokens
+        self._prompt_estimate_multiplier=max(1.0,prompt_estimate_multiplier)
+
+    async def complete(
+        self,*,system_prompt:str,user_prompt:str,model_profile:str,
+        temperature:float=0.2,
+        max_tokens:int|None=None,
+    )->str:
+        detail=await self.complete_detailed(
+            system_prompt=system_prompt,user_prompt=user_prompt,
+            model_profile=model_profile,temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return detail["content"]
+
+    async def complete_detailed(
+        self,*,system_prompt:str,user_prompt:str,model_profile:str,
+        temperature:float=0.2,
+        max_tokens:int|None=None,
+    )->dict[str,Any]:
+        ctx=get_governance_context()
+        effective_profile=model_profile
+        budget_detail=None
+        if ctx:
+            model_decision = await self._governance.evaluate(
+                execution_id=ctx.execution_id,
+                step_id=ctx.step_id,
+                policy_type="MODEL_ACCESS",
+                resource_type="MODEL",
+                resource_name=model_profile,
+                context={"modelProfile": model_profile, "phase": "MODEL_GATEWAY"},
+                extra_subjects=(
+                    [("AGENT", ctx.agent_name)]
+                    if ctx.agent_name
+                    else []
+                ),
+            )
+            if model_decision.effect == "DENY":
+                raise GovernanceDenied(model_decision.reason)
+            if model_decision.effect == "REQUIRE_APPROVAL" and ctx.step_id is None:
+                raise GovernanceDenied(
+                    model_decision.reason
+                    + " Approval-gated model access is only valid inside a durable step."
+                )
+
+            projected_prompt=max(
+                1,
+                int(
+                    ((len(system_prompt)+len(user_prompt))//4)
+                    * self._prompt_estimate_multiplier
+                ),
+            )
+            evaluation=await self._governance.evaluate_budget(
+                execution_id=ctx.execution_id,
+                step_id=ctx.step_id,
+                model_profile=model_profile,
+                projected_prompt_tokens=projected_prompt,
+                projected_completion_tokens=(
+                    max_tokens
+                    if max_tokens is not None
+                    else self._default_projected_completion_tokens
+                ),
+                extra_subjects=(
+                    [("AGENT", ctx.agent_name)]
+                    if ctx.agent_name
+                    else []
+                ),
+            )
+            budget_detail={
+                "action":evaluation.action,
+                "budget":evaluation.budget_name,
+                "reason":evaluation.reason,
+                "requestedModelProfile":model_profile,
+                "effectiveModelProfile":evaluation.model_profile,
+                "current":evaluation.current,
+                "projected":evaluation.projected,
+            }
+            if not evaluation.allowed:
+                raise GovernanceBudgetExceeded(
+                    evaluation.reason or "Governance budget exceeded"
+                )
+            effective_profile=evaluation.model_profile
+            if effective_profile != model_profile:
+                degraded_decision = await self._governance.evaluate(
+                    execution_id=ctx.execution_id,
+                    step_id=ctx.step_id,
+                    policy_type="MODEL_ACCESS",
+                    resource_type="MODEL",
+                    resource_name=effective_profile,
+                    context={
+                        "modelProfile": effective_profile,
+                        "phase": "BUDGET_DEGRADE",
+                        "requestedModelProfile": model_profile,
+                    },
+                    extra_subjects=(
+                        [("AGENT", ctx.agent_name)]
+                        if ctx.agent_name
+                        else []
+                    ),
+                )
+                if degraded_decision.effect != "ALLOW":
+                    raise GovernanceDenied(
+                        degraded_decision.reason
+                        + " Budget degradation cannot switch to a prohibited model."
+                    )
+
+        effective_max_tokens = max_tokens
+        if (
+            effective_max_tokens is None
+            and budget_detail is not None
+            and evaluation.budget_name is not None
+        ):
+            effective_max_tokens = self._default_projected_completion_tokens
+
+        detail=await self._delegate.complete_detailed(
+            system_prompt=system_prompt,user_prompt=user_prompt,
+            model_profile=effective_profile,temperature=temperature,
+            max_tokens=effective_max_tokens,
+        )
+        if ctx:
+            cost=await self._governance.record_usage(
+                execution_id=ctx.execution_id,step_id=ctx.step_id,
+                model_profile=effective_profile,
+                usage=detail.get("usage") or {},
+                extra_scopes=(
+                    [("AGENT", ctx.agent_name)]
+                    if ctx.agent_name
+                    else []
+                ),
+            )
+            detail["governance"]={
+                "budget":budget_detail,
+                "estimatedCostUsd":cost,
+            }
+            detail["requestedModelProfile"]=model_profile
+            detail["modelProfile"]=effective_profile
+        return detail
+
+    async def execute(self, plan: ExecutionPlan)->dict[str,Any]:
+        detail=await self.complete_detailed(
+            system_prompt=plan.system_prompt,user_prompt=plan.user_prompt,
+            model_profile=plan.model_profile,temperature=0.2,
+            max_tokens=None,
+        )
+        return {
+            "type":"agent-response" if plan.strategy.startswith("AGENT") else "direct-llm-response",
+            "summary":detail["content"],
+            "data":{
+                "model":detail.get("model"),
+                "modelProfile":detail.get("modelProfile"),
+                "requestedModelProfile":detail.get("requestedModelProfile"),
+                "usage":detail.get("usage") or {},
+                "governance":detail.get("governance"),
+            },
+            "artifacts":[],
+        }
+
+    async def close(self)->None:
+        await self._delegate.close()

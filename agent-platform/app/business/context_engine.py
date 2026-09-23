@@ -18,6 +18,7 @@ class ContextEngine:
         self,
         memory_service: MemoryService,
         *,
+        governance_service=None,
         model_window_tokens: int,
         reserved_output_tokens: int,
         safety_margin_tokens: int,
@@ -27,6 +28,7 @@ class ContextEngine:
         min_compression_tokens: int = 128,
     ):
         self._memory_service = memory_service
+        self._governance_service = governance_service
         self._model_window_tokens = model_window_tokens
         self._reserved_output_tokens = reserved_output_tokens
         self._safety_margin_tokens = safety_margin_tokens
@@ -167,6 +169,17 @@ class ContextEngine:
                     )
 
         scopes = list(dict.fromkeys(scopes))
+        if self._governance_service is not None:
+            scopes = await self._governance_service.filter_memory_scopes(
+                execution_id=execution["id"],
+                step_id=step.id,
+                scopes=scopes,
+                extra_subjects=(
+                    [("AGENT", step.agent_name)]
+                    if step.agent_name
+                    else []
+                ),
+            )
 
         memories = await self._memory_service.retrieve_relevant(
             query=retrieval_query,

@@ -1153,3 +1153,303 @@ bash scripts/m7-smoke.sh
 It creates a Session, persists TENANT + SESSION memory, exercises hybrid retrieval, launches a session-aware execution, waits for completion, verifies that at least one MEMORY component was selected by ContextEngine, and prints Working Context, snapshots and policy state.
 
 The script intentionally uses explicit memories for its hard assertions so the test does not depend on whether the LLM extractor chooses a specific inferred candidate. Automatically inferred SESSION memories are printed separately for inspection.
+
+
+---
+
+# M8.1 / M8.2 — Governance and Budget / Cost Control
+
+M8.1 introduces a deterministic platform Policy Engine. Planner and Agents can request resources, but the runtime remains authoritative.
+
+```text
+Planner / Agent
+      |
+      v
+Governance Policy Engine
+      |
+      +--> ALLOW
+      +--> DENY
+      +--> REQUIRE_APPROVAL
+```
+
+Governed resources:
+
+```text
+AGENT
+TOOL
+KNOWLEDGE
+MODEL
+MEMORY_SCOPE
+```
+
+Policy APIs:
+
+```text
+GET    /v1/governance/policies
+POST   /v1/governance/policies
+PUT    /v1/governance/policies/{id}
+DELETE /v1/governance/policies/{id}
+POST   /v1/governance/policies/evaluate
+GET    /v1/governance/decisions
+```
+
+Policies are checked after planning and again immediately before step execution. Model access is additionally checked at `GovernedModelGateway`, and Memory scopes are authorized before ContextEngine retrieves them.
+
+Example policy requiring approval for externally visible tools:
+
+```json
+{
+  "name": "external-actions-require-approval",
+  "policyType": "SIDE_EFFECT",
+  "effect": "REQUIRE_APPROVAL",
+  "resourceType": "TOOL",
+  "resourcePattern": "*",
+  "subjectType": "GLOBAL",
+  "subjectPattern": "*",
+  "conditions": {
+    "sideEffect": "EXTERNAL_ACTION"
+  },
+  "priority": 100,
+  "enabled": true
+}
+```
+
+Policy resolution is priority-first. At equal priority:
+
+```text
+DENY > REQUIRE_APPROVAL > ALLOW
+```
+
+M8.2 adds model token/cost budgets:
+
+```text
+GLOBAL | EXECUTION | TENANT | TEAM | USER | AGENT
+
+EXECUTION | DAILY | MONTHLY
+```
+
+Budget APIs:
+
+```text
+GET    /v1/governance/budgets
+POST   /v1/governance/budgets
+PUT    /v1/governance/budgets/{id}
+DELETE /v1/governance/budgets/{id}
+POST   /v1/governance/budgets/evaluate
+GET    /v1/governance/budget-decisions
+GET    /v1/governance/executions/{executionId}/usage
+```
+
+Example hard token budget:
+
+```json
+{
+  "name": "global-dev-token-limit",
+  "scopeType": "GLOBAL",
+  "scopeId": "*",
+  "period": "EXECUTION",
+  "maxTotalTokens": 50000,
+  "action": "DENY",
+  "enabled": true
+}
+```
+
+Cost budgets require explicit pricing configuration. No provider price is guessed.
+
+```env
+GOVERNANCE_DEFAULT_PROJECTED_COMPLETION_TOKENS=4096
+GOVERNANCE_PROMPT_ESTIMATE_MULTIPLIER=1.25
+
+GOVERNANCE_ROUTER_INPUT_USD_PER_MILLION=0
+GOVERNANCE_ROUTER_OUTPUT_USD_PER_MILLION=0
+GOVERNANCE_EXECUTION_INPUT_USD_PER_MILLION=0
+GOVERNANCE_EXECUTION_OUTPUT_USD_PER_MILLION=0
+GOVERNANCE_PLANNER_INPUT_USD_PER_MILLION=0
+GOVERNANCE_PLANNER_OUTPUT_USD_PER_MILLION=0
+```
+
+`DEGRADE` is intentionally restricted to cost-only budgets. It changes to `degradeModelProfile` only when the cheaper profile satisfies the budget, and the target model is then re-authorized by MODEL_ACCESS.
+
+Provider usage is persisted after each model call in `governance_usage`; policy and budget decisions are persisted separately for audit.
+
+Full Governance Control Plane screens are intentionally deferred to M8.4. M8.1/M8.2 deliver the runtime enforcement, APIs, audit state and admin runtime diagnostics first.
+
+
+## M8.1 / M8.2 end-to-end smoke test
+
+After rebuilding the branch:
+
+```bash
+bash scripts/m8-governance-smoke.sh
+```
+
+The script verifies:
+
+1. a normal baseline execution;
+2. policy priority override (broad DENY + higher-priority specific ALLOW);
+3. deterministic MODEL_ACCESS denial at runtime;
+4. a token budget that blocks the Planner before provider invocation;
+5. persisted policy/budget decision audit;
+6. actual model usage metering.
+
+The script uses a temporary TENANT Session with `ownerKey=m8-smoke` and cleans up the test policies/budget/session.
+
+
+---
+
+# M8.3 — Eval Framework
+
+M8.3 adds first-class evaluation resources owned by the platform.
+
+Core resources:
+
+```text
+EvalDataset
+  -> versioned cases
+  -> command
+  -> expected output
+  -> deterministic assertions
+  -> tags
+
+EvalDefinition
+  -> dataset
+  -> enabled metrics
+  -> thresholds
+  -> optional judge model profile
+
+EvalRun
+  -> durable asynchronous run
+  -> one normal platform Execution per dataset case
+  -> persisted EvalResult per case
+  -> aggregate scores / pass rate / token usage / cost
+```
+
+Supported deterministic assertions:
+
+```text
+CONTAINS
+NOT_CONTAINS
+REGEX
+MIN_LENGTH
+MAX_LENGTH
+```
+
+Optional LLM-as-judge metrics:
+
+```text
+relevance
+completeness
+groundedness
+coherence
+instruction_adherence
+```
+
+The judge must return structured JSON scores in the range 0..1. It is executed through the same governed Model Gateway as the rest of the runtime, so model policies and budgets continue to apply.
+
+Important invariant:
+
+```text
+Eval case
+   -> standard ExecutionSubmission
+   -> normal Planner / Governance / LangGraph runtime
+   -> standard durable execution result
+   -> evaluator scores that result
+```
+
+Evals do not introduce a parallel execution mechanism.
+
+API:
+
+```text
+GET    /v1/evals/datasets
+POST   /v1/evals/datasets
+DELETE /v1/evals/datasets/{id}
+
+GET    /v1/evals/definitions
+POST   /v1/evals/definitions
+DELETE /v1/evals/definitions/{id}
+
+GET    /v1/evals/runs
+POST   /v1/evals/definitions/{id}/runs
+GET    /v1/evals/runs/{id}
+```
+
+Creating a run returns immediately with `PENDING`. The internal eval worker claims it, launches dataset executions and persists results. Runs therefore survive HTTP client disconnects and remain inspectable.
+
+A threshold can be defined per judge metric plus `passRate`. Runs may also reference a previous completed run as baseline; aggregate deltas and threshold violations are persisted in the regression result.
+
+---
+
+# M8.4 — Regression Datasets + Governance / Evals UI
+
+M8.4 completes the M8 Control Plane surface.
+
+The Angular UI now contains:
+
+- Governance:
+  - policy CRUD;
+  - budget CRUD;
+  - recent policy decision audit;
+  - recent budget decision audit;
+- Evals:
+  - regression dataset management;
+  - eval definition management;
+  - asynchronous run launch;
+  - automatic use of the latest completed run as baseline;
+  - run history;
+  - aggregate metrics;
+  - case-level deterministic checks and judge scores;
+  - token/cost visibility;
+  - regression detail;
+  - drill-down from an eval case to its normal platform Execution.
+
+This keeps the ownership boundary unchanged:
+
+```text
+Control Plane = configure + inspect
+Platform      = execute + enforce + evaluate + persist
+```
+
+## M8.3 / M8.4 end-to-end smoke test
+
+After rebuilding the branch:
+
+```bash
+bash scripts/m8-evals-smoke.sh
+```
+
+The smoke test:
+
+1. creates a versioned regression dataset;
+2. creates an assertions-only EvalDefinition;
+3. launches a durable EvalRun;
+4. waits for the underlying normal platform Execution;
+5. verifies a 100% pass rate;
+6. launches a second run using the first as baseline;
+7. verifies baseline comparison metadata;
+8. leaves the resources available for inspection in the Control Plane.
+
+Open:
+
+```text
+http://localhost:8081
+```
+
+and inspect the new **Governance** and **Evals** sections.
+
+At the end of M8:
+
+```text
+Central Policy Engine             ✅
+Tool/Agent/Knowledge/Model policy ✅
+Memory-scope authorization        ✅
+Token + cost budgets              ✅
+Model degradation                 ✅
+Usage/cost metering               ✅
+Policy/budget audit               ✅
+Eval framework                    ✅
+Regression datasets               ✅
+Baseline comparison               ✅
+Governance UI                     ✅
+Evals UI                          ✅
+```

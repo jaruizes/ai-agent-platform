@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Agent, ContextSnapshot, ExecutionDetail, ExecutionSummary, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
+import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
 
 @Injectable({providedIn:'root'})
 export class ApiService {
@@ -68,6 +68,27 @@ export class ApiService {
   reindexDocument(id:string){return firstValueFrom(this.http.post(`${this.base}/knowledge-documents/${id}/reindex`,{}));}
   deleteDocument(id:string){return firstValueFrom(this.http.delete(`${this.base}/knowledge-documents/${id}`));}
   retrieve(query:string,kbs:string[],topK=8){return firstValueFrom(this.http.post<RetrievalHit[]>(`${this.base}/knowledge/retrieve`,{query,knowledgeBases:kbs,topK}));}
+
+
+  governancePolicies(){return firstValueFrom(this.http.get<GovernancePolicy[]>(`${this.base}/governance/policies`));}
+  saveGovernancePolicy(item:any){const body={name:item.name,description:item.description||'',policyType:item.policyType||'RESOURCE_ACCESS',effect:item.effect||'ALLOW',resourceType:item.resourceType||'MODEL',resourcePattern:item.resourcePattern||'*',subjectType:item.subjectType||'GLOBAL',subjectPattern:item.subjectPattern||'*',conditions:this.json(item.conditions),priority:Number(item.priority||100),enabled:item.enabled!==false};return item.id?firstValueFrom(this.http.put<GovernancePolicy>(`${this.base}/governance/policies/${item.id}`,body)):firstValueFrom(this.http.post<GovernancePolicy>(`${this.base}/governance/policies`,body));}
+  deleteGovernancePolicy(id:string){return firstValueFrom(this.http.delete(`${this.base}/governance/policies/${id}`));}
+  governanceDecisions(){return firstValueFrom(this.http.get<GovernanceDecision[]>(`${this.base}/governance/decisions`));}
+
+  governanceBudgets(){return firstValueFrom(this.http.get<GovernanceBudget[]>(`${this.base}/governance/budgets`));}
+  saveGovernanceBudget(item:any){const body={name:item.name,scopeType:item.scopeType||'GLOBAL',scopeId:item.scopeId||'*',period:item.period||'EXECUTION',maxPromptTokens:item.maxPromptTokens?Number(item.maxPromptTokens):null,maxCompletionTokens:item.maxCompletionTokens?Number(item.maxCompletionTokens):null,maxTotalTokens:item.maxTotalTokens?Number(item.maxTotalTokens):null,maxCostUsd:item.maxCostUsd?Number(item.maxCostUsd):null,action:item.action||'DENY',degradeModelProfile:item.degradeModelProfile||null,enabled:item.enabled!==false};return item.id?firstValueFrom(this.http.put<GovernanceBudget>(`${this.base}/governance/budgets/${item.id}`,body)):firstValueFrom(this.http.post<GovernanceBudget>(`${this.base}/governance/budgets`,body));}
+  deleteGovernanceBudget(id:string){return firstValueFrom(this.http.delete(`${this.base}/governance/budgets/${id}`));}
+  budgetDecisions(){return firstValueFrom(this.http.get<BudgetDecision[]>(`${this.base}/governance/budget-decisions`));}
+
+  evalDatasets(){return firstValueFrom(this.http.get<EvalDataset[]>(`${this.base}/evals/datasets`));}
+  saveEvalDataset(item:any){return firstValueFrom(this.http.post<EvalDataset>(`${this.base}/evals/datasets`,item));}
+  deleteEvalDataset(id:string){return firstValueFrom(this.http.delete(`${this.base}/evals/datasets/${id}`));}
+  evalDefinitions(){return firstValueFrom(this.http.get<EvalDefinition[]>(`${this.base}/evals/definitions`));}
+  saveEvalDefinition(item:any){return firstValueFrom(this.http.post<EvalDefinition>(`${this.base}/evals/definitions`,item));}
+  deleteEvalDefinition(id:string){return firstValueFrom(this.http.delete(`${this.base}/evals/definitions/${id}`));}
+  evalRuns(){return firstValueFrom(this.http.get<EvalRun[]>(`${this.base}/evals/runs`));}
+  createEvalRun(definitionId:string,baselineRunId?:string){return firstValueFrom(this.http.post<EvalRun>(`${this.base}/evals/definitions/${definitionId}/runs`,{baselineRunId:baselineRunId||null}));}
+  evalRun(id:string){return firstValueFrom(this.http.get<EvalRun>(`${this.base}/evals/runs/${id}`));}
 
   private json(v:any){if(typeof v==='string'){try{return JSON.parse(v||'{}')}catch{throw new Error('JSON inválido');}}return v||{};}
   private jsonArray(v:any){if(Array.isArray(v))return v;if(typeof v==='string'){try{return JSON.parse(v||'[]')}catch{return v.split(/\s+/).filter(Boolean);}}return [];}

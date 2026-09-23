@@ -8,6 +8,8 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from app.business.catalog_service import CatalogService
 from app.business.context_engine import ContextEngine
 from app.business.execution_service import ExecutionService
+from app.business.eval_service import EvalService
+from app.business.governance_service import GovernanceService
 from app.business.knowledge_service import KnowledgeService
 from app.business.memory_candidate_extractor import MemoryCandidateExtractor
 from app.business.memory_policy import MemoryPolicyEngine
@@ -21,6 +23,8 @@ from app.business.tool_service import ToolService
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
 from app.infrastructure.api.rest.admin_router import create_admin_router
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
+from app.infrastructure.api.rest.governance_router import create_governance_router
+from app.infrastructure.api.rest.eval_router import create_eval_router
 from app.infrastructure.api.rest.prompt_router import create_prompt_router
 from app.infrastructure.api.rest.knowledge_router import create_knowledge_router
 from app.infrastructure.api.rest.memory_router import create_memory_router
@@ -28,6 +32,7 @@ from app.infrastructure.api.rest.tool_router import create_tool_router
 from app.infrastructure.api.rest.router import create_router
 from app.infrastructure.bootstrap.markdown_loader import MarkdownCatalogLoader
 from app.infrastructure.config.settings import get_settings
+from app.infrastructure.externalservices.governed_model_gateway import GovernedModelGateway
 from app.infrastructure.externalservices.litellm.model_gateway import LiteLLMModelGateway
 from app.infrastructure.externalservices.mcp.stdio_client import McpStdioClient
 from app.infrastructure.externalservices.mcp.tool_executor import InfrastructureToolExecutor
@@ -38,6 +43,8 @@ from app.infrastructure.observability.telemetry import configure_telemetry
 from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
 from app.infrastructure.persistence.postgres.database import Database
 from app.infrastructure.persistence.postgres.execution_repository import PostgresExecutionRepository
+from app.infrastructure.persistence.postgres.eval_repository import PostgresEvalRepository
+from app.infrastructure.persistence.postgres.governance_repository import PostgresGovernanceRepository
 from app.infrastructure.persistence.postgres.knowledge_repository import PostgresKnowledgeRepository
 from app.infrastructure.persistence.postgres.memory_repository import PostgresMemoryRepository
 from app.infrastructure.persistence.postgres.prompt_repository import PostgresPromptRepository
@@ -73,8 +80,27 @@ memory_service = MemoryService(
     embedding_provider=embedding_provider,
     cleanup_poll_seconds=settings.memory_cleanup_poll_seconds,
 )
+governance_repository = PostgresGovernanceRepository(database)
+governance_service = GovernanceService(
+    governance_repository,
+    pricing={
+        settings.router_model_profile: (
+            settings.governance_router_input_usd_per_million,
+            settings.governance_router_output_usd_per_million,
+        ),
+        settings.execution_model_profile: (
+            settings.governance_execution_input_usd_per_million,
+            settings.governance_execution_output_usd_per_million,
+        ),
+        settings.planner_model_profile: (
+            settings.governance_planner_input_usd_per_million,
+            settings.governance_planner_output_usd_per_million,
+        ),
+    },
+)
 context_engine = ContextEngine(
     memory_service,
+    governance_service=governance_service,
     model_window_tokens=settings.context_model_window_tokens,
     reserved_output_tokens=settings.context_reserved_output_tokens,
     safety_margin_tokens=settings.context_safety_margin_tokens,
@@ -95,7 +121,15 @@ mcp_client = McpStdioClient(
 )
 tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
 tool_service = ToolService(tool_repository, tool_executor)
-model_gateway = LiteLLMModelGateway(settings)
+raw_model_gateway = LiteLLMModelGateway(settings)
+model_gateway = GovernedModelGateway(
+    raw_model_gateway,
+    governance_service,
+    default_projected_completion_tokens=(
+        settings.governance_default_projected_completion_tokens
+    ),
+    prompt_estimate_multiplier=settings.governance_prompt_estimate_multiplier,
+)
 if (
     settings.memory_auto_extract_session
     and settings.memory_allow_inferred_persistence
@@ -139,6 +173,7 @@ step_executor = StepExecutor(
     model_gateway=model_gateway,
     execution_repository=execution_repository,
     context_engine=context_engine,
+    governance_service=governance_service,
     execution_model_profile=settings.execution_model_profile,
     knowledge_top_k=settings.knowledge_top_k,
     max_context_chars=settings.max_tool_result_chars_for_model,
@@ -157,10 +192,21 @@ execution_service = ExecutionService(
     event_publisher=nats_adapter,
     memory_service=memory_service,
     memory_candidate_extractor=memory_extractor,
+    governance_service=governance_service,
+    execution_model_profile=settings.execution_model_profile,
     worker_poll_seconds=settings.worker_poll_seconds,
     outbox_poll_seconds=settings.outbox_poll_seconds,
     execution_lease_seconds=settings.execution_lease_seconds,
     execution_heartbeat_seconds=settings.execution_heartbeat_seconds,
+)
+
+eval_repository = PostgresEvalRepository(database)
+eval_service = EvalService(
+    eval_repository,
+    execution_service,
+    governance_service,
+    model_gateway,
+    worker_poll_seconds=settings.worker_poll_seconds,
 )
 
 bootstrap_loader = MarkdownCatalogLoader(
@@ -196,6 +242,10 @@ async def lifespan(_: FastAPI):
         memory_service.cleanup_loop(),
         name="memory-cleanup",
     )
+    eval_worker = asyncio.create_task(
+        eval_service.worker_loop(),
+        name="eval-worker",
+    )
 
     try:
         yield
@@ -203,12 +253,14 @@ async def lifespan(_: FastAPI):
         await execution_service.stop()
         await knowledge_service.stop()
         await memory_service.stop()
+        await eval_service.stop()
         for task in (
             worker,
             outbox,
             knowledge_worker,
             knowledge_cleanup,
             memory_cleanup,
+            eval_worker,
         ):
             task.cancel()
         await model_gateway.close()
@@ -224,6 +276,8 @@ app = FastAPI(
 app.include_router(create_router(execution_service))
 app.include_router(create_admin_router(database, nats_adapter, settings))
 app.include_router(create_catalog_router(catalog_service))
+app.include_router(create_governance_router(governance_service))
+app.include_router(create_eval_router(eval_service))
 app.include_router(create_prompt_router(prompt_service))
 app.include_router(create_knowledge_router(knowledge_service))
 app.include_router(create_memory_router(memory_service))

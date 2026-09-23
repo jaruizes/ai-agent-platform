@@ -168,6 +168,13 @@ def create_admin_router(
                     (SELECT COUNT(*) FROM sessions WHERE status='ACTIVE') AS sessions,
                     (SELECT COUNT(*) FROM memory_entries WHERE status='ACTIVE') AS memories,
                     (SELECT COUNT(*) FROM context_snapshots) AS context_snapshots,
+                    (SELECT COUNT(*) FROM governance_policies WHERE enabled=true) AS governance_policies,
+                    (SELECT COUNT(*) FROM governance_budgets WHERE enabled=true) AS governance_budgets,
+                    (
+                        SELECT COUNT(*) FROM governance_policy_decisions
+                        WHERE effect='DENY'
+                          AND created_at >= date_trunc('day', now())
+                    ) AS governance_denials_today,
                     (
                         SELECT COUNT(*) FROM execution_plan_steps
                         WHERE status='WAITING_APPROVAL'
@@ -257,6 +264,39 @@ def create_admin_router(
                 "embeddingModel": settings.knowledge_embedding_model,
                 "dimensions": settings.knowledge_embedding_dimensions,
                 "topK": settings.knowledge_top_k,
+            },
+            "governance": {
+                "defaultProjectedCompletionTokens": (
+                    settings.governance_default_projected_completion_tokens
+                ),
+                "promptEstimateMultiplier": (
+                    settings.governance_prompt_estimate_multiplier
+                ),
+                "pricingConfigured": any(
+                    value > 0
+                    for value in (
+                        settings.governance_router_input_usd_per_million,
+                        settings.governance_router_output_usd_per_million,
+                        settings.governance_execution_input_usd_per_million,
+                        settings.governance_execution_output_usd_per_million,
+                        settings.governance_planner_input_usd_per_million,
+                        settings.governance_planner_output_usd_per_million,
+                    )
+                ),
+                "pricingUsdPerMillionTokens": {
+                    "router": {
+                        "input": settings.governance_router_input_usd_per_million,
+                        "output": settings.governance_router_output_usd_per_million,
+                    },
+                    "execution": {
+                        "input": settings.governance_execution_input_usd_per_million,
+                        "output": settings.governance_execution_output_usd_per_million,
+                    },
+                    "planner": {
+                        "input": settings.governance_planner_input_usd_per_million,
+                        "output": settings.governance_planner_output_usd_per_million,
+                    },
+                },
             },
             "durability": {
                 "leaseSeconds": settings.execution_lease_seconds,

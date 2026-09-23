@@ -7,6 +7,11 @@ from uuid import UUID, uuid4
 
 from opentelemetry import trace
 
+from app.business.governance_runtime import (
+    GovernanceRuntimeContext,
+    reset_governance_context,
+    set_governance_context,
+)
 from app.business.memory_candidate_extractor import MemoryCandidateExtractor
 from app.business.memory_service import MemoryService
 from app.business.planner_service import PlannerService
@@ -36,7 +41,9 @@ class ExecutionService:
         event_publisher: EventPublisherPort,
         memory_service: MemoryService,
         memory_candidate_extractor: MemoryCandidateExtractor | None,
+        governance_service,
         *,
+        execution_model_profile: str,
         worker_poll_seconds: float,
         outbox_poll_seconds: float,
         execution_lease_seconds: int,
@@ -48,6 +55,8 @@ class ExecutionService:
         self._event_publisher = event_publisher
         self._memory_service = memory_service
         self._memory_candidate_extractor = memory_candidate_extractor
+        self._governance_service = governance_service
+        self._execution_model_profile = execution_model_profile
         self._worker_poll_seconds = worker_poll_seconds
         self._outbox_poll_seconds = outbox_poll_seconds
         self._execution_lease_seconds = execution_lease_seconds
@@ -160,6 +169,21 @@ class ExecutionService:
         self._stop.set()
 
     async def _execute(self, execution: dict[str, Any]) -> None:
+        session_scope = None
+        session_owner_key = None
+        if execution.get("session_id"):
+            session = await self._memory_service.get_session(execution["session_id"])
+            if session:
+                session_scope = session.scope
+                session_owner_key = session.owner_key
+        governance_token = set_governance_context(
+            GovernanceRuntimeContext(
+                execution_id=execution["id"],
+                step_id=None,
+                session_scope=session_scope,
+                session_owner_key=session_owner_key,
+            )
+        )
         stage = "BUILD_COMMAND"
         plan: LogicalPlan | None = None
         heartbeat_stop = asyncio.Event()
@@ -214,6 +238,11 @@ class ExecutionService:
                 else:
                     stage = "PLAN"
                     plan, validation, planner_detail = await self._planner.plan(command)
+                    plan = await self._governance_service.apply_plan(
+                        execution,
+                        plan,
+                        execution_model_profile=self._execution_model_profile,
+                    )
                     span.set_attribute("execution.plan.steps", len(plan.steps))
                     span.set_attribute(
                         "execution.plan.final_step",
@@ -380,6 +409,7 @@ class ExecutionService:
                     execution["id"],
                     worker_id=self._worker_id,
                 )
+                reset_governance_context(governance_token)
 
     async def _heartbeat_loop(
         self,

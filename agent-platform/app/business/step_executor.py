@@ -4,10 +4,16 @@ import asyncio
 import json
 import re
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
 from app.business.context_engine import ContextEngine
+from app.business.governance_runtime import (
+    get_governance_context,
+    reset_governance_context,
+    set_governance_context,
+)
 from app.business.knowledge_service import KnowledgeService
 from app.business.ports import (
     CatalogRepositoryPort,
@@ -17,6 +23,7 @@ from app.business.ports import (
 from app.business.prompt_service import PromptService
 from app.business.tool_service import ToolService
 from app.domain.execution import Command
+from app.domain.governance import GovernanceBudgetExceeded, GovernanceDenied
 from app.domain.orchestration import (
     OrchestrationCancelled,
     OrchestrationSuspended,
@@ -38,6 +45,7 @@ class StepExecutor:
         model_gateway: ModelGatewayPort,
         execution_repository: ExecutionRepositoryPort,
         context_engine: ContextEngine,
+        governance_service,
         execution_model_profile: str,
         knowledge_top_k: int,
         max_context_chars: int,
@@ -50,6 +58,7 @@ class StepExecutor:
         self._model_gateway = model_gateway
         self._repository = execution_repository
         self._context_engine = context_engine
+        self._governance_service = governance_service
         self._execution_model_profile = execution_model_profile
         self._knowledge_top_k = knowledge_top_k
         self._max_context_chars = max_context_chars
@@ -77,6 +86,28 @@ class StepExecutor:
             step.approval_reason
             or f"Human approval is required before step '{step.id}'."
         )
+
+        governance_approval = await self._governance_service.enforce_step(
+            execution,
+            step,
+            execution_model_profile=self._execution_model_profile,
+        )
+        if governance_approval is not None:
+            effective_requires_approval = True
+            effective_reason = governance_approval.reason
+            if not checkpoint or not checkpoint.get("requires_approval"):
+                await self._repository.enforce_step_approval_policy(
+                    execution,
+                    step_id=step.id,
+                    reason=effective_reason,
+                    approval_source="GOVERNANCE_POLICY",
+                    tool_side_effect=step.tool_side_effect or "",
+                    tool_approval_policy=step.tool_approval_policy or "",
+                )
+                checkpoint = await self._repository.get_step_checkpoint(
+                    execution["id"],
+                    step.id,
+                )
 
         if step.type == "TOOL" and step.tool_name:
             tool = await self._tool_service.get_tool_by_name(step.tool_name)
@@ -174,6 +205,16 @@ class StepExecutor:
                 },
             )
 
+            governance_context = get_governance_context()
+            governance_step_token = None
+            if governance_context is not None:
+                governance_step_token = set_governance_context(
+                    replace(
+                        governance_context,
+                        step_id=step.id,
+                        agent_name=step.agent_name,
+                    )
+                )
             try:
                 result = await self._run_with_controls(
                     execution=execution,
@@ -233,6 +274,9 @@ class StepExecutor:
                     error=error,
                 )
                 raise
+            finally:
+                if governance_step_token is not None:
+                    reset_governance_context(governance_step_token)
 
         raise RuntimeError(
             f"Step '{step.id}' exhausted its retry attempts without a result"
@@ -330,7 +374,10 @@ class StepExecutor:
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
-        return not isinstance(exc, (ValueError, LookupError))
+        return not isinstance(
+            exc,
+            (ValueError, LookupError, GovernanceDenied, GovernanceBudgetExceeded),
+        )
 
     async def _tool_step(
         self,
@@ -461,6 +508,8 @@ class StepExecutor:
             "usage": detail.get("usage") or {},
             "model": detail.get("model"),
             "modelProfile": detail.get("modelProfile"),
+            "requestedModelProfile": detail.get("requestedModelProfile"),
+            "governance": detail.get("governance"),
             "agent": agent.name,
             "tool": None,
             "context": {
@@ -501,6 +550,8 @@ class StepExecutor:
             "usage": detail.get("usage") or {},
             "model": detail.get("model"),
             "modelProfile": detail.get("modelProfile"),
+            "requestedModelProfile": detail.get("requestedModelProfile"),
+            "governance": detail.get("governance"),
             "agent": None,
             "tool": None,
             "context": {
@@ -575,6 +626,8 @@ class StepExecutor:
             "usage": detail.get("usage") or {},
             "model": detail.get("model"),
             "modelProfile": detail.get("modelProfile"),
+            "requestedModelProfile": detail.get("requestedModelProfile"),
+            "governance": detail.get("governance"),
             "agent": None,
             "tool": None,
             "context": {
