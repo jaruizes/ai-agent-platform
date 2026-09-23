@@ -3243,6 +3243,7 @@ CONTEXT_RESERVED_OUTPUT_TOKENS=16000
 CONTEXT_SAFETY_MARGIN_TOKENS=10000
 CONTEXT_SESSION_MAX_ENTRIES=24
 CONTEXT_MEMORY_TOP_K=8
+CONTEXT_MEMORY_MIN_SCORE=0.12
 CONTEXT_MIN_COMPRESSION_TOKENS=128
 ```
 
@@ -3287,7 +3288,7 @@ El score inicial combina:
 0.10 importance
 ```
 
-El Context Engine no consulta memoria global indiscriminadamente. Para una ejecución con Session recupera:
+El Context Engine aplica además un score mínimo de relevancia (`CONTEXT_MEMORY_MIN_SCORE`) para evitar que una memoria de alta importance pero sin relación con el task entre sólo por prioridad. No consulta memoria global indiscriminadamente. Para una ejecución con Session recupera:
 
 ```text
 SESSION:<sessionId>
