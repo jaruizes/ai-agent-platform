@@ -84,9 +84,22 @@ public class ProcessDefinitionPersistenceAdapter
         target.setUpdatedAt(source.updatedAt());
         target.setActivatedAt(source.activatedAt());
 
-        target.replaceSteps(source.steps().stream().map(step -> {
-            var entity = new ProcessStepDefinitionJpaEntity();
-            entity.setId(step.id());
+        var existing = new HashMap<UUID, ProcessStepDefinitionJpaEntity>();
+        target.getSteps().forEach(step -> existing.put(step.getId(), step));
+
+        var incomingIds = source.steps().stream()
+                .map(ProcessStepDefinition::id)
+                .collect(java.util.stream.Collectors.toSet());
+        target.getSteps().removeIf(step -> !incomingIds.contains(step.getId()));
+
+        for (var step : source.steps()) {
+            var entity = existing.get(step.id());
+            if (entity == null) {
+                entity = new ProcessStepDefinitionJpaEntity();
+                entity.setId(step.id());
+                entity.setDefinition(target);
+                target.getSteps().add(entity);
+            }
             entity.setStepKey(step.stepKey());
             entity.setName(step.name());
             entity.setDescription(step.description() == null ? "" : step.description());
@@ -95,8 +108,7 @@ public class ProcessDefinitionPersistenceAdapter
             entity.setInputSchema(new LinkedHashMap<>(step.inputSchema()));
             entity.setOutputSchema(new LinkedHashMap<>(step.outputSchema()));
             entity.setConfiguration(new LinkedHashMap<>(step.configuration()));
-            return entity;
-        }).toList());
+        }
     }
 
     private ProcessDefinition toDomain(ProcessDefinitionJpaEntity entity) {
