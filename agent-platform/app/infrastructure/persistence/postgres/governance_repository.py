@@ -63,6 +63,37 @@ class PostgresGovernanceRepository:
             )
         return self._policy(row)
 
+    async def update_policy(
+        self,
+        policy_id: UUID,
+        policy: GovernancePolicy,
+    ) -> GovernancePolicy | None:
+        async with self._db.require_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE governance_policies
+                SET name=$2,description=$3,policy_type=$4,effect=$5,
+                    resource_type=$6,resource_pattern=$7,subject_type=$8,
+                    subject_pattern=$9,conditions=$10::jsonb,priority=$11,
+                    enabled=$12,updated_at=now()
+                WHERE id=$1
+                RETURNING *
+                """,
+                policy_id,
+                policy.name,
+                policy.description,
+                policy.policy_type,
+                policy.effect,
+                policy.resource_type,
+                policy.resource_pattern,
+                policy.subject_type,
+                policy.subject_pattern,
+                json.dumps(policy.conditions),
+                policy.priority,
+                policy.enabled,
+            )
+        return self._policy(row) if row else None
+
     async def delete_policy(self, policy_id: UUID) -> bool:
         async with self._db.require_pool().acquire() as conn:
             result = await conn.execute(
@@ -164,6 +195,37 @@ class PostgresGovernanceRepository:
                 budget.degrade_model_profile,budget.enabled,
             )
         return self._budget(row)
+
+    async def update_budget(
+        self,
+        budget_id: UUID,
+        budget: GovernanceBudget,
+    ) -> GovernanceBudget | None:
+        async with self._db.require_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE governance_budgets
+                SET name=$2,scope_type=$3,scope_id=$4,period=$5,
+                    max_prompt_tokens=$6,max_completion_tokens=$7,
+                    max_total_tokens=$8,max_cost_usd=$9,action=$10,
+                    degrade_model_profile=$11,enabled=$12,updated_at=now()
+                WHERE id=$1
+                RETURNING *
+                """,
+                budget_id,
+                budget.name,
+                budget.scope_type,
+                budget.scope_id,
+                budget.period,
+                budget.max_prompt_tokens,
+                budget.max_completion_tokens,
+                budget.max_total_tokens,
+                budget.max_cost_usd,
+                budget.action,
+                budget.degrade_model_profile,
+                budget.enabled,
+            )
+        return self._budget(row) if row else None
 
     async def delete_budget(self, budget_id: UUID) -> bool:
         async with self._db.require_pool().acquire() as conn:
