@@ -59,6 +59,7 @@ class StepExecutor:
         self,
         *,
         execution: dict[str, Any],
+        attempt: int,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -180,6 +181,7 @@ class StepExecutor:
                     timeout_seconds=step.timeout_seconds,
                     operation=self._dispatch(
                         execution=execution,
+                        attempt=attempt,
                         command=command,
                         step=step,
                         previous_results=previous_results,
@@ -251,14 +253,14 @@ class StepExecutor:
             return await self._knowledge_step(command, step, previous_results)
         if step.type == "AGENT":
             return await self._agent_step(
-                execution, command, step, previous_results
+                execution, attempt, command, step, previous_results
             )
         if step.type == "VALIDATE":
             return await self._validation_step(
-                execution, command, step, previous_results
+                execution, attempt, command, step, previous_results
             )
         return await self._model_step(
-            execution, command, step, previous_results
+            execution, attempt, command, step, previous_results
         )
 
     async def _run_with_controls(
@@ -387,6 +389,7 @@ class StepExecutor:
     async def _agent_step(
         self,
         execution: dict[str, Any],
+        attempt: int,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -425,6 +428,7 @@ class StepExecutor:
             previous_results=previous_results,
             system_prompt=system_prompt,
             model_profile=self._execution_model_profile,
+            attempt=attempt,
             knowledge_context=knowledge_context,
             knowledge_provenance=(
                 [
@@ -466,6 +470,7 @@ class StepExecutor:
     async def _model_step(
         self,
         execution: dict[str, Any],
+        attempt: int,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -478,6 +483,7 @@ class StepExecutor:
             previous_results=previous_results,
             system_prompt=prompt.content,
             model_profile=self._execution_model_profile,
+            attempt=attempt,
         )
         detail = await self._model_gateway.complete_detailed(
             system_prompt=prompt.content,
@@ -504,6 +510,7 @@ class StepExecutor:
     async def _validation_step(
         self,
         execution: dict[str, Any],
+        attempt: int,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -527,6 +534,7 @@ class StepExecutor:
             previous_results=previous_results,
             system_prompt=prompt.content,
             model_profile=self._execution_model_profile,
+            attempt=attempt,
             knowledge_context=knowledge_context,
             knowledge_provenance=[
                 {
