@@ -100,7 +100,7 @@
         <article class="panel"><div class="panel-head"><div><h2>Memory retrieval playground</h2><p>Hybrid vector + lexical retrieval used by the Context Engine.</p></div></div>
           <div class="form-grid two"><label>Scope type<select [(ngModel)]="memoryScopeType"><option>SESSION</option><option>USER</option><option>TEAM</option><option>TENANT</option><option>AGENT</option></select></label><label>Scope id<input [(ngModel)]="memoryScopeId" placeholder="session UUID / tenant key"></label></div>
           <div class="retrieval"><input [(ngModel)]="memoryQuery" placeholder="What context is relevant?" (keyup.enter)="searchMemory()"><input type="number" min="1" max="50" [(ngModel)]="memoryTopK"><button class="primary" (click)="searchMemory()">Retrieve</button></div>
-          <article class="hit" *ngFor="let m of memoryHits()"><header><strong>{{m.memoryType}} · {{m.key||m.scopeType}}</strong><span>{{m.metadata?.retrievalScore|number:'1.3-3'}}</span></header><p>{{m.content}}</p></article>
+          <article class="hit" *ngFor="let m of memoryHits()"><header><strong>{{m.memoryType}} · {{m.key||m.scopeType}}</strong><span>rank {{m.metadata?.retrievalScore|number:'1.3-3'}} · relevance {{m.metadata?.relevanceScore|number:'1.3-3'}}</span></header><p>{{m.content}}</p></article>
         </article>
         <article class="panel"><div class="panel-head"><div><h2>Memory policy</h2><p>Deterministic persistence boundary.</p></div></div><dl class="config-list"><div *ngFor="let x of memoryPolicy()|keyvalue"><dt>{{x.key}}</dt><dd>{{x.value}}</dd></div></dl><details class="json-details"><summary>Recent policy audit</summary><pre>{{json(memoryAudit().slice(0,20))}}</pre></details></article>
       </section>
