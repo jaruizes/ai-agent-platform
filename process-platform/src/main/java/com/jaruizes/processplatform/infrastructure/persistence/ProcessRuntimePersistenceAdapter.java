@@ -1,6 +1,7 @@
 package com.jaruizes.processplatform.infrastructure.persistence;
 
 import com.jaruizes.processplatform.domain.model.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jaruizes.processplatform.domain.ports.ProcessRuntimeRepositoryPort;
 import com.jaruizes.processplatform.infrastructure.persistence.entity.*;
 import com.jaruizes.processplatform.infrastructure.persistence.repository.*;
@@ -16,12 +17,18 @@ public class ProcessRuntimePersistenceAdapter
 
     private final SpringProcessInstanceRepository instances;
     private final SpringProcessStepInstanceRepository steps;
+    private final SpringProcessExecutionCommandOutboxRepository outbox;
+    private final ObjectMapper objectMapper;
 
     public ProcessRuntimePersistenceAdapter(
             SpringProcessInstanceRepository instances,
-            SpringProcessStepInstanceRepository steps) {
+            SpringProcessStepInstanceRepository steps,
+            SpringProcessExecutionCommandOutboxRepository outbox,
+            ObjectMapper objectMapper) {
         this.instances = instances;
         this.steps = steps;
+        this.outbox = outbox;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -88,15 +95,26 @@ public class ProcessRuntimePersistenceAdapter
 
     @Override
     @Transactional
-    public ProcessInstance waitForAgent(
+    public ProcessInstance delegateAgent(
             UUID instanceId,
             String stepKey,
-            UUID executionId) {
+            ExecutionCommand command) {
         var step = requireStep(instanceId, stepKey);
         step.setStatus(ProcessStepStatus.WAITING);
-        step.setDelegatedExecutionId(executionId);
+        step.setDelegatedExecutionId(command.data().execution().executionId());
         step.setUpdatedAt(Instant.now());
         steps.save(step);
+
+        var outboxEntity = new ProcessExecutionCommandOutboxJpaEntity();
+        outboxEntity.setId(UUID.randomUUID());
+        outboxEntity.setProcessInstanceId(instanceId);
+        outboxEntity.setStepKey(stepKey);
+        outboxEntity.setExecutionId(command.data().execution().executionId());
+        outboxEntity.setMessageId(command.messageId());
+        outboxEntity.setPayload(objectMapper.convertValue(command, Map.class));
+        outboxEntity.setAttempts(0);
+        outboxEntity.setCreatedAt(Instant.now());
+        outbox.save(outboxEntity);
 
         var instance = requireInstance(instanceId);
         instance.setStatus(ProcessInstanceStatus.WAITING);
@@ -173,9 +191,7 @@ public class ProcessRuntimePersistenceAdapter
     }
 
     private ProcessStepInstanceJpaEntity requireStep(UUID instanceId, String stepKey) {
-        return requireInstance(instanceId).getSteps().stream()
-                .filter(step -> step.getStepKey().equals(stepKey))
-                .findFirst()
+        return steps.findByInstanceIdAndStepKey(instanceId, stepKey)
                 .orElseThrow(() -> new NoSuchElementException(
                         "Process step '%s' not found in instance %s"
                                 .formatted(stepKey, instanceId)));
