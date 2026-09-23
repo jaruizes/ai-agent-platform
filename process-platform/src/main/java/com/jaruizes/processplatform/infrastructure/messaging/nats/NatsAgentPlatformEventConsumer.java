@@ -6,6 +6,9 @@ import com.jaruizes.processplatform.domain.model.ExecutionEvent;
 import io.nats.client.Connection;
 import io.nats.client.JetStreamSubscription;
 import io.nats.client.PullSubscribeOptions;
+import io.nats.client.api.AckPolicy;
+import io.nats.client.api.ConsumerConfiguration;
+import io.nats.client.api.DeliverPolicy;
 import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
 
@@ -76,13 +79,16 @@ public class NatsAgentPlatformEventConsumer {
         var current = subscription;
         if (current != null) return current;
 
-        var options = PullSubscribeOptions.builder()
+        var consumerConfiguration = ConsumerConfiguration.builder()
                 .durable(properties.eventsDurable())
+                .deliverPolicy(DeliverPolicy.New)
+                .ackPolicy(AckPolicy.Explicit)
+                .filterSubject(properties.eventsSubject())
                 .build();
-        current = connection.jetStream().subscribe(
-                properties.eventsSubject(),
-                options
-        );
+        var options = PullSubscribeOptions.builder()
+                .configuration(consumerConfiguration)
+                .build();
+        current = connection.jetStream().subscribe(null, options);
         subscription = current;
         return current;
     }
