@@ -29,3 +29,20 @@ class BudgetRequest(BaseModel):
     action: str = "DENY"
     degradeModelProfile: str | None = None
     enabled: bool = True
+
+
+class PolicyEvaluateRequest(BaseModel):
+    executionId: str
+    stepId: str | None = None
+    policyType: str
+    resourceType: str
+    resourceName: str
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class BudgetEvaluateRequest(BaseModel):
+    executionId: str
+    stepId: str | None = None
+    modelProfile: str
+    projectedPromptTokens: int = Field(ge=1)
+    projectedCompletionTokens: int = Field(ge=1)
