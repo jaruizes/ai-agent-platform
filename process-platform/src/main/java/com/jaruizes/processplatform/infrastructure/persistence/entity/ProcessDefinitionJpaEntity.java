@@ -55,7 +55,7 @@ public class ProcessDefinitionJpaEntity {
     @Column(name = "activated_at")
     private Instant activatedAt;
 
-    protected ProcessDefinitionJpaEntity() {}
+    public ProcessDefinitionJpaEntity() {}
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
