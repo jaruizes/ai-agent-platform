@@ -10,6 +10,7 @@ from app.domain.memory import MemoryCandidate, MemoryEntry, Session, WorkingCont
 from app.infrastructure.api.rest.memory_schemas import (
     MemoryCandidateRequest,
     MemoryRequest,
+    MemoryRetrieveRequest,
     SessionRequest,
 )
 
@@ -132,6 +133,31 @@ def create_memory_router(service: MemoryService) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return [_memory(memory) for memory in memories]
+
+    @router.post("/memories/retrieve")
+    async def retrieve_memories(
+        request: MemoryRetrieveRequest,
+    ) -> list[dict[str, Any]]:
+        memories = await service.retrieve_relevant(
+            query=request.query,
+            scopes=[
+                (scope.scopeType, scope.scopeId)
+                for scope in request.scopes
+            ],
+            limit=request.topK,
+        )
+        return [_memory(memory) for memory in memories]
+
+    @router.get("/executions/{execution_id}/context-snapshots")
+    async def context_snapshots(
+        execution_id: UUID,
+        stepId: str | None = None,
+    ) -> list[dict[str, Any]]:
+        snapshots = await service.context_snapshots(
+            execution_id,
+            step_id=stepId,
+        )
+        return [_snapshot(item) for item in snapshots]
 
     @router.get("/memories/{memory_id}")
     async def get_memory(memory_id: UUID) -> dict[str, Any]:
@@ -293,4 +319,22 @@ def _memory(item: MemoryEntry) -> dict[str, Any]:
         "createdAt": item.created_at,
         "updatedAt": item.updated_at,
         "revokedAt": item.revoked_at,
+    }
+
+
+
+def _snapshot(item) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "executionId": str(item.execution_id),
+        "stepId": item.step_id,
+        "modelProfile": item.model_profile,
+        "budget": item.budget,
+        "components": item.components,
+        "provenance": item.provenance,
+        "promptTokenEstimate": item.prompt_token_estimate,
+        "selectedTokenEstimate": item.selected_token_estimate,
+        "droppedTokenEstimate": item.dropped_token_estimate,
+        "compressed": item.compressed,
+        "createdAt": item.created_at,
     }
