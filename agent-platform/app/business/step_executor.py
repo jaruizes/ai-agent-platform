@@ -209,7 +209,11 @@ class StepExecutor:
             governance_step_token = None
             if governance_context is not None:
                 governance_step_token = set_governance_context(
-                    replace(governance_context, step_id=step.id)
+                    replace(
+                        governance_context,
+                        step_id=step.id,
+                        agent_name=step.agent_name,
+                    )
                 )
             try:
                 result = await self._run_with_controls(
