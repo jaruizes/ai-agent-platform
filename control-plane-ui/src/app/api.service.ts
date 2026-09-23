@@ -24,6 +24,7 @@ export class ApiService {
 
   sessions(status=''){return firstValueFrom(this.http.get<SessionInfo[]>(`${this.base}/sessions`,{params:status?{status}:{}}));}
   createSession(body:any){return firstValueFrom(this.http.post<SessionInfo>(`${this.base}/sessions`,body));}
+  updateSession(id:string,body:any){return firstValueFrom(this.http.put<SessionInfo>(`${this.base}/sessions/${id}`,body));}
   closeSession(id:string){return firstValueFrom(this.http.post<SessionInfo>(`${this.base}/sessions/${id}/close`,{}));}
   sessionContext(id:string){return firstValueFrom(this.http.get<any[]>(`${this.base}/sessions/${id}/context`));}
   sessionExecutions(id:string){return firstValueFrom(this.http.get<any[]>(`${this.base}/sessions/${id}/executions`));}
