@@ -49,6 +49,11 @@ class GovernedModelGateway:
                 resource_type="MODEL",
                 resource_name=model_profile,
                 context={"modelProfile": model_profile, "phase": "MODEL_GATEWAY"},
+                extra_subjects=(
+                    [("AGENT", ctx.agent_name)]
+                    if ctx.agent_name
+                    else []
+                ),
             )
             if model_decision.effect == "DENY":
                 raise GovernanceDenied(model_decision.reason)
@@ -68,6 +73,11 @@ class GovernedModelGateway:
                     max_tokens
                     if max_tokens is not None
                     else self._default_projected_completion_tokens
+                ),
+                extra_subjects=(
+                    [("AGENT", ctx.agent_name)]
+                    if ctx.agent_name
+                    else []
                 ),
             )
             budget_detail={
@@ -96,6 +106,11 @@ class GovernedModelGateway:
                         "phase": "BUDGET_DEGRADE",
                         "requestedModelProfile": model_profile,
                     },
+                    extra_subjects=(
+                        [("AGENT", ctx.agent_name)]
+                        if ctx.agent_name
+                        else []
+                    ),
                 )
                 if degraded_decision.effect != "ALLOW":
                     raise GovernanceDenied(
@@ -115,7 +130,13 @@ class GovernedModelGateway:
         if ctx:
             cost=await self._governance.record_usage(
                 execution_id=ctx.execution_id,step_id=ctx.step_id,
-                model_profile=effective_profile,usage=detail.get("usage") or {},
+                model_profile=effective_profile,
+                usage=detail.get("usage") or {},
+                extra_scopes=(
+                    [("AGENT", ctx.agent_name)]
+                    if ctx.agent_name
+                    else []
+                ),
             )
             detail["governance"]={
                 "budget":budget_detail,
