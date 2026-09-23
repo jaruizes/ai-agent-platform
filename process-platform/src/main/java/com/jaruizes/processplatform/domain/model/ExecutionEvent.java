@@ -7,8 +7,8 @@ import java.util.UUID;
 /**
  * Canonical event emitted by Agent Platform.
  *
- * The payload is intentionally forward compatible: lifecycle, result and
- * orchestration events share the same envelope while their optional fields differ.
+ * The envelope mirrors Agent Platform exactly: data.execution is shared by
+ * lifecycle, result and orchestration event families.
  */
 public record ExecutionEvent(
         String specVersion,
@@ -18,9 +18,11 @@ public record ExecutionEvent(
         String correlationId,
         String causationId,
         Source source,
-        ExecutionData execution) {
+        Data data) {
 
     public record Source(String type, String name, String instance) {}
+
+    public record Data(ExecutionData execution) {}
 
     public record ExecutionData(
             UUID executionId,
@@ -37,17 +39,21 @@ public record ExecutionEvent(
             Long sequence,
             Map<String, Object> detail) {}
 
+    public ExecutionData execution() {
+        return data == null ? null : data.execution();
+    }
+
     public boolean isTerminal() {
         return "execution.result".equals(messageType)
                 || ("execution.lifecycle".equals(messageType)
-                    && execution != null
-                    && ("FAILED".equals(execution.status())
-                        || "CANCELLED".equals(execution.status())));
+                    && execution() != null
+                    && ("FAILED".equals(execution().status())
+                        || "CANCELLED".equals(execution().status())));
     }
 
     public boolean isCompleted() {
         return "execution.result".equals(messageType)
-                && execution != null
-                && "COMPLETED".equals(execution.status());
+                && execution() != null
+                && "COMPLETED".equals(execution().status());
     }
 }
