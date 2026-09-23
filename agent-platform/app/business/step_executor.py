@@ -450,7 +450,7 @@ class StepExecutor:
             ),
         )
         detail = await self._model_gateway.complete_detailed(
-            system_prompt=system_prompt,
+            system_prompt=effective.system_prompt,
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
@@ -490,7 +490,7 @@ class StepExecutor:
             attempt=attempt,
         )
         detail = await self._model_gateway.complete_detailed(
-            system_prompt=prompt.content,
+            system_prompt=effective.system_prompt,
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
@@ -552,7 +552,7 @@ class StepExecutor:
             ],
         )
         detail = await self._model_gateway.complete_detailed(
-            system_prompt=prompt.content,
+            system_prompt=effective.system_prompt,
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.0,
