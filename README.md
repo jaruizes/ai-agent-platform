@@ -45,3 +45,41 @@ M8  Governance & Evals
     M8.4 Regression Datasets + UI
 M9  Semantic Layer
 ```
+
+
+---
+
+## M9.1 — Process Platform
+
+The repository now also contains an independent Spring Boot service:
+
+```text
+process-platform/
+```
+
+Its responsibility in M9.1 is only the standard asynchronous integration with
+Agent Platform:
+
+```text
+Process Platform
+  -> ExecutionCommand
+  -> NATS
+  -> Agent Platform
+  -> ExecutionEvent
+  -> NATS
+  -> Process Platform
+```
+
+It uses Java 21 / Spring Boot 3.5 and the package structure:
+
+```text
+com.jaruizes.processplatform.business
+com.jaruizes.processplatform.domain
+com.jaruizes.processplatform.infrastructure
+```
+
+See `process-platform/README.md` and run:
+
+```bash
+bash scripts/m9-process-platform-smoke.sh
+```
