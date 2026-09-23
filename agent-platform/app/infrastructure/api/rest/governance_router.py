@@ -31,11 +31,15 @@ def create_governance_router(service)->APIRouter:
     @router.put("/policies/{policy_id}")
     async def update_policy(policy_id:UUID,request:PolicyRequest):
         try:
-            policy=_policy_domain(request)
-            policy=GovernancePolicy(**{**policy.__dict__,"id":policy_id})
-            return _policy(await service.save_policy(policy))
+            policy = await service.update_policy(
+                policy_id,
+                _policy_domain(request),
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400,detail=str(exc)) from exc
+        if not policy:
+            raise HTTPException(status_code=404,detail="Policy not found")
+        return _policy(policy)
 
     @router.delete("/policies/{policy_id}")
     async def delete_policy(policy_id:UUID):
@@ -114,11 +118,15 @@ def create_governance_router(service)->APIRouter:
     @router.put("/budgets/{budget_id}")
     async def update_budget(budget_id:UUID,request:BudgetRequest):
         try:
-            budget=_budget_domain(request)
-            budget=GovernanceBudget(**{**budget.__dict__,"id":budget_id})
-            return _budget(await service.save_budget(budget))
+            budget = await service.update_budget(
+                budget_id,
+                _budget_domain(request),
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400,detail=str(exc)) from exc
+        if not budget:
+            raise HTTPException(status_code=404,detail="Budget not found")
+        return _budget(budget)
 
     @router.delete("/budgets/{budget_id}")
     async def delete_budget(budget_id:UUID):
