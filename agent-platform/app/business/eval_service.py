@@ -161,7 +161,7 @@ class EvalService:
             usage_summary = await self._governance_service.usage_summary(execution_id)
             totals = usage_summary.get("total") or {}
             case_tokens = int(totals.get("total_tokens") or 0)
-            case_cost = float(totals.get("cost_usd") or 0)
+            case_cost = float(totals.get("estimated_cost_usd") or 0)
             total_tokens += case_tokens
             total_cost += case_cost
             passed_cases += int(passed)
