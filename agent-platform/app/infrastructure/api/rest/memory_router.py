@@ -328,6 +328,7 @@ def _snapshot(item) -> dict[str, Any]:
         "id": str(item.id),
         "executionId": str(item.execution_id),
         "stepId": item.step_id,
+        "attempt": item.attempt,
         "modelProfile": item.model_profile,
         "budget": item.budget,
         "components": item.components,
