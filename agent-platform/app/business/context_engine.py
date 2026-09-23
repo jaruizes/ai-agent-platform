@@ -23,6 +23,7 @@ class ContextEngine:
         safety_margin_tokens: int,
         max_session_entries: int,
         memory_top_k: int,
+        memory_min_score: float = 0.12,
         min_compression_tokens: int = 128,
     ):
         self._memory_service = memory_service
@@ -31,6 +32,7 @@ class ContextEngine:
         self._safety_margin_tokens = safety_margin_tokens
         self._max_session_entries = max_session_entries
         self._memory_top_k = memory_top_k
+        self._memory_min_score = memory_min_score
         self._min_compression_tokens = min_compression_tokens
 
     async def build(
@@ -165,8 +167,14 @@ class ContextEngine:
         memories = await self._memory_service.retrieve_relevant(
             query=retrieval_query,
             scopes=scopes,
-            limit=self._memory_top_k,
+            limit=min(50, max(self._memory_top_k * 3, self._memory_top_k)),
         )
+        memories = [
+            memory
+            for memory in memories
+            if float(memory.metadata.get("retrievalScore") or 0.0)
+            >= self._memory_min_score
+        ][: self._memory_top_k]
         for memory in memories:
             memory_text = (
                 f"[{memory.memory_type}] "
