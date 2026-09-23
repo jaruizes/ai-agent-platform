@@ -190,9 +190,10 @@ flowchart TB
         subgraph Cross["CROSS-CUTTING"]
             SEC["Security / Policies"]
             OBS["Observability / Audit"]
-            GOV["Guardrails / Governance"]
+            GOV["Governance Policy Engine<br/>M8.1"]
+            BUD["Budget / Cost Governance<br/>M8.2"]
             EVAL["Evals"]
-            COST["Token / Cost Control"]
+            COST["Token / Cost Metering"]
         end
 
         OUTBOX["Transactional Outbox"]
@@ -249,6 +250,11 @@ flowchart TB
     Runtime --> WC
     Runtime --> State
     SEC --> PE
+    GOV --> PL
+    GOV --> SE
+    GOV --> CE
+    GOV --> MG
+    BUD --> MG
     Runtime --> Cross
     Runtime --> DB
     Runtime --> ART
@@ -3629,3 +3635,467 @@ INSTRUCTION   -> instruction text
 Esto evita que continuidad de Session vuelva a introducir automáticamente outputs voluminosos de Tools/Knowledge y reduce la posibilidad de copiar payloads accidentales a nuevos prompts.
 
 La fuente completa sigue disponible como Working Context para inspección/auditoría, pero el modelo recibe una proyección controlada.
+
+
+---
+
+## 20. M8.1 / M8.2 — Governance Policy Engine y Budget / Cost Governance
+
+M8 convierte políticas que hasta ahora estaban repartidas entre componentes concretos en una capacidad transversal de plataforma.
+
+La regla arquitectónica es:
+
+> **El LLM propone acciones; la plataforma autoriza, deniega o exige aprobación de forma determinista.**
+
+El flujo efectivo pasa a ser:
+
+```text
+Planner proposes LogicalPlan
+          |
+          v
+existing deterministic enrichers
+          |
+          v
+Governance Policy Engine     <-- M8.1, enforcement #1
+          |
+     +----+-------------+
+     |                  |
+   DENY        REQUIRE_APPROVAL / ALLOW
+                         |
+                         v
+                   Persisted Plan
+                         |
+                         v
+                    LangGraph
+                         |
+                         v
+                   StepExecutor
+                         |
+                         v
+Governance Policy Engine     <-- M8.1, enforcement #2
+                         |
+                         v
+                   ContextEngine
+                         |
+                         +--> governed Memory scopes
+                         |
+                         v
+                GovernedModelGateway
+                         |
+             +-----------+-----------+
+             |                       |
+        Model Policy             Budget Policy
+             |                       |
+             +-----------+-----------+
+                         |
+                 ALLOW / DENY / DEGRADE
+                         |
+                         v
+                      LiteLLM
+```
+
+### M8.1 — Policy Engine
+
+Las políticas son recursos declarativos persistidos en:
+
+```text
+governance_policies
+```
+
+Una policy expresa:
+
+```text
+subject
+resource
+policy type
+effect
+conditions
+priority
+```
+
+Tipos de policy soportados:
+
+```text
+RESOURCE_ACCESS
+SIDE_EFFECT
+MODEL_ACCESS
+KNOWLEDGE_ACCESS
+MEMORY_ACCESS
+```
+
+Recursos actualmente enforced:
+
+```text
+AGENT
+TOOL
+KNOWLEDGE
+MODEL
+MEMORY_SCOPE
+```
+
+Effects:
+
+```text
+ALLOW
+DENY
+REQUIRE_APPROVAL
+```
+
+Subjects:
+
+```text
+GLOBAL
+TENANT
+TEAM
+USER
+AGENT
+```
+
+Los subjects no son elegidos libremente por el Planner. Se derivan de estado ya controlado por plataforma:
+
+```text
+GLOBAL:*
+EXECUTION:<executionId>          -- para budgets
+Session.scope + ownerKey
+command.metadata.tenantId
+command.metadata.teamId
+command.metadata.userId
+AGENT:<agentName>                -- durante un Agent step
+```
+
+`resourcePattern` y `subjectPattern` admiten glob patterns. `conditions` aplica igualdad determinista sobre atributos conocidos del enforcement point, por ejemplo:
+
+```json
+{
+  "sideEffect": "EXTERNAL_ACTION"
+}
+```
+
+La resolución usa **priority first**. Si dos policies tienen la misma priority se aplica:
+
+```text
+DENY > REQUIRE_APPROVAL > ALLOW
+```
+
+Esto permite una policy global amplia y una excepción específica con priority superior sin depender del orden de carga.
+
+Si ninguna policy coincide, M8.1 mantiene por compatibilidad:
+
+```text
+default = ALLOW
+```
+
+Los ALLOW implícitos no se persisten. Las decisiones procedentes de una policy real sí se almacenan en:
+
+```text
+governance_policy_decisions
+```
+
+#### Dos enforcement points
+
+La autorización del plan no es suficiente porque la configuración puede cambiar entre planificación y ejecución.
+
+Por eso M8.1 aplica policy dos veces:
+
+```text
+Plan created
+   |
+   v
+Governance apply_plan()
+   |
+   v
+persist
+   |
+   ... tiempo / pause / recovery ...
+   |
+   v
+StepExecutor.enforce_step()
+   |
+   v
+execute
+```
+
+Un cambio posterior a `DENY` bloquea un plan ya persistido antes de realizar la operación.
+
+`REQUIRE_APPROVAL` reutiliza el estado durable M5 y produce:
+
+```text
+requiresApproval = true
+approvalSource = GOVERNANCE_POLICY
+WAITING_APPROVAL
+```
+
+#### Model policy en el gateway
+
+Los modelos también son recursos gobernados. Además de plan/step enforcement, `GovernedModelGateway` vuelve a comprobar `MODEL_ACCESS` inmediatamente antes de LiteLLM.
+
+Esto cubre:
+
+- Planner;
+- Agent/Model/Validate steps;
+- Memory Candidate Extractor;
+- un cambio de modelo causado por Budget DEGRADE.
+
+Una policy `REQUIRE_APPROVAL` sólo es válida cuando existe un step durable que pueda entrar en `WAITING_APPROVAL`. Para llamadas fuera de step, como Planner, la plataforma falla cerrada porque no existe un approval gate durable al que asociar la decisión.
+
+#### Knowledge y Memory
+
+Knowledge Bases declaradas por el plan se autorizan antes del retrieval.
+
+Los scopes de Persistent Memory se filtran dentro del Context Engine **antes de recuperar/incluir memoria**:
+
+```text
+candidate scopes
+    |
+    v
+MEMORY_ACCESS policy
+    |
+    +--> DENY -> scope removed
+    |
+    +--> ALLOW -> retrieval
+```
+
+`REQUIRE_APPROVAL` sobre un MEMORY_SCOPE falla cerrado. La aprobación debe modelarse sobre el step AGENT/MODEL que intenta consumir ese contexto; no se crea un approval sub-workflow implícito dentro de ContextEngine.
+
+### M8.2 — Budget / Cost Governance
+
+Los budgets son también recursos persistentes:
+
+```text
+governance_budgets
+```
+
+Scopes:
+
+```text
+GLOBAL
+EXECUTION
+TENANT
+TEAM
+USER
+AGENT
+```
+
+Periodos:
+
+```text
+EXECUTION
+DAILY
+MONTHLY
+```
+
+Límites:
+
+```text
+maxPromptTokens
+maxCompletionTokens
+maxTotalTokens
+maxCostUsd
+```
+
+Actions:
+
+```text
+DENY
+DEGRADE
+```
+
+El enforcement ocurre en `GovernedModelGateway` justo antes de cada llamada.
+
+Preflight:
+
+```text
+effective prompts
+      |
+      v
+prompt estimate = chars / 4 * safety multiplier
+      |
+      + projected completion tokens
+      |
+      v
+applicable budgets
+      |
+      +--> within limit -> ALLOW
+      +--> token limit   -> DENY
+      +--> cost limit    -> DENY / DEGRADE
+```
+
+La estimación es deliberadamente conservadora y configurable:
+
+```env
+GOVERNANCE_DEFAULT_PROJECTED_COMPLETION_TOKENS=4096
+GOVERNANCE_PROMPT_ESTIMATE_MULTIPLIER=1.25
+```
+
+Los projected completion tokens se utilizan también como `max_tokens` real en la llamada a LiteLLM. Así el preflight no presupone un output de 4096 mientras el proveedor puede generar arbitrariamente más.
+
+Después de la llamada, los tokens reales reportados por el proveedor se registran en:
+
+```text
+governance_usage
+```
+
+para todos los scopes aplicables.
+
+Las decisiones de budget se auditan en:
+
+```text
+governance_budget_decisions
+```
+
+incluyendo:
+
+```text
+execution / step
+budget
+ALLOW | DENY | DEGRADE
+requested model
+effective model
+current usage
+projected usage
+reason
+```
+
+#### Cost
+
+La plataforma no intenta adivinar precios del proveedor. Los costes se calculan contra precios configurados para los aliases de modelo vistos por el runtime.
+
+Variables:
+
+```text
+GOVERNANCE_ROUTER_INPUT_USD_PER_MILLION
+GOVERNANCE_ROUTER_OUTPUT_USD_PER_MILLION
+GOVERNANCE_EXECUTION_INPUT_USD_PER_MILLION
+GOVERNANCE_EXECUTION_OUTPUT_USD_PER_MILLION
+GOVERNANCE_PLANNER_INPUT_USD_PER_MILLION
+GOVERNANCE_PLANNER_OUTPUT_USD_PER_MILLION
+```
+
+Si no hay pricing configurado, los token budgets siguen siendo válidos pero no se permite crear un cost budget operativo.
+
+#### DEGRADE
+
+`DEGRADE` sólo se admite para budgets exclusivamente de coste.
+
+```text
+requested model
+      |
+cost budget exceeded
+      |
+      v
+degradeModelProfile
+      |
+      v
+recalculate projected cost
+      |
+      v
+MODEL_ACCESS authorization again
+      |
+      v
+invoke cheaper profile
+```
+
+Una degradación nunca permite saltarse una Model Policy.
+
+Los límites de tokens usan `DENY`, no degradación, porque cambiar de modelo no reduce determinísticamente el número de tokens que necesita una ejecución.
+
+### APIs de M8.1/M8.2
+
+```text
+GET    /v1/governance/policies
+POST   /v1/governance/policies
+PUT    /v1/governance/policies/{id}
+DELETE /v1/governance/policies/{id}
+POST   /v1/governance/policies/evaluate
+GET    /v1/governance/decisions
+
+GET    /v1/governance/budgets
+POST   /v1/governance/budgets
+PUT    /v1/governance/budgets/{id}
+DELETE /v1/governance/budgets/{id}
+POST   /v1/governance/budgets/evaluate
+GET    /v1/governance/budget-decisions
+GET    /v1/governance/executions/{executionId}/usage
+```
+
+Los endpoints `*/evaluate` son simulaciones deterministas y no escriben una policy decision/budget decision de runtime.
+
+La UI completa de Governance se reserva para M8.4; M8.1/M8.2 exponen APIs, auditoría persistente y diagnóstico básico a través del Control Plane existente.
+
+### Estado tras M8.2
+
+```text
+Central Policy Engine             ✅
+Tool/Agent authorization          ✅
+Knowledge authorization           ✅
+Model authorization               ✅
+Memory-scope authorization        ✅
+Plan-time policy enforcement      ✅
+Runtime policy recheck            ✅
+Governance approval gates         ✅
+Token budgets                     ✅
+Cost budgets                      ✅
+Model degradation                 ✅
+Actual usage/cost metering        ✅
+Policy decision audit             ✅
+Budget decision audit             ✅
+
+Eval framework                    M8.3
+Regression datasets + full UI     M8.4
+```
+
+### ADR-047 — Governance Policy es autoritativa sobre Planner y Agent
+
+**Estado:** Accepted  
+**Contexto:** M8.1
+
+Planner/Agent pueden solicitar recursos, pero nunca amplían permisos. `GovernanceService` evalúa el recurso contra subjects derivados por la plataforma y produce ALLOW, DENY o REQUIRE_APPROVAL.
+
+### ADR-048 — Governance se valida al crear el plan y justo antes de ejecutar
+
+**Estado:** Accepted  
+**Contexto:** M8.1
+
+La validación doble protege contra cambios de policy entre planificación, pause/recovery y ejecución. El plan persistido no constituye por sí mismo una autorización futura.
+
+### ADR-049 — Policy resolution es priority-first
+
+**Estado:** Accepted  
+**Contexto:** M8.1
+
+Se ordena primero por `priority`. Sólo en empate se utiliza `DENY > REQUIRE_APPROVAL > ALLOW`. Esto permite exceptions explícitas de prioridad superior manteniendo un comportamiento seguro ante conflictos al mismo nivel.
+
+### ADR-050 — Model Gateway es la frontera de Budget Governance
+
+**Estado:** Accepted  
+**Contexto:** M8.2
+
+Toda llamada LLM del runtime utiliza `GovernedModelGateway`, de modo que Planner, Agents, Models, Validators y extractores de memoria pasan por el mismo preflight de modelo/budget y por el mismo metering posterior.
+
+### ADR-051 — Los cost budgets requieren pricing configurado
+
+**Estado:** Accepted  
+**Contexto:** M8.2
+
+No se usa un precio implícito ni datos desactualizados del proveedor. Los precios son configuración operativa asociada al model profile alias.
+
+### ADR-052 — DEGRADE sólo aplica a coste y reautoriza el modelo destino
+
+**Estado:** Accepted  
+**Contexto:** M8.2
+
+La plataforma sólo degrada por coste. Antes de usar el modelo alternativo vuelve a ejecutar MODEL_ACCESS. Una policy de budget no puede elevar privilegios.
+
+### ADR-053 — Budget preflight es conservador; usage real es autoritativo después
+
+**Estado:** Accepted  
+**Contexto:** M8.2
+
+El preflight usa una estimación segura del prompt y un output cap real. Después, el usage del proveedor alimenta los budgets de siguientes llamadas/ejecuciones.
+
+### ADR-054 — Memory governance ocurre antes de retrieval/inyección
+
+**Estado:** Accepted  
+**Contexto:** M8.1
+
+Un memory scope no autorizado nunca debe recuperarse para después descartarse. ContextEngine filtra scopes mediante Governance Policy antes de consultar Persistent Memory.
