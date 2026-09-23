@@ -24,7 +24,7 @@ public class ProcessDefinitionJpaEntity {
     @Column(nullable = false, length = 300)
     private String name;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String description;
 
     @Column(nullable = false)
