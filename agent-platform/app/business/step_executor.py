@@ -508,6 +508,8 @@ class StepExecutor:
             "usage": detail.get("usage") or {},
             "model": detail.get("model"),
             "modelProfile": detail.get("modelProfile"),
+            "requestedModelProfile": detail.get("requestedModelProfile"),
+            "governance": detail.get("governance"),
             "agent": agent.name,
             "tool": None,
             "context": {
@@ -548,6 +550,8 @@ class StepExecutor:
             "usage": detail.get("usage") or {},
             "model": detail.get("model"),
             "modelProfile": detail.get("modelProfile"),
+            "requestedModelProfile": detail.get("requestedModelProfile"),
+            "governance": detail.get("governance"),
             "agent": None,
             "tool": None,
             "context": {
@@ -622,6 +626,8 @@ class StepExecutor:
             "usage": detail.get("usage") or {},
             "model": detail.get("model"),
             "modelProfile": detail.get("modelProfile"),
+            "requestedModelProfile": detail.get("requestedModelProfile"),
+            "governance": detail.get("governance"),
             "agent": None,
             "tool": None,
             "context": {
