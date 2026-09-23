@@ -439,8 +439,8 @@ class GovernanceService:
                 period=budget.period,
                 execution_id=execution_id,
             )
-
             rates = self._pricing.get(effective_profile, (0.0, 0.0))
+
             if (
                 budget.max_cost_usd is not None
                 and not any(rate > 0 for rate in rates)
@@ -460,17 +460,17 @@ class GovernanceService:
                 if record:
                     await self._repository.record_budget_decision(
                         execution_id=execution_id,
-                    step_id=step_id,
-                    budget_id=budget.id,
-                    budget_name=budget.name,
-                    action=evaluation.action,
-                    allowed=False,
-                    requested_model_profile=model_profile,
-                    effective_model_profile=effective_profile,
-                    reason=evaluation.reason,
-                    current=current,
-                    projected={},
-                )
+                        step_id=step_id,
+                        budget_id=budget.id,
+                        budget_name=budget.name,
+                        action=evaluation.action,
+                        allowed=False,
+                        requested_model_profile=model_profile,
+                        effective_model_profile=effective_profile,
+                        reason=evaluation.reason,
+                        current=current,
+                        projected={},
+                    )
                 return evaluation
 
             projected = self._project_usage(
@@ -486,17 +486,17 @@ class GovernanceService:
                 if record:
                     await self._repository.record_budget_decision(
                         execution_id=execution_id,
-                    step_id=step_id,
-                    budget_id=budget.id,
-                    budget_name=budget.name,
-                    action="ALLOW",
-                    allowed=True,
-                    requested_model_profile=model_profile,
-                    effective_model_profile=effective_profile,
-                    reason=f"Budget '{budget.name}' remains within limits.",
-                    current=current,
-                    projected=projected,
-                )
+                        step_id=step_id,
+                        budget_id=budget.id,
+                        budget_name=budget.name,
+                        action="ALLOW",
+                        allowed=True,
+                        requested_model_profile=model_profile,
+                        effective_model_profile=effective_profile,
+                        reason=f"Budget '{budget.name}' remains within limits.",
+                        current=current,
+                        projected=projected,
+                    )
                 continue
 
             if budget.action == "DEGRADE":
@@ -509,30 +509,32 @@ class GovernanceService:
                     input_rate=target_rates[0],
                     output_rate=target_rates[1],
                 )
-                degraded_exceeded = self._exceeded_dimensions(
-                    budget,
-                    degraded_projected,
-                )
-                if not degraded_exceeded and target:
+                if (
+                    target
+                    and not self._exceeded_dimensions(
+                        budget,
+                        degraded_projected,
+                    )
+                ):
                     effective_profile = target
                     if record:
                         await self._repository.record_budget_decision(
-                        execution_id=execution_id,
-                        step_id=step_id,
-                        budget_id=budget.id,
-                        budget_name=budget.name,
-                        action="DEGRADE",
-                        allowed=True,
-                        requested_model_profile=model_profile,
-                        effective_model_profile=effective_profile,
-                        reason=(
-                            f"Budget '{budget.name}' projected cost limit "
-                            f"exceeded; degrading model profile to "
-                            f"'{effective_profile}'."
-                        ),
-                        current=current,
-                        projected=degraded_projected,
-                    )
+                            execution_id=execution_id,
+                            step_id=step_id,
+                            budget_id=budget.id,
+                            budget_name=budget.name,
+                            action="DEGRADE",
+                            allowed=True,
+                            requested_model_profile=model_profile,
+                            effective_model_profile=effective_profile,
+                            reason=(
+                                f"Budget '{budget.name}' projected cost limit "
+                                "exceeded; degrading model profile to "
+                                f"'{effective_profile}'."
+                            ),
+                            current=current,
+                            projected=degraded_projected,
+                        )
                     continue
 
             evaluation = BudgetEvaluation(
@@ -547,24 +549,29 @@ class GovernanceService:
                 current=current,
                 projected=projected,
             )
-            await self._repository.record_budget_decision(
-                execution_id=execution_id,
-                step_id=step_id,
-                budget_id=budget.id,
-                budget_name=budget.name,
-                action=evaluation.action,
-                allowed=False,
-                requested_model_profile=model_profile,
-                effective_model_profile=effective_profile,
-                reason=evaluation.reason,
-                current=current,
-                projected=projected,
-            )
+            if record:
+                await self._repository.record_budget_decision(
+                    execution_id=execution_id,
+                    step_id=step_id,
+                    budget_id=budget.id,
+                    budget_name=budget.name,
+                    action=evaluation.action,
+                    allowed=False,
+                    requested_model_profile=model_profile,
+                    effective_model_profile=effective_profile,
+                    reason=evaluation.reason,
+                    current=current,
+                    projected=projected,
+                )
             return evaluation
 
         return BudgetEvaluation(
             allowed=True,
-            action=("DEGRADE" if effective_profile != model_profile else "ALLOW"),
+            action=(
+                "DEGRADE"
+                if effective_profile != model_profile
+                else "ALLOW"
+            ),
             model_profile=effective_profile,
             reason=(
                 f"Budget policy selected degraded model '{effective_profile}'."
