@@ -1,6 +1,8 @@
 package com.jaruizes.processplatform.domain.model;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,8 +22,8 @@ public record ProcessInstance(
         Instant completedAt) {
 
     public ProcessInstance {
-        input = input == null ? Map.of() : Map.copyOf(input);
-        context = context == null ? Map.of() : Map.copyOf(context);
+        input = input == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(input));
+        context = context == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(context));
         steps = steps == null ? List.of() : List.copyOf(steps);
     }
 }
