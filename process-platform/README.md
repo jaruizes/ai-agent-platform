@@ -501,3 +501,293 @@ The smoke test verifies:
 9. latest-active resolution still selecting v1 while v2 is DRAFT;
 10. latest-active resolution selecting v2 after activation;
 11. the original instance remaining pinned to v1.
+
+
+---
+
+# M9.3 — Deterministic Process Runtime
+
+M9.3 turns the durable M9.2 process model into an executable deterministic DAG.
+
+## Runtime lifecycle
+
+```text
+ProcessInstance CREATED
+        |
+        | POST /v1/process-instances/{id}/start
+        v
+      RUNNING
+        |
+        +--> PENDING step
+        |       |
+        |       v
+        |     READY
+        |       |
+        |       v
+        |     RUNNING
+        |       |
+        |       +--> SERVICE -------------> COMPLETED
+        |       |
+        |       +--> AGENTIC_EXECUTION
+        |               |
+        |               v
+        |             WAITING
+        |               |
+        |         ExecutionEvent
+        |               |
+        |               v
+        |           COMPLETED
+        |
+        +--> WAITING  (no runnable local steps, delegated execution pending)
+        |
+        +--> COMPLETED
+        |
+        +--> FAILED
+```
+
+The runtime calculates readiness exclusively from persisted `dependsOn` state.
+Independent READY steps are submitted concurrently using Java 21 virtual threads.
+
+## Supported executable step types in M9.3
+
+```text
+SERVICE
+AGENTIC_EXECUTION
+```
+
+The following remain modeled but intentionally fail with
+`UNSUPPORTED_STEP_TYPE` if executed before their later milestone:
+
+```text
+TOOL
+DECISION
+HUMAN
+WAIT_EVENT
+SUBPROCESS
+```
+
+### SERVICE
+
+A deterministic service step resolves:
+
+```text
+configuration.handler
+        |
+        v
+ProcessServiceHandlerPort
+```
+
+Handlers are Spring adapters/plugins and must be idempotent because durable
+recovery provides at-least-once execution semantics.
+
+M9.3 includes only the generic `echo` handler used by smoke/integration tests.
+Business-specific deterministic handlers must implement the same port.
+
+### AGENTIC_EXECUTION
+
+A step never identifies an Agent Platform agent.
+
+```text
+ProcessStep
+  type = AGENTIC_EXECUTION
+  configuration.intent = ...
+          |
+          v
+canonical ExecutionCommand
+          |
+          v
+transactional outbox
+          |
+          v
+NATS
+          |
+          v
+Agent Platform
+```
+
+The Process Platform stores the generated `delegatedExecutionId` on the
+ProcessStepInstance and waits for the standard Agent Platform terminal event.
+
+On `execution.result / COMPLETED` the result becomes the process step output.
+
+On terminal failure/cancellation the process step and process instance become
+FAILED.
+
+## Transactional command outbox
+
+Agent delegation does not publish directly from the runtime.
+
+The following state is committed atomically:
+
+```text
+ProcessStepInstance.status = WAITING
+ProcessStepInstance.delegatedExecutionId = ...
+ExecutionCommand outbox row = pending
+```
+
+A scheduled `ExecutionCommandOutboxPublisher` publishes the canonical command
+through `AgentPlatformCommandPort`.
+
+This removes the crash window:
+
+```text
+publish command
+<CRASH>
+persist executionId
+```
+
+JetStream plus the command `messageId` and Agent Platform request idempotency
+make outbox delivery safely at-least-once.
+
+Table:
+
+```text
+process_execution_command_outbox
+```
+
+## Durable recovery
+
+PostgreSQL is authoritative. Virtual threads are not workflow state.
+
+Every recovery pass:
+
+1. scans RUNNING/WAITING process instances;
+2. resubmits persisted READY steps;
+3. resets stale RUNNING `SERVICE` or pre-delegation
+   `AGENTIC_EXECUTION` steps to READY;
+4. recalculates dependency readiness;
+5. leaves delegated WAITING agent steps untouched;
+6. advances joins after dependencies complete.
+
+Configuration:
+
+```text
+PROCESS_RUNTIME_RECOVERY_DELAY_MS=2000
+PROCESS_RUNTIME_OUTBOX_POLL_MS=250
+PROCESS_RUNTIME_STEP_STALE_SECONDS=60
+```
+
+A SERVICE handler that may run longer than the stale timeout must increase the
+timeout or later use a dedicated lease/heartbeat policy.
+
+## Step input
+
+M9.3 builds one stable process-neutral input envelope:
+
+```json
+{
+  "processInput": {},
+  "context": {},
+  "dependencies": {
+    "previous-step": {}
+  }
+}
+```
+
+This is what `inputSchema` validates and what SERVICE/AGENTIC_EXECUTION receives.
+
+Process-specific mapping expressions are intentionally not introduced yet.
+
+## Step output and ProcessContext
+
+Every completed step stores its output durably and merges it under its step key:
+
+```text
+ProcessContext[stepKey] = stepOutput
+```
+
+For parallel completions the ProcessInstance row is pessimistically locked before
+the merge. Therefore two parallel branches cannot overwrite each other's context.
+
+A fan-out/fan-in example:
+
+```text
+validate
+   |
+   +--------+
+   v        v
+security   cost
+   |        |
+   +----+---+
+        v
+      compose
+```
+
+`compose.dependencies` receives both persisted outputs.
+
+## Contract validation
+
+M9.3 enforces:
+
+- ProcessDefinition `inputSchema` before start;
+- every step `inputSchema` before execution;
+- every step `outputSchema` before completion;
+- ProcessDefinition `outputSchema` before process completion.
+
+The current validator supports the JSON Schema subset needed by the platform
+contracts:
+
+```text
+type
+required
+properties
+items
+```
+
+Contract violation fails the corresponding step/process deterministically.
+
+## API
+
+Start an existing ProcessInstance:
+
+```http
+POST /v1/process-instances/{id}/start
+```
+
+The call returns `202 Accepted`. Runtime progression is asynchronous.
+
+Read current state with the existing M9.2 query:
+
+```http
+GET /v1/process-instances/{id}
+```
+
+## M9.3 smoke tests
+
+Deterministic runtime only; no LLM required:
+
+```bash
+docker compose up -d process-postgres nats otel-collector process-platform
+bash scripts/m9-process-runtime-smoke.sh
+```
+
+This verifies a four-step fan-out/fan-in DAG and ProcessContext merging.
+
+Full hybrid runtime:
+
+```bash
+docker compose up -d
+bash scripts/m9-process-runtime-agentic-smoke.sh
+```
+
+This verifies:
+
+```text
+SERVICE
+   |
+AGENTIC_EXECUTION
+   |
+transactional outbox
+   |
+ExecutionCommand / NATS
+   |
+Agent Platform
+   |
+ExecutionEvent / NATS
+   |
+Process Runtime resumes
+   |
+SERVICE
+   |
+COMPLETED
+```
