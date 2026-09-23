@@ -6,7 +6,12 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 
 from app.domain.governance import GovernanceBudget, GovernancePolicy
-from app.infrastructure.api.rest.governance_schemas import BudgetRequest, PolicyRequest
+from app.infrastructure.api.rest.governance_schemas import (
+    BudgetEvaluateRequest,
+    BudgetRequest,
+    PolicyEvaluateRequest,
+    PolicyRequest,
+)
 
 
 def create_governance_router(service)->APIRouter:
@@ -37,6 +42,55 @@ def create_governance_router(service)->APIRouter:
         if not await service.delete_policy(policy_id):
             raise HTTPException(status_code=404,detail="Policy not found")
         return {"deleted":True}
+
+    @router.post("/policies/evaluate")
+    async def evaluate_policy(request: PolicyEvaluateRequest):
+        try:
+            execution_id = UUID(request.executionId)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid executionId") from exc
+        decision = await service.evaluate(
+            execution_id=execution_id,
+            step_id=request.stepId,
+            policy_type=request.policyType.upper(),
+            resource_type=request.resourceType.upper(),
+            resource_name=request.resourceName,
+            context=request.context,
+            record=False,
+        )
+        return {
+            "effect": decision.effect,
+            "reason": decision.reason,
+            "policyId": str(decision.policy_id) if decision.policy_id else None,
+            "policyName": decision.policy_name,
+            "subjectType": decision.subject_type,
+            "subjectId": decision.subject_id,
+            "resourceType": decision.resource_type,
+            "resourceName": decision.resource_name,
+        }
+
+    @router.post("/budgets/evaluate")
+    async def evaluate_budget(request: BudgetEvaluateRequest):
+        try:
+            execution_id = UUID(request.executionId)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid executionId") from exc
+        evaluation = await service.evaluate_budget(
+            execution_id=execution_id,
+            step_id=request.stepId,
+            model_profile=request.modelProfile,
+            projected_prompt_tokens=request.projectedPromptTokens,
+            projected_completion_tokens=request.projectedCompletionTokens,
+        )
+        return {
+            "allowed": evaluation.allowed,
+            "action": evaluation.action,
+            "modelProfile": evaluation.model_profile,
+            "budgetName": evaluation.budget_name,
+            "reason": evaluation.reason,
+            "current": evaluation.current,
+            "projected": evaluation.projected,
+        }
 
     @router.get("/decisions")
     async def decisions(
