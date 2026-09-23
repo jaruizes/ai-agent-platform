@@ -66,6 +66,22 @@ public class ProcessDefinitionService {
         }
         validateGraph(steps);
 
+        var existingIds = new HashMap<String, UUID>();
+        current.steps().forEach(step -> existingIds.put(step.stepKey(), step.id()));
+        var normalizedSteps = normalizeSteps(steps).stream()
+                .map(step -> new ProcessStepDefinition(
+                        existingIds.getOrDefault(step.stepKey(), step.id()),
+                        step.stepKey(),
+                        step.name(),
+                        step.description(),
+                        step.type(),
+                        step.dependsOn(),
+                        step.inputSchema(),
+                        step.outputSchema(),
+                        step.configuration()
+                ))
+                .toList();
+
         return repository.save(new ProcessDefinition(
                 current.id(),
                 current.definitionKey(),
@@ -75,7 +91,7 @@ public class ProcessDefinitionService {
                 current.status(),
                 safeMap(inputSchema),
                 safeMap(outputSchema),
-                normalizeSteps(steps),
+                normalizedSteps,
                 current.createdAt(),
                 Instant.now(),
                 current.activatedAt()
