@@ -65,6 +65,17 @@ class GovernanceService:
     async def usage_summary(self, execution_id: UUID):
         return await self._repository.usage_summary(execution_id)
 
+    async def list_budget_decisions(
+        self,
+        *,
+        execution_id: UUID | None = None,
+        limit: int = 200,
+    ):
+        return await self._repository.list_budget_decisions(
+            execution_id=execution_id,
+            limit=limit,
+        )
+
     async def evaluate(
         self,
         *,
@@ -336,6 +347,7 @@ class GovernanceService:
         self,
         *,
         execution_id: UUID,
+        step_id: str | None,
         model_profile: str,
         projected_prompt_tokens: int,
         projected_completion_tokens: int,
@@ -431,7 +443,7 @@ class GovernanceService:
                     budget,
                     degraded_projected,
                 ):
-                    return BudgetEvaluation(
+                    evaluation = BudgetEvaluation(
                         allowed=True,
                         action="DEGRADE",
                         model_profile=budget.degrade_model_profile,
@@ -444,8 +456,22 @@ class GovernanceService:
                         current=current,
                         projected=degraded_projected,
                     )
+                    await self._repository.record_budget_decision(
+                        execution_id=execution_id,
+                        step_id=step_id,
+                        budget_id=budget.id,
+                        budget_name=budget.name,
+                        action=evaluation.action,
+                        allowed=evaluation.allowed,
+                        requested_model_profile=model_profile,
+                        effective_model_profile=evaluation.model_profile,
+                        reason=evaluation.reason,
+                        current=current,
+                        projected=degraded_projected,
+                    )
+                    return evaluation
 
-            return BudgetEvaluation(
+            evaluation = BudgetEvaluation(
                 allowed=False,
                 action="DENY",
                 model_profile=model_profile,
@@ -457,6 +483,20 @@ class GovernanceService:
                 current=current,
                 projected=projected,
             )
+            await self._repository.record_budget_decision(
+                execution_id=execution_id,
+                step_id=step_id,
+                budget_id=budget.id,
+                budget_name=budget.name,
+                action=evaluation.action,
+                allowed=evaluation.allowed,
+                requested_model_profile=model_profile,
+                effective_model_profile=evaluation.model_profile,
+                reason=evaluation.reason,
+                current=current,
+                projected=projected,
+            )
+            return evaluation
 
         return BudgetEvaluation(
             allowed=True,
