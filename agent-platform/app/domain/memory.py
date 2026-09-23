@@ -83,6 +83,7 @@ class MemoryEntry:
     updated_at: datetime | None = None
     expires_at: datetime | None = None
     revoked_at: datetime | None = None
+    embedding: list[float] | None = None
 
 
 @dataclass(frozen=True)
