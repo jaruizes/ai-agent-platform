@@ -150,7 +150,7 @@ class GovernanceService:
                 context=ctx,
             )
 
-        if record:
+        if record and matches:
             await self._repository.record_decision(decision)
         return decision
 
@@ -173,7 +173,7 @@ class GovernanceService:
                         policy_type="RESOURCE_ACCESS",
                         resource_type="AGENT",
                         resource_name=step.agent_name,
-                        context={"stepType": step.type},
+                        context={"stepType": step.type, "phase": "PLAN"},
                     )
                 )
 
@@ -188,6 +188,7 @@ class GovernanceService:
                         context={
                             "stepType": step.type,
                             "sideEffect": step.tool_side_effect,
+                            "phase": "PLAN",
                         },
                     )
                 )
@@ -200,7 +201,7 @@ class GovernanceService:
                         policy_type="MODEL_ACCESS",
                         resource_type="MODEL",
                         resource_name=execution_model_profile,
-                        context={"stepType": step.type},
+                        context={"stepType": step.type, "phase": "PLAN"},
                     )
                 )
 
@@ -215,6 +216,7 @@ class GovernanceService:
                         context={
                             "usageMode": step.knowledge_usage_mode,
                             "stepType": step.type,
+                            "phase": "PLAN",
                         },
                     )
                 )
@@ -265,7 +267,7 @@ class GovernanceService:
                     "RESOURCE_ACCESS",
                     "AGENT",
                     step.agent_name,
-                    {"stepType": step.type},
+                    {"stepType": step.type, "phase": "RUNTIME"},
                 )
             )
         if step.tool_name:
@@ -277,6 +279,7 @@ class GovernanceService:
                     {
                         "stepType": step.type,
                         "sideEffect": step.tool_side_effect,
+                        "phase": "RUNTIME",
                     },
                 )
             )
@@ -286,7 +289,7 @@ class GovernanceService:
                     "MODEL_ACCESS",
                     "MODEL",
                     execution_model_profile,
-                    {"stepType": step.type},
+                    {"stepType": step.type, "phase": "RUNTIME"},
                 )
             )
         for kb_name in step.knowledge_base_names:
@@ -298,6 +301,7 @@ class GovernanceService:
                     {
                         "usageMode": step.knowledge_usage_mode,
                         "stepType": step.type,
+                        "phase": "RUNTIME",
                     },
                 )
             )
