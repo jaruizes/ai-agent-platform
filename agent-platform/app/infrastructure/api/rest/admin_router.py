@@ -269,6 +269,9 @@ def create_admin_router(
                 "defaultProjectedCompletionTokens": (
                     settings.governance_default_projected_completion_tokens
                 ),
+                "promptEstimateMultiplier": (
+                    settings.governance_prompt_estimate_multiplier
+                ),
                 "pricingConfigured": any(
                     value > 0
                     for value in (
