@@ -3756,7 +3756,6 @@ Los subjects no son elegidos libremente por el Planner. Se derivan de estado ya 
 ```text
 GLOBAL:*
 EXECUTION:<executionId>          -- para budgets
-Session.scope + ownerKey
 Session.scope + ownerKey        -- label de scope controlado por la plataforma
 AGENT:<agentName>                -- durante un Agent step
 ```
