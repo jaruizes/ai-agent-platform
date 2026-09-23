@@ -58,9 +58,6 @@ export class AppComponent implements OnInit,OnDestroy {
   async revokeMemoryItem(m:MemoryInfo){if(confirm('Revoke this memory?'))await this.run(async()=>{await this.api.revokeMemory(m.id);this.memories.set(await this.api.memories());});}
   async searchMemory(){if(!this.memoryQuery||!this.memoryScopeId)return;await this.run(async()=>{this.memoryHits.set(await this.api.retrieveMemories(this.memoryQuery,[{scopeType:this.memoryScopeType,scopeId:this.memoryScopeId}],this.memoryTopK));});}
 
-  snapshotFor(stepId:string){return this.contextSnapshots().filter(s=>s.stepId===stepId).at(-1)||null;}
-  selectedContextTokens(s:ContextSnapshot){return (s.components||[]).filter(c=>c.selected).reduce((a,c)=>a+Number(c.tokenEstimate||0),0);}
-
   editSkill(x?:Skill){this.draft=x?{...x}:{name:'',description:'',instructions:'',enabled:true};this.modal.set('skill');}
   async saveSkill(){await this.run(async()=>{await this.api.saveSkill(this.draft);this.skills.set(await this.api.skills());this.closeModal();});}
   async deleteSkill(x:Skill){if(confirm(`Eliminar skill ${x.name}?`))await this.run(async()=>{await this.api.deleteSkill(x.id);this.skills.set(await this.api.skills());});}
