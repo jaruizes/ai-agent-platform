@@ -260,9 +260,14 @@ class ContextEngine:
             and component.metadata.get("channel") != "system"
         ]
         user_prompt = "\n\n".join(user_parts)
-        prompt_estimate = self._estimate_tokens(
-            effective_system_prompt
-        ) + self._estimate_tokens(user_prompt)
+        effective_system_tokens = self._estimate_tokens(effective_system_prompt)
+        effective_user_tokens = self._estimate_tokens(user_prompt)
+        budget = {
+            **budget,
+            "effectiveSystemPromptTokens": effective_system_tokens,
+            "effectiveUserPromptTokens": effective_user_tokens,
+        }
+        prompt_estimate = effective_system_tokens + effective_user_tokens
         selected_tokens = sum(
             component.token_estimate
             for component in selected
