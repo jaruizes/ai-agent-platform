@@ -50,7 +50,7 @@ public class ProcessStepDefinitionJpaEntity {
     @Column(nullable = false, columnDefinition = "jsonb")
     private Map<String,Object> configuration = new LinkedHashMap<>();
 
-    protected ProcessStepDefinitionJpaEntity() {}
+    public ProcessStepDefinitionJpaEntity() {}
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
