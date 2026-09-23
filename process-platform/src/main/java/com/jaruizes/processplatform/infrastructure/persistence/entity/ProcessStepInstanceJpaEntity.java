@@ -61,7 +61,7 @@ public class ProcessStepInstanceJpaEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    protected ProcessStepInstanceJpaEntity() {}
+    public ProcessStepInstanceJpaEntity() {}
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
