@@ -117,7 +117,6 @@ public class ProcessRuntimePersistenceAdapter
         outbox.save(outboxEntity);
 
         var instance = requireInstance(instanceId);
-        instance.setStatus(ProcessInstanceStatus.WAITING);
         instance.setUpdatedAt(Instant.now());
         return toDomain(instances.saveAndFlush(instance));
     }
@@ -127,8 +126,7 @@ public class ProcessRuntimePersistenceAdapter
     public ProcessInstance completeStep(
             UUID instanceId,
             String stepKey,
-            Map<String,Object> output,
-            Map<String,Object> mergedContext) {
+            Map<String,Object> output) {
         var step = requireStep(instanceId, stepKey);
         step.setStatus(ProcessStepStatus.COMPLETED);
         step.setOutput(new LinkedHashMap<>(output));
@@ -137,8 +135,12 @@ public class ProcessRuntimePersistenceAdapter
         step.setUpdatedAt(Instant.now());
         steps.save(step);
 
-        var instance = requireInstance(instanceId);
-        instance.setContext(new LinkedHashMap<>(mergedContext));
+        var instance = instances.findLockedById(instanceId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Process instance not found: " + instanceId));
+        var mergedContext = new LinkedHashMap<>(instance.getContext());
+        mergedContext.put(stepKey, new LinkedHashMap<>(output));
+        instance.setContext(mergedContext);
         instance.setStatus(ProcessInstanceStatus.RUNNING);
         instance.setUpdatedAt(Instant.now());
         return toDomain(instances.saveAndFlush(instance));
