@@ -6,6 +6,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 from app.business.catalog_service import CatalogService
+from app.business.context_engine import ContextEngine
 from app.business.execution_service import ExecutionService
 from app.business.knowledge_service import KnowledgeService
 from app.business.memory_candidate_extractor import MemoryCandidateExtractor
@@ -49,6 +50,17 @@ HTTPXClientInstrumentor().instrument()
 
 database = Database(settings.database_url)
 execution_repository = PostgresExecutionRepository(database)
+
+if settings.knowledge_embedding_provider.lower() != "hash":
+    raise ValueError(
+        "Unsupported KNOWLEDGE_EMBEDDING_PROVIDER. "
+        "Current portable runtime supports 'hash'; add another EmbeddingProvider adapter for cloud embeddings."
+    )
+embedding_provider = HashEmbeddingProvider(
+    dimensions=settings.knowledge_embedding_dimensions,
+    model=settings.knowledge_embedding_model,
+)
+
 memory_repository = PostgresMemoryRepository(database)
 memory_policy = MemoryPolicyEngine(
     min_inferred_confidence=settings.memory_min_inferred_confidence,
@@ -58,8 +70,19 @@ memory_policy = MemoryPolicyEngine(
 memory_service = MemoryService(
     repository=memory_repository,
     policy=memory_policy,
+    embedding_provider=embedding_provider,
     cleanup_poll_seconds=settings.memory_cleanup_poll_seconds,
 )
+context_engine = ContextEngine(
+    memory_service,
+    model_window_tokens=settings.context_model_window_tokens,
+    reserved_output_tokens=settings.context_reserved_output_tokens,
+    safety_margin_tokens=settings.context_safety_margin_tokens,
+    max_session_entries=settings.context_session_max_entries,
+    memory_top_k=settings.context_memory_top_k,
+    min_compression_tokens=settings.context_min_compression_tokens,
+)
+
 catalog_repository = PostgresCatalogRepository(database)
 catalog_service = CatalogService(catalog_repository)
 prompt_repository = PostgresPromptRepository(database)
@@ -85,15 +108,6 @@ if (
 else:
     memory_extractor = None
 knowledge_repository = PostgresKnowledgeRepository(database)
-if settings.knowledge_embedding_provider.lower() != "hash":
-    raise ValueError(
-        "Unsupported KNOWLEDGE_EMBEDDING_PROVIDER. "
-        "Current portable runtime supports 'hash'; add another EmbeddingProvider adapter for cloud embeddings."
-    )
-embedding_provider = HashEmbeddingProvider(
-    dimensions=settings.knowledge_embedding_dimensions,
-    model=settings.knowledge_embedding_model,
-)
 knowledge_service = KnowledgeService(
     repository=knowledge_repository,
     embedding_provider=embedding_provider,
@@ -123,6 +137,7 @@ step_executor = StepExecutor(
     knowledge_service=knowledge_service,
     model_gateway=model_gateway,
     execution_repository=execution_repository,
+    context_engine=context_engine,
     execution_model_profile=settings.execution_model_profile,
     knowledge_top_k=settings.knowledge_top_k,
     max_context_chars=settings.max_tool_result_chars_for_model,
