@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.domain.events import lifecycle_event, orchestration_event, result_event
 from app.domain.execution import ExecutionSubmission
@@ -23,13 +23,40 @@ class PostgresExecutionRepository:
 
         async with pool.acquire() as conn:
             async with conn.transaction():
+                if submission.session_id:
+                    session = await conn.fetchrow(
+                        """
+                        SELECT status,expires_at,(expires_at IS NOT NULL AND expires_at <= now()) AS expired
+                        FROM sessions
+                        WHERE id=$1
+                        FOR SHARE
+                        """,
+                        submission.session_id,
+                    )
+                    if not session:
+                        raise LookupError(
+                            f"Session '{submission.session_id}' does not exist"
+                        )
+                    if session["status"] != "ACTIVE":
+                        raise ValueError(
+                            f"Session '{submission.session_id}' is not ACTIVE"
+                        )
+                    if session["expired"]:
+                        raise ValueError(
+                            f"Session '{submission.session_id}' has expired"
+                        )
+
                 row = await conn.fetchrow(
                     """
                     INSERT INTO executions (
                         id, request_message_id, correlation_id, source,
-                        command_name, intent, input, context, instructions, status
+                        command_name, intent, input, context, instructions,
+                        command_metadata, session_id, status
                     )
-                    VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,'ACCEPTED')
+                    VALUES (
+                        $1,$2,$3,$4::jsonb,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,
+                        $10::jsonb,$11,'ACCEPTED'
+                    )
                     ON CONFLICT (request_message_id) DO NOTHING
                     RETURNING id
                     """,
@@ -42,6 +69,8 @@ class PostgresExecutionRepository:
                     json.dumps(command.input),
                     json.dumps(command.context),
                     json.dumps(command.instructions),
+                    json.dumps(command.metadata),
+                    submission.session_id,
                 )
 
                 if not row:
@@ -51,6 +80,60 @@ class PostgresExecutionRepository:
                     )
                     return existing["id"], False
 
+                command_content = {
+                    "name": command.name,
+                    "intent": command.intent,
+                    "input": command.input,
+                    "context": command.context,
+                    "metadata": command.metadata,
+                }
+                await conn.execute(
+                    """
+                    INSERT INTO execution_context_entries(
+                        id,execution_id,session_id,entry_type,entry_key,content,
+                        priority,token_estimate,source_type,provenance
+                    ) VALUES(
+                        $1,$2,$3,'COMMAND','command',$4::jsonb,
+                        100,$5,'COMMAND',$6::jsonb
+                    )
+                    """,
+                    uuid4(),
+                    submission.execution_id,
+                    submission.session_id,
+                    json.dumps(command_content),
+                    self._estimate_tokens(command_content),
+                    json.dumps(
+                        {
+                            "messageId": submission.message_id,
+                            "correlationId": submission.correlation_id,
+                        }
+                    ),
+                )
+                for index, instruction in enumerate(command.instructions):
+                    await conn.execute(
+                        """
+                        INSERT INTO execution_context_entries(
+                            id,execution_id,session_id,entry_type,entry_key,content,
+                            priority,token_estimate,source_type,provenance
+                        ) VALUES(
+                            $1,$2,$3,'INSTRUCTION',$4,$5::jsonb,
+                            100,$6,'COMMAND',$7::jsonb
+                        )
+                        """,
+                        uuid4(),
+                        submission.execution_id,
+                        submission.session_id,
+                        f"instruction:{index}",
+                        json.dumps({"text": instruction}),
+                        self._estimate_tokens(instruction),
+                        json.dumps({"instructionIndex": index}),
+                    )
+                if submission.session_id:
+                    await conn.execute(
+                        "UPDATE sessions SET updated_at=now() WHERE id=$1",
+                        submission.session_id,
+                    )
+
                 event = lifecycle_event(
                     execution_id=submission.execution_id,
                     correlation_id=submission.correlation_id,
@@ -59,6 +142,13 @@ class PostgresExecutionRepository:
                     status="ACCEPTED",
                     event_type="EXECUTION_ACCEPTED",
                     sequence=1,
+                    detail={
+                        "sessionId": (
+                            str(submission.session_id)
+                            if submission.session_id
+                            else None
+                        )
+                    },
                 )
                 await self._insert_outbox(
                     conn,
@@ -499,6 +589,28 @@ class PostgresExecutionRepository:
                     json.dumps(result),
                 )
 
+                await conn.execute(
+                    """
+                    INSERT INTO execution_context_entries(
+                        id,execution_id,session_id,entry_type,entry_key,content,
+                        priority,token_estimate,source_type,provenance
+                    )
+                    SELECT $1,id,session_id,'SUMMARY','execution-result',$2::jsonb,
+                           90,$3,'EXECUTION',$4::jsonb
+                    FROM executions WHERE id=$5
+                    """,
+                    uuid4(),
+                    json.dumps(result),
+                    self._estimate_tokens(result),
+                    json.dumps({"status": "COMPLETED"}),
+                    execution["id"],
+                )
+                if execution.get("session_id"):
+                    await conn.execute(
+                        "UPDATE sessions SET updated_at=now() WHERE id=$1",
+                        execution["session_id"],
+                    )
+
                 output = result_event(
                     execution_id=execution["id"],
                     correlation_id=execution["correlation_id"],
@@ -557,7 +669,15 @@ class PostgresExecutionRepository:
                 return None
 
             data = dict(row)
-            for field in ("source", "input", "context", "instructions", "result", "error"):
+            for field in (
+                "source",
+                "input",
+                "context",
+                "instructions",
+                "command_metadata",
+                "result",
+                "error",
+            ):
                 if isinstance(data.get(field), str):
                     data[field] = json.loads(data[field])
             return data
@@ -598,6 +718,27 @@ class PostgresExecutionRepository:
                 )
                 await conn.execute(
                     "DELETE FROM execution_plan_steps WHERE execution_id=$1",
+                    execution["id"],
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO execution_context_entries(
+                        id,execution_id,session_id,entry_type,entry_key,content,
+                        priority,token_estimate,source_type,provenance
+                    )
+                    SELECT $1,id,session_id,'PLAN','logical-plan',$2::jsonb,
+                           90,$3,'PLANNER',$4::jsonb
+                    FROM executions WHERE id=$5
+                    """,
+                    uuid4(),
+                    json.dumps(plan),
+                    self._estimate_tokens(plan),
+                    json.dumps(
+                        {
+                            "plannerModel": planner_model,
+                            "validation": validation,
+                        }
+                    ),
                     execution["id"],
                 )
                 if plan.get("steps"):
@@ -800,6 +941,49 @@ class PostgresExecutionRepository:
                     json.dumps(output),
                     json.dumps(usage),
                 )
+                step_type = await conn.fetchval(
+                    """
+                    SELECT step_type FROM execution_plan_steps
+                    WHERE execution_id=$1 AND step_id=$2
+                    """,
+                    execution["id"],
+                    step_id,
+                )
+                entry_type = {
+                    "TOOL": "TOOL_RESULT",
+                    "KNOWLEDGE": "KNOWLEDGE",
+                }.get(step_type, "STEP_RESULT")
+                await conn.execute(
+                    """
+                    INSERT INTO execution_context_entries(
+                        id,execution_id,session_id,step_id,entry_type,entry_key,
+                        content,priority,token_estimate,source_type,source_ref,
+                        provenance
+                    )
+                    SELECT $1,id,session_id,$2,$3,$4,$5::jsonb,80,$6,$7,$2,$8::jsonb
+                    FROM executions WHERE id=$9
+                    """,
+                    uuid4(),
+                    step_id,
+                    entry_type,
+                    f"step:{step_id}",
+                    json.dumps(output),
+                    self._estimate_tokens(output),
+                    step_type or "STEP",
+                    json.dumps(
+                        {
+                            "stepId": step_id,
+                            "stepType": step_type,
+                            "usage": usage,
+                        }
+                    ),
+                    execution["id"],
+                )
+                if execution.get("session_id"):
+                    await conn.execute(
+                        "UPDATE sessions SET updated_at=now() WHERE id=$1",
+                        execution["session_id"],
+                    )
                 event = orchestration_event(
                     execution_id=execution["id"],
                     correlation_id=execution["correlation_id"],
@@ -1290,7 +1474,15 @@ class PostgresExecutionRepository:
             )
 
     @staticmethod
+    def _estimate_tokens(value: Any) -> int:
+        if isinstance(value, str):
+            text = value
+        else:
+            text = json.dumps(value, ensure_ascii=False, default=str)
+        return max(1, len(text) // 4)
+
     async def _insert_outbox(
+        self,
         conn,
         execution_id: UUID,
         subject: str,

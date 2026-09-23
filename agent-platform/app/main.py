@@ -6,8 +6,12 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 from app.business.catalog_service import CatalogService
+from app.business.context_engine import ContextEngine
 from app.business.execution_service import ExecutionService
 from app.business.knowledge_service import KnowledgeService
+from app.business.memory_candidate_extractor import MemoryCandidateExtractor
+from app.business.memory_policy import MemoryPolicyEngine
+from app.business.memory_service import MemoryService
 from app.business.plan_policy_enricher import PlanPolicyEnricher
 from app.business.plan_validator import PlanValidator
 from app.business.planner_service import PlannerService
@@ -19,6 +23,7 @@ from app.infrastructure.api.rest.admin_router import create_admin_router
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
 from app.infrastructure.api.rest.prompt_router import create_prompt_router
 from app.infrastructure.api.rest.knowledge_router import create_knowledge_router
+from app.infrastructure.api.rest.memory_router import create_memory_router
 from app.infrastructure.api.rest.tool_router import create_tool_router
 from app.infrastructure.api.rest.router import create_router
 from app.infrastructure.bootstrap.markdown_loader import MarkdownCatalogLoader
@@ -34,6 +39,7 @@ from app.infrastructure.persistence.postgres.catalog_repository import PostgresC
 from app.infrastructure.persistence.postgres.database import Database
 from app.infrastructure.persistence.postgres.execution_repository import PostgresExecutionRepository
 from app.infrastructure.persistence.postgres.knowledge_repository import PostgresKnowledgeRepository
+from app.infrastructure.persistence.postgres.memory_repository import PostgresMemoryRepository
 from app.infrastructure.persistence.postgres.prompt_repository import PostgresPromptRepository
 from app.infrastructure.persistence.postgres.tool_repository import PostgresToolRepository
 
@@ -44,6 +50,40 @@ HTTPXClientInstrumentor().instrument()
 
 database = Database(settings.database_url)
 execution_repository = PostgresExecutionRepository(database)
+
+if settings.knowledge_embedding_provider.lower() != "hash":
+    raise ValueError(
+        "Unsupported KNOWLEDGE_EMBEDDING_PROVIDER. "
+        "Current portable runtime supports 'hash'; add another EmbeddingProvider adapter for cloud embeddings."
+    )
+embedding_provider = HashEmbeddingProvider(
+    dimensions=settings.knowledge_embedding_dimensions,
+    model=settings.knowledge_embedding_model,
+)
+
+memory_repository = PostgresMemoryRepository(database)
+memory_policy = MemoryPolicyEngine(
+    min_inferred_confidence=settings.memory_min_inferred_confidence,
+    max_content_chars=settings.memory_max_content_chars,
+    allow_inferred_persistence=settings.memory_allow_inferred_persistence,
+)
+memory_service = MemoryService(
+    repository=memory_repository,
+    policy=memory_policy,
+    embedding_provider=embedding_provider,
+    cleanup_poll_seconds=settings.memory_cleanup_poll_seconds,
+)
+context_engine = ContextEngine(
+    memory_service,
+    model_window_tokens=settings.context_model_window_tokens,
+    reserved_output_tokens=settings.context_reserved_output_tokens,
+    safety_margin_tokens=settings.context_safety_margin_tokens,
+    max_session_entries=settings.context_session_max_entries,
+    memory_top_k=settings.context_memory_top_k,
+    memory_min_score=settings.context_memory_min_score,
+    min_compression_tokens=settings.context_min_compression_tokens,
+)
+
 catalog_repository = PostgresCatalogRepository(database)
 catalog_service = CatalogService(catalog_repository)
 prompt_repository = PostgresPromptRepository(database)
@@ -56,16 +96,19 @@ mcp_client = McpStdioClient(
 tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
 tool_service = ToolService(tool_repository, tool_executor)
 model_gateway = LiteLLMModelGateway(settings)
-knowledge_repository = PostgresKnowledgeRepository(database)
-if settings.knowledge_embedding_provider.lower() != "hash":
-    raise ValueError(
-        "Unsupported KNOWLEDGE_EMBEDDING_PROVIDER. "
-        "Current portable runtime supports 'hash'; add another EmbeddingProvider adapter for cloud embeddings."
+if (
+    settings.memory_auto_extract_session
+    and settings.memory_allow_inferred_persistence
+):
+    memory_extractor = MemoryCandidateExtractor(
+        model_gateway,
+        model_profile=settings.memory_extractor_model_profile,
+        max_candidates=settings.memory_extractor_max_candidates,
+        max_input_chars=settings.memory_extractor_max_input_chars,
     )
-embedding_provider = HashEmbeddingProvider(
-    dimensions=settings.knowledge_embedding_dimensions,
-    model=settings.knowledge_embedding_model,
-)
+else:
+    memory_extractor = None
+knowledge_repository = PostgresKnowledgeRepository(database)
 knowledge_service = KnowledgeService(
     repository=knowledge_repository,
     embedding_provider=embedding_provider,
@@ -95,6 +138,7 @@ step_executor = StepExecutor(
     knowledge_service=knowledge_service,
     model_gateway=model_gateway,
     execution_repository=execution_repository,
+    context_engine=context_engine,
     execution_model_profile=settings.execution_model_profile,
     knowledge_top_k=settings.knowledge_top_k,
     max_context_chars=settings.max_tool_result_chars_for_model,
@@ -111,6 +155,8 @@ execution_service = ExecutionService(
     planner=planner_service,
     orchestration_engine=orchestration_engine,
     event_publisher=nats_adapter,
+    memory_service=memory_service,
+    memory_candidate_extractor=memory_extractor,
     worker_poll_seconds=settings.worker_poll_seconds,
     outbox_poll_seconds=settings.outbox_poll_seconds,
     execution_lease_seconds=settings.execution_lease_seconds,
@@ -146,13 +192,24 @@ async def lifespan(_: FastAPI):
         knowledge_service.cleanup_loop(),
         name="knowledge-cleanup",
     )
+    memory_cleanup = asyncio.create_task(
+        memory_service.cleanup_loop(),
+        name="memory-cleanup",
+    )
 
     try:
         yield
     finally:
         await execution_service.stop()
         await knowledge_service.stop()
-        for task in (worker, outbox, knowledge_worker, knowledge_cleanup):
+        await memory_service.stop()
+        for task in (
+            worker,
+            outbox,
+            knowledge_worker,
+            knowledge_cleanup,
+            memory_cleanup,
+        ):
             task.cancel()
         await model_gateway.close()
         await nats_adapter.close()
@@ -169,6 +226,7 @@ app.include_router(create_admin_router(database, nats_adapter, settings))
 app.include_router(create_catalog_router(catalog_service))
 app.include_router(create_prompt_router(prompt_service))
 app.include_router(create_knowledge_router(knowledge_service))
+app.include_router(create_memory_router(memory_service))
 app.include_router(create_tool_router(tool_service))
 FastAPIInstrumentor.instrument_app(app)
 

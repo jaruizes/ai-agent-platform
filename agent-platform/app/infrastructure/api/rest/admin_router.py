@@ -35,6 +35,7 @@ def create_admin_router(
                 SELECT
                     e.id,
                     e.correlation_id,
+                    e.session_id,
                     e.command_name,
                     e.intent,
                     e.status,
@@ -76,6 +77,11 @@ def create_admin_router(
             {
                 "executionId": str(row["id"]),
                 "correlationId": row["correlation_id"],
+                "sessionId": (
+                    str(row["session_id"])
+                    if row["session_id"]
+                    else None
+                ),
                 "commandName": row["command_name"],
                 "intent": row["intent"],
                 "status": row["status"],
@@ -159,6 +165,9 @@ def create_admin_router(
                     (SELECT COUNT(*) FROM prompts) AS prompts,
                     (SELECT COUNT(*) FROM knowledge_bases) AS knowledge_bases,
                     (SELECT COUNT(*) FROM knowledge_documents) AS documents,
+                    (SELECT COUNT(*) FROM sessions WHERE status='ACTIVE') AS sessions,
+                    (SELECT COUNT(*) FROM memory_entries WHERE status='ACTIVE') AS memories,
+                    (SELECT COUNT(*) FROM context_snapshots) AS context_snapshots,
                     (
                         SELECT COUNT(*) FROM execution_plan_steps
                         WHERE status='WAITING_APPROVAL'
@@ -215,6 +224,33 @@ def create_admin_router(
                 "router": settings.router_model_profile,
                 "planner": settings.planner_model_profile,
                 "execution": settings.execution_model_profile,
+            },
+            "contextEngine": {
+                "modelWindowTokens": settings.context_model_window_tokens,
+                "reservedOutputTokens": settings.context_reserved_output_tokens,
+                "safetyMarginTokens": settings.context_safety_margin_tokens,
+                "availableInputTokens": (
+                    settings.context_model_window_tokens
+                    - settings.context_reserved_output_tokens
+                    - settings.context_safety_margin_tokens
+                ),
+                "sessionMaxEntries": settings.context_session_max_entries,
+                "memoryTopK": settings.context_memory_top_k,
+                "memoryMinScore": settings.context_memory_min_score,
+                "minCompressionTokens": settings.context_min_compression_tokens,
+            },
+            "memory": {
+                "allowInferredPersistence": settings.memory_allow_inferred_persistence,
+                "minInferredConfidence": settings.memory_min_inferred_confidence,
+                "maxContentChars": settings.memory_max_content_chars,
+                "autoExtractSession": settings.memory_auto_extract_session,
+                "extractorModelProfile": settings.memory_extractor_model_profile,
+                "extractorMaxCandidates": settings.memory_extractor_max_candidates,
+                "extractorMaxInputChars": settings.memory_extractor_max_input_chars,
+                "embeddingProvider": settings.knowledge_embedding_provider,
+                "embeddingModel": settings.knowledge_embedding_model,
+                "embeddingDimensions": settings.knowledge_embedding_dimensions,
+                "cleanupPollSeconds": settings.memory_cleanup_poll_seconds,
             },
             "knowledge": {
                 "embeddingProvider": settings.knowledge_embedding_provider,

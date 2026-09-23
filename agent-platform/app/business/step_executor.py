@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from app.business.context_engine import ContextEngine
 from app.business.knowledge_service import KnowledgeService
 from app.business.ports import (
     CatalogRepositoryPort,
@@ -36,6 +37,7 @@ class StepExecutor:
         knowledge_service: KnowledgeService,
         model_gateway: ModelGatewayPort,
         execution_repository: ExecutionRepositoryPort,
+        context_engine: ContextEngine,
         execution_model_profile: str,
         knowledge_top_k: int,
         max_context_chars: int,
@@ -47,6 +49,7 @@ class StepExecutor:
         self._knowledge_service = knowledge_service
         self._model_gateway = model_gateway
         self._repository = execution_repository
+        self._context_engine = context_engine
         self._execution_model_profile = execution_model_profile
         self._knowledge_top_k = knowledge_top_k
         self._max_context_chars = max_context_chars
@@ -176,6 +179,8 @@ class StepExecutor:
                     execution=execution,
                     timeout_seconds=step.timeout_seconds,
                     operation=self._dispatch(
+                        execution=execution,
+                        attempt=attempt,
                         command=command,
                         step=step,
                         previous_results=previous_results,
@@ -236,6 +241,8 @@ class StepExecutor:
     async def _dispatch(
         self,
         *,
+        execution: dict[str, Any],
+        attempt: int,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -245,10 +252,16 @@ class StepExecutor:
         if step.type == "KNOWLEDGE":
             return await self._knowledge_step(command, step, previous_results)
         if step.type == "AGENT":
-            return await self._agent_step(command, step, previous_results)
+            return await self._agent_step(
+                execution, attempt, command, step, previous_results
+            )
         if step.type == "VALIDATE":
-            return await self._validation_step(command, step, previous_results)
-        return await self._model_step(command, step, previous_results)
+            return await self._validation_step(
+                execution, attempt, command, step, previous_results
+            )
+        return await self._model_step(
+            execution, attempt, command, step, previous_results
+        )
 
     async def _run_with_controls(
         self,
@@ -345,7 +358,7 @@ class StepExecutor:
         step: PlanStep,
         previous_results: dict[str, Any],
     ) -> dict[str, Any]:
-        query = self._reasoning_input(command, step, previous_results)
+        query = self._retrieval_input(command, step, previous_results)
         hits = await self._knowledge_service.retrieve(
             query=query,
             knowledge_base_names=step.knowledge_base_names,
@@ -375,6 +388,8 @@ class StepExecutor:
 
     async def _agent_step(
         self,
+        execution: dict[str, Any],
+        attempt: int,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
@@ -386,7 +401,7 @@ class StepExecutor:
         knowledge_context = ""
         if step.knowledge_base_names:
             hits = await self._knowledge_service.retrieve(
-                query=self._reasoning_input(command, step, previous_results),
+                query=self._retrieval_input(command, step, previous_results),
                 knowledge_base_names=step.knowledge_base_names,
                 top_k=self._knowledge_top_k,
             )
@@ -406,12 +421,37 @@ class StepExecutor:
             agent_instructions=agent.instructions,
             skills=self._skills_text(agent),
         )
-        detail = await self._model_gateway.complete_detailed(
+        effective = await self._context_engine.build(
+            execution=execution,
+            command=command,
+            step=step,
+            previous_results=previous_results,
             system_prompt=system_prompt,
-            user_prompt=(
-                self._reasoning_input(command, step, previous_results)
-                + knowledge_context
+            model_profile=self._execution_model_profile,
+            attempt=attempt,
+            additional_memory_scopes=[
+                ("AGENT", agent.name),
+                ("AGENT", str(agent.id)),
+            ],
+            knowledge_context=knowledge_context,
+            knowledge_provenance=(
+                [
+                    {
+                        "type": "KNOWLEDGE",
+                        "chunkId": str(hit.chunk_id),
+                        "documentId": str(hit.document_id),
+                        "documentName": hit.document_name,
+                        "score": hit.score,
+                    }
+                    for hit in hits
+                ]
+                if step.knowledge_base_names
+                else []
             ),
+        )
+        detail = await self._model_gateway.complete_detailed(
+            system_prompt=effective.system_prompt,
+            user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
         )
@@ -423,18 +463,35 @@ class StepExecutor:
             "modelProfile": detail.get("modelProfile"),
             "agent": agent.name,
             "tool": None,
+            "context": {
+                "promptTokenEstimate": effective.prompt_token_estimate,
+                "selectedTokenEstimate": effective.selected_token_estimate,
+                "droppedTokenEstimate": effective.dropped_token_estimate,
+                "compressed": effective.compressed,
+            },
         }
 
     async def _model_step(
         self,
+        execution: dict[str, Any],
+        attempt: int,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
     ) -> dict[str, Any]:
         prompt = await self._prompt_service.get_by_name("direct-executor")
-        detail = await self._model_gateway.complete_detailed(
+        effective = await self._context_engine.build(
+            execution=execution,
+            command=command,
+            step=step,
+            previous_results=previous_results,
             system_prompt=prompt.content,
-            user_prompt=self._reasoning_input(command, step, previous_results),
+            model_profile=self._execution_model_profile,
+            attempt=attempt,
+        )
+        detail = await self._model_gateway.complete_detailed(
+            system_prompt=effective.system_prompt,
+            user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
         )
@@ -446,29 +503,57 @@ class StepExecutor:
             "modelProfile": detail.get("modelProfile"),
             "agent": None,
             "tool": None,
+            "context": {
+                "promptTokenEstimate": effective.prompt_token_estimate,
+                "selectedTokenEstimate": effective.selected_token_estimate,
+                "droppedTokenEstimate": effective.dropped_token_estimate,
+                "compressed": effective.compressed,
+            },
         }
 
     async def _validation_step(
         self,
+        execution: dict[str, Any],
+        attempt: int,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
     ) -> dict[str, Any]:
         hits = await self._knowledge_service.retrieve(
-            query=self._reasoning_input(command, step, previous_results),
+            query=self._retrieval_input(command, step, previous_results),
             knowledge_base_names=step.knowledge_base_names,
             top_k=self._knowledge_top_k,
         )
         prompt = await self._prompt_service.get_by_name("validation-executor")
-        detail = await self._model_gateway.complete_detailed(
+        knowledge_context = (
+            "Knowledge usage mode: "
+            + step.knowledge_usage_mode
+            + "\n\n"
+            + self._knowledge_service.format_context(hits)
+        )
+        effective = await self._context_engine.build(
+            execution=execution,
+            command=command,
+            step=step,
+            previous_results=previous_results,
             system_prompt=prompt.content,
-            user_prompt=(
-                self._reasoning_input(command, step, previous_results)
-                + "\n\nKnowledge usage mode: "
-                + step.knowledge_usage_mode
-                + "\n\nManaged knowledge:\n"
-                + self._knowledge_service.format_context(hits)
-            ),
+            model_profile=self._execution_model_profile,
+            attempt=attempt,
+            knowledge_context=knowledge_context,
+            knowledge_provenance=[
+                {
+                    "type": "KNOWLEDGE",
+                    "chunkId": str(hit.chunk_id),
+                    "documentId": str(hit.document_id),
+                    "documentName": hit.document_name,
+                    "score": hit.score,
+                }
+                for hit in hits
+            ],
+        )
+        detail = await self._model_gateway.complete_detailed(
+            system_prompt=effective.system_prompt,
+            user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.0,
         )
@@ -492,33 +577,47 @@ class StepExecutor:
             "modelProfile": detail.get("modelProfile"),
             "agent": None,
             "tool": None,
+            "context": {
+                "promptTokenEstimate": effective.prompt_token_estimate,
+                "selectedTokenEstimate": effective.selected_token_estimate,
+                "droppedTokenEstimate": effective.dropped_token_estimate,
+                "compressed": effective.compressed,
+            },
         }
 
-    def _reasoning_input(
+    def _retrieval_input(
         self,
         command: Command,
         step: PlanStep,
         previous_results: dict[str, Any],
     ) -> str:
-        dependencies = {
-            dependency: previous_results.get(dependency)
-            for dependency in step.depends_on
-        }
+        dependencies: dict[str, Any] = {}
+        for dependency in step.depends_on:
+            value = previous_results.get(dependency)
+            if isinstance(value, dict):
+                dependencies[dependency] = (
+                    value.get("summary")
+                    or (value.get("output") or {}).get("content")
+                    or str(value)
+                )
+            elif value is not None:
+                dependencies[dependency] = str(value)
+
         payload = {
             "task": step.description,
             "intent": command.intent,
             "input": command.input,
             "context": command.context,
-            "instructions": [*command.instructions, *step.instructions],
-            "dependencyResults": dependencies,
+            "dependencySummaries": dependencies,
         }
-        serialized = json.dumps(payload, ensure_ascii=False, indent=2)
-        if len(serialized) > self._max_context_chars:
-            raise ValueError(
-                "Planned step context is too large to inject safely into the model: "
-                f"{len(serialized)} characters > {self._max_context_chars}"
-            )
-        return serialized
+        serialized = json.dumps(
+            payload,
+            ensure_ascii=False,
+            default=str,
+        )
+        # Retrieval queries are intentionally compact. Large source material belongs
+        # to Knowledge/Artifacts and is selected later by ContextEngine.
+        return serialized[: min(self._max_context_chars, 8000)]
 
     def _resolve_value(
         self,

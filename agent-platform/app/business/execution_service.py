@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 
 from opentelemetry import trace
 
+from app.business.memory_candidate_extractor import MemoryCandidateExtractor
+from app.business.memory_service import MemoryService
 from app.business.planner_service import PlannerService
 from app.business.ports import (
     EventPublisherPort,
@@ -32,6 +34,8 @@ class ExecutionService:
         planner: PlannerService,
         orchestration_engine: OrchestrationEnginePort,
         event_publisher: EventPublisherPort,
+        memory_service: MemoryService,
+        memory_candidate_extractor: MemoryCandidateExtractor | None,
         *,
         worker_poll_seconds: float,
         outbox_poll_seconds: float,
@@ -42,6 +46,8 @@ class ExecutionService:
         self._planner = planner
         self._orchestration_engine = orchestration_engine
         self._event_publisher = event_publisher
+        self._memory_service = memory_service
+        self._memory_candidate_extractor = memory_candidate_extractor
         self._worker_poll_seconds = worker_poll_seconds
         self._outbox_poll_seconds = outbox_poll_seconds
         self._execution_lease_seconds = execution_lease_seconds
@@ -50,6 +56,10 @@ class ExecutionService:
         self._stop = asyncio.Event()
 
     async def submit(self, submission: ExecutionSubmission) -> tuple[UUID, bool]:
+        if submission.session_id:
+            await self._memory_service.require_active_session(
+                submission.session_id
+            )
         return await self._repository.create_execution(submission)
 
     async def get_execution(self, execution_id: UUID) -> dict[str, Any] | None:
@@ -173,6 +183,9 @@ class ExecutionService:
                     input=self._as_object(execution["input"]),
                     context=self._as_object(execution["context"]),
                     instructions=self._as_list(execution["instructions"]),
+                    metadata=self._as_object(
+                        execution.get("command_metadata") or {}
+                    ),
                 )
 
                 await self._honor_control_before_plan(execution)
@@ -266,6 +279,36 @@ class ExecutionService:
                     normalized_intent=command.intent.strip(),
                     result=result,
                 )
+
+                if (
+                    self._memory_candidate_extractor is not None
+                    and execution.get("session_id")
+                ):
+                    try:
+                        candidates = (
+                            await self._memory_candidate_extractor.extract_for_session(
+                                session_id=execution["session_id"],
+                                execution_id=execution["id"],
+                                command=command,
+                                result=result,
+                            )
+                        )
+                        decisions = await self._memory_service.persist_candidates(
+                            candidates
+                        )
+                        span.set_attribute(
+                            "execution.memory.candidates",
+                            len(candidates),
+                        )
+                        span.set_attribute(
+                            "execution.memory.persisted",
+                            sum(1 for item in decisions if item["persisted"]),
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Session memory extraction failed execution_id=%s",
+                            execution["id"],
+                        )
             except OrchestrationSuspended as exc:
                 logger.info(
                     "Execution suspended execution_id=%s status=%s reason=%s",

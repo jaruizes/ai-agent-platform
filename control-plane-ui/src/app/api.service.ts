@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Agent, ExecutionDetail, ExecutionSummary, KnowledgeBase, KnowledgeDocument, McpServer, Orchestration, Overview, PendingApproval, Prompt, RetrievalHit, RuntimeInfo, Skill, Tool } from './models';
+import { Agent, ContextSnapshot, ExecutionDetail, ExecutionSummary, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
 
 @Injectable({providedIn:'root'})
 export class ApiService {
@@ -20,6 +20,22 @@ export class ApiService {
   retry(id:string,reason='Control Plane retry'){return firstValueFrom(this.http.post(`${this.base}/executions/${id}/retry`,{reason}));}
   cancel(id:string,reason='Control Plane cancellation'){return firstValueFrom(this.http.post(`${this.base}/executions/${id}/cancel`,{reason}));}
   approval(executionId:string,stepId:string,approved:boolean,actor:string,comment:string){return firstValueFrom(this.http.post(`${this.base}/executions/${executionId}/steps/${stepId}/approval`,{approved,actor,comment}));}
+  contextSnapshots(executionId:string){return firstValueFrom(this.http.get<ContextSnapshot[]>(`${this.base}/executions/${executionId}/context-snapshots`));}
+  executionContext(executionId:string){return firstValueFrom(this.http.get<any[]>(`${this.base}/executions/${executionId}/context`));}
+
+  sessions(status=''){return firstValueFrom(this.http.get<SessionInfo[]>(`${this.base}/sessions`,{params:status?{status}:{}}));}
+  createSession(body:any){return firstValueFrom(this.http.post<SessionInfo>(`${this.base}/sessions`,body));}
+  updateSession(id:string,body:any){return firstValueFrom(this.http.put<SessionInfo>(`${this.base}/sessions/${id}`,body));}
+  closeSession(id:string){return firstValueFrom(this.http.post<SessionInfo>(`${this.base}/sessions/${id}/close`,{}));}
+  sessionContext(id:string){return firstValueFrom(this.http.get<any[]>(`${this.base}/sessions/${id}/context`));}
+  sessionExecutions(id:string){return firstValueFrom(this.http.get<any[]>(`${this.base}/sessions/${id}/executions`));}
+
+  memories(params:any={}){return firstValueFrom(this.http.get<MemoryInfo[]>(`${this.base}/memories`,{params}));}
+  createMemory(body:any){return firstValueFrom(this.http.post<any>(`${this.base}/memories`,body));}
+  revokeMemory(id:string){return firstValueFrom(this.http.post<MemoryInfo>(`${this.base}/memories/${id}/revoke`,{}));}
+  retrieveMemories(query:string,scopes:any[],topK=8){return firstValueFrom(this.http.post<MemoryInfo[]>(`${this.base}/memories/retrieve`,{query,scopes,topK}));}
+  memoryPolicy(){return firstValueFrom(this.http.get<any>(`${this.base}/memory-policy`));}
+  memoryPolicyAudit(){return firstValueFrom(this.http.get<any[]>(`${this.base}/memory-policy/audit`));}
 
   agents(){return firstValueFrom(this.http.get<Agent[]>(`${this.base}/agents`));}
   saveAgent(item:any){const body={name:item.name,description:item.description||'',instructions:item.instructions||'',skills:item.skills||[],enabled:item.enabled!==false};return item.id?firstValueFrom(this.http.put<Agent>(`${this.base}/agents/${item.id}`,body)):firstValueFrom(this.http.post<Agent>(`${this.base}/agents`,body));}

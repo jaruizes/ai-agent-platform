@@ -68,6 +68,7 @@ class NatsAdapter:
             message_id=envelope.messageId,
             correlation_id=envelope.correlationId,
             source=envelope.source.model_dump(),
+            session_id=envelope.data.execution.sessionId,
             command=Command(
                 name=message.name,
                 intent=message.intent,
@@ -77,7 +78,10 @@ class NatsAdapter:
                 metadata=message.metadata,
             ),
         )
-        await service.submit(submission)
+        try:
+            await service.submit(submission)
+        except (LookupError, ValueError):
+            return False
         return True
 
     async def _ensure_streams(self) -> None:

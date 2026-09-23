@@ -33,7 +33,11 @@ M3  Managed Knowledge / RAG            ✅
 M4  Agentic Orchestration / LangGraph  ✅
 M5  Durable Execution                  ✅
 M6  Angular Control Plane              ✅
-M7  Context & Memory                   next
-M8  Governance & Evals
+M7  Context & Memory                  ✅
+    M7.1 Sessions + Working Context    ✅
+    M7.2 Persistent Memory + Policies  ✅
+    M7.3 Context Engine + Budgets      ✅
+    M7.4 Context snapshots + UI        ✅
+M8  Governance & Evals                 next
 M9  Semantic Layer
 ```

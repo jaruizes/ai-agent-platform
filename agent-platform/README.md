@@ -886,3 +886,270 @@ GET /v1/admin/runtime
 ```
 
 The Angular container is independent from the execution runtime. Nginx serves the SPA and proxies `/api/*` to `agent-platform:8080`. If the UI is unavailable, runtime command processing continues normally.
+
+
+---
+
+# M7 — Context & Memory
+
+M7 is complete in this branch. The first half introduces Sessions, Working Context and Persistent Memory; M7.3/M7.4 add runtime context composition, budgeting, retrieval and inspection.
+
+Implemented:
+
+```text
+M7.1 Sessions + Working Context       ✅
+M7.2 Persistent Memory + Policies     ✅
+M7.3 Context Engine + Budget Manager  ✅
+M7.4 Context snapshots + UI           ✅
+```
+
+## Sessions
+
+Create a session:
+
+```bash
+curl -X POST http://localhost:8080/v1/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "architecture-refinement",
+    "scope": "TENANT",
+    "metadata": {"project": "demo"}
+  }'
+```
+
+Use its id in an execution:
+
+```json
+{
+  "sessionId": "<SESSION_ID>",
+  "command": {
+    "name": "architecture-review",
+    "intent": "Review this architecture.",
+    "input": {},
+    "context": {},
+    "instructions": []
+  }
+}
+```
+
+REST and NATS use the same optional `sessionId`.
+
+Inspect continuity:
+
+```text
+GET /v1/sessions/{sessionId}/executions
+GET /v1/sessions/{sessionId}/context
+GET /v1/executions/{executionId}/context
+```
+
+Working Context is written transactionally with execution state. Command, instructions, plan, completed step output and final result become context entries with provenance and token estimates.
+
+## Persistent Memory
+
+Create explicit memory:
+
+```bash
+curl -X POST http://localhost:8080/v1/memories \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "scopeType": "TENANT",
+    "scopeId": "demo",
+    "memoryType": "CONSTRAINT",
+    "key": "primary-cloud",
+    "content": "The primary cloud for this programme is AWS.",
+    "importance": 0.9
+  }'
+```
+
+Evaluate an inferred candidate:
+
+```bash
+curl -X POST http://localhost:8080/v1/memory-candidates/evaluate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "scopeType": "TENANT",
+    "scopeId": "demo",
+    "memoryType": "PREFERENCE",
+    "key": "messaging",
+    "content": "Prefer NATS for lightweight event messaging.",
+    "confidence": 0.91,
+    "importance": 0.7,
+    "explicit": false
+  }'
+```
+
+Every write is evaluated by deterministic Memory Policy.
+
+Current defaults:
+
+```env
+MEMORY_ALLOW_INFERRED_PERSISTENCE=true
+MEMORY_MIN_INFERRED_CONFIDENCE=0.80
+MEMORY_MAX_CONTENT_CHARS=8000
+MEMORY_CLEANUP_POLL_SECONDS=60
+MEMORY_AUTO_EXTRACT_SESSION=true
+MEMORY_EXTRACTOR_MODEL_PROFILE=router-fast
+MEMORY_EXTRACTOR_MAX_CANDIDATES=8
+MEMORY_EXTRACTOR_MAX_INPUT_CHARS=50000
+```
+
+Policy and audit:
+
+```text
+GET /v1/memory-policy
+GET /v1/memory-policy/audit
+```
+
+The audit intentionally does not persist rejected candidate content. It stores content length + SHA-256 and metadata keys.
+
+Memory lifecycle:
+
+```text
+ACTIVE
+  +--> SUPERSEDED  same scope + key replaced
+  +--> REVOKED     explicit revoke
+  +--> EXPIRED     TTL/session lifecycle
+```
+
+Session-scoped memory is expired automatically when its Session closes or expires.
+
+At the M7.2 boundary memory is persisted and queryable without being blindly appended to prompts. M7.3 then introduces scoped retrieval, selection and budgeting through ContextEngine.
+
+
+## Automatic session-memory extraction
+
+When an execution has a `sessionId` and finishes successfully, M7.2 can invoke a lightweight model profile to propose reusable session-memory candidates.
+
+```text
+Execution COMPLETED
+  -> MemoryCandidateExtractor
+  -> MemoryCandidate[]
+  -> deterministic MemoryPolicyEngine
+  -> persist/reject
+```
+
+The extractor is configured with:
+
+```env
+MEMORY_AUTO_EXTRACT_SESSION=true
+MEMORY_EXTRACTOR_MODEL_PROFILE=router-fast
+MEMORY_EXTRACTOR_MAX_CANDIDATES=8
+```
+
+Automatic candidates are always `scopeType=SESSION`. Cross-session scopes such as USER, TEAM, TENANT and AGENT require explicit memory creation at this milestone.
+
+Extraction is best-effort and runs after the execution result is already durable. An extraction/model failure never changes a successful execution into FAILED.
+
+Automatic extraction only proposes/persists memory. M7.3 independently decides whether a memory is relevant enough and fits the effective context budget.
+
+
+> If inferred persistence is disabled, automatic extraction is skipped entirely, avoiding an unnecessary model call.
+
+
+---
+
+# M7.3 / M7.4 — Context Engine, Budgets and Context Inspector
+
+M7 is now complete.
+
+Model-backed AGENT, MODEL and VALIDATE steps route their model input through a platform-owned Context Engine:
+
+```text
+Command
++ current PlanStep
++ dependency results
++ previous Session Working Context
++ relevant Persistent Memory
++ managed Knowledge
++ system prompt
+        |
+        v
+Context Engine
+        |
+        v
+Budget Manager
+        |
+        +-- INCLUDE
+        +-- COMPRESS_TRUNCATE
+        +-- DROP_BUDGET
+        |
+        v
+EffectiveContext
+        |
+        v
+Model Gateway
+```
+
+The budget applies to the effective system prompt too. The Model Gateway receives the budgeted system and user prompts, so the snapshot and the actual provider input cannot diverge.
+
+Default budget:
+
+```env
+CONTEXT_MODEL_WINDOW_TOKENS=200000
+CONTEXT_RESERVED_OUTPUT_TOKENS=16000
+CONTEXT_SAFETY_MARGIN_TOKENS=10000
+CONTEXT_SESSION_MAX_ENTRIES=24
+CONTEXT_MEMORY_TOP_K=8
+CONTEXT_MEMORY_MIN_SCORE=0.12
+CONTEXT_MIN_COMPRESSION_TOKENS=128
+```
+
+Persistent Memory now supports hybrid retrieval with pgvector + full-text search. Relevance (vector + lexical) is gated first; confidence, importance and freshness then affect ranking. A Session exposes its own SESSION memory and, when it has an `ownerKey`, the declared USER/TEAM/TENANT scope. AGENT steps additionally expose deterministic AGENT:<name> and AGENT:<id> scopes from the Agent Registry.
+
+Memory retrieval playground:
+
+```text
+POST /v1/memories/retrieve
+```
+
+Example:
+
+```json
+{
+  "query": "Which cloud constraints apply?",
+  "scopes": [
+    {"scopeType": "TENANT", "scopeId": "demo"}
+  ],
+  "topK": 8
+}
+```
+
+Every AGENT/MODEL/VALIDATE step model call persists a logical Context Snapshot before the provider invocation:
+
+```text
+GET /v1/executions/{executionId}/context-snapshots
+GET /v1/executions/{executionId}/context-snapshots?stepId=<stepId>
+```
+
+A snapshot contains the model budget, component types, token estimates, selected/compressed/dropped decisions and provenance. It intentionally does not duplicate the complete final prompt.
+
+The Angular Control Plane now contains:
+
+- Sessions management and Working Context inspection;
+- Persistent Memory browser and explicit memory creation/revoke;
+- Memory Policy and audit;
+- hybrid Memory retrieval playground;
+- Context Engine runtime settings;
+- per-execution Context Snapshots showing composition, budget, compression and provenance;
+- Session selector when starting an execution from the UI.
+
+This completes the M7 boundary:
+
+```text
+Execution State != Working Context != Persistent Memory != Knowledge
+```
+
+M8 can now build Governance/Evals on top of persisted plan state, model usage, memory policy audit and context provenance.
+
+
+## M7 end-to-end smoke test
+
+After rebuilding the branch, a deterministic smoke test is available:
+
+```bash
+bash scripts/m7-smoke.sh
+```
+
+It creates a Session, persists TENANT + SESSION memory, exercises hybrid retrieval, launches a session-aware execution, waits for completion, verifies that at least one MEMORY component was selected by ContextEngine, and prints Working Context, snapshots and policy state.
+
+The script intentionally uses explicit memories for its hard assertions so the test does not depend on whether the LLM extractor chooses a specific inferred candidate. Automatically inferred SESSION memories are printed separately for inspection.
