@@ -516,7 +516,7 @@ class StepExecutor:
         previous_results: dict[str, Any],
     ) -> dict[str, Any]:
         hits = await self._knowledge_service.retrieve(
-            query=self._reasoning_input(command, step, previous_results),
+            query=self._retrieval_input(command, step, previous_results),
             knowledge_base_names=step.knowledge_base_names,
             top_k=self._knowledge_top_k,
         )
