@@ -85,6 +85,7 @@ def create_governance_router(service)->APIRouter:
             model_profile=request.modelProfile,
             projected_prompt_tokens=request.projectedPromptTokens,
             projected_completion_tokens=request.projectedCompletionTokens,
+            record=False,
         )
         return {
             "allowed": evaluation.allowed,
