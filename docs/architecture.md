@@ -4487,7 +4487,6 @@ The domain reserves the following deterministic process step kinds:
 ```text
 SERVICE
 TOOL
-AGENT
 AGENTIC_EXECUTION
 DECISION
 HUMAN
@@ -4495,16 +4494,15 @@ WAIT_EVENT
 SUBPROCESS
 ```
 
-The distinction between the two agent-related types is preserved:
+Agentic delegation is represented only as:
 
 ```text
-AGENT
-  -> known agent/delegation target
-
 AGENTIC_EXECUTION
-  -> open-ended objective delegated through standard ExecutionCommand
-     so Agent Platform decides the plan/resources
+  -> objective delegated through the standard ExecutionCommand
+  -> Agent Platform decides agents, tools, knowledge and plan
 ```
+
+Process Platform never identifies a concrete Agent Platform agent.
 
 M9.2 only models these step types. Their runtime adapters belong to M9.3.
 
