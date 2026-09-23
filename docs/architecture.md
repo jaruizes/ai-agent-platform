@@ -143,7 +143,7 @@ flowchart TB
             OP["OrchestrationEngine Port"]
             LG["LangGraph Engine"]
             SE["Step Executor"]
-            CE["Context Engine<br/>(M7.3 pending)"]
+            CE["Context Engine<br/>M7.3"]
             DE["Durable Execution<br/>Leases / Recovery / Controls"]
         end
 
@@ -174,6 +174,7 @@ flowchart TB
             WC["Working Context<br/>M7.1"]
             PM["Persistent Memory<br/>M7.2"]
             MP["Memory Policy Engine<br/>M7.2"]
+            CS["Context Snapshots<br/>M7.4"]
             RS["Durable Execution State<br/>Execution + Plan + Step Checkpoints"]
             CACHE["Caches"]
             MP --> PM
@@ -239,6 +240,11 @@ flowchart TB
     VS --> MG
     MS --> MG
     SE --> CE
+    CE --> WC
+    CE --> PM
+    CE --> RAG
+    CE --> MG
+    CE --> CS
     CG --> SESS
     Runtime --> WC
     Runtime --> State
@@ -2736,7 +2742,7 @@ http://localhost:8081
 
 ---
 
-## 19. M7.1 / M7.2 — Sessions, Working Context y Persistent Memory
+## 19. M7 — Context & Memory
 
 M7 introduce una separación explícita entre **estado de ejecución**, **contexto de trabajo**, **sesión**, **memoria persistente** y **knowledge**.
 
@@ -2745,8 +2751,8 @@ En esta rama se implementan únicamente:
 ```text
 M7.1  Sessions + Working Context       ✅
 M7.2  Persistent Memory + Policies     ✅
-M7.3  Context Engine + Budget Manager  pendiente
-M7.4  Context snapshots + UI           pendiente
+M7.3  Context Engine + Budget Manager  ✅
+M7.4  Context snapshots + UI           ✅
 ```
 
 La decisión más importante es que implementar memoria **no significa todavía inyectarla automáticamente en los prompts**. M7.1 y M7.2 crean el modelo, persistencia, lifecycle, contratos y políticas. M7.3 decidirá qué contexto y qué memorias se recuperan y entran realmente en cada llamada al modelo.
@@ -3183,7 +3189,7 @@ q
 limit
 ```
 
-M7.2 no incorpora todavía semantic retrieval de memoria; se implementará cuando M7.3 necesite seleccionar contexto para un step.
+M7.3 incorpora retrieval híbrido de memoria mediante pgvector + full-text search + importance. Las memorias se embeben al persistirse y la selección se limita a scopes explícitamente asociados a la Session.
 
 ### Command metadata
 
@@ -3197,42 +3203,179 @@ executions.command_metadata
 
 y se restaura al reconstruir el `Command` en el worker durable.
 
-### Frontera con M7.3
+### M7.3 — Context Engine + Budget Manager
 
-Después de M7.1/M7.2:
-
-```text
-Session             ✅
-Working Context     ✅
-Persistent Memory   ✅
-Memory Policies     ✅
-
-Context selection   ❌
-Memory retrieval
-for model calls     ❌
-Context budgets     ❌
-Compression         ❌
-Context snapshots   ❌
-```
-
-Es deliberado.
-
-El `StepExecutor` continúa construyendo la entrada al modelo como en M4/M5. M7.3 introducirá el `ContextEngine` que seleccionará:
+Los steps que llaman a un modelo ya no concatenan directamente command, outputs previos y RAG. `StepExecutor` delega en `ContextEngine`:
 
 ```text
 Command
 + Current Step
 + Previous Results
-+ Session Context
-+ Persistent Memory
-+ Knowledge
-+ Policies
++ Session Working Context
++ Relevant Persistent Memory
++ Managed Knowledge
++ System Prompt
         |
         v
-Context Budget Manager
+Context Engine
         |
         v
-EffectiveContext
+Budget Manager
+        |
+   +----+----------------+
+   |                     |
+ include              compress/drop
+   |                     |
+   +----------+----------+
+              |
+              v
+       EffectiveContext
+              |
+              v
+          Model Gateway
+```
+
+El budget inicial es configurable:
+
+```text
+CONTEXT_MODEL_WINDOW_TOKENS=200000
+CONTEXT_RESERVED_OUTPUT_TOKENS=16000
+CONTEXT_SAFETY_MARGIN_TOKENS=10000
+CONTEXT_SESSION_MAX_ENTRIES=24
+CONTEXT_MEMORY_TOP_K=8
+CONTEXT_MIN_COMPRESSION_TOKENS=128
+```
+
+El input disponible se calcula como:
+
+```text
+model window
+- reserved output
+- safety margin
+= available input budget
+```
+
+Las prioridades actuales son deterministas:
+
+```text
+system prompt / current task       mandatory
+dependency results                 mandatory
+managed knowledge                  high
+persistent memory                  high
+session summaries/facts            medium-high
+older step/tool/plan context        lower
+```
+
+Si un componente opcional no cabe, se comprime por truncado controlado o se descarta. Si un componente obligatorio excede el budget, se comprime hasta el espacio disponible; si ni siquiera existe espacio para contexto obligatorio, el step falla antes de llamar al modelo.
+
+La compresión inicial es deliberadamente determinista y no introduce una segunda llamada LLM. M8 podrá evaluar si conviene incorporar estrategias de summarization semántica.
+
+### Memory retrieval
+
+`memory_entries` incorpora:
+
+```text
+embedding vector(768)
+search_vector tsvector
+```
+
+El score inicial combina:
+
+```text
+0.72 semantic similarity
+0.18 lexical rank
+0.10 importance
+```
+
+El Context Engine no consulta memoria global indiscriminadamente. Para una ejecución con Session recupera:
+
+```text
+SESSION:<sessionId>
+
++ opcionalmente
+USER/TEAM/TENANT:<ownerKey>
+```
+
+cuando la propia Session tiene un `ownerKey`. No se permite que el LLM invente scopes de memoria.
+
+### M7.4 — Context snapshots + Control Plane
+
+Cada llamada de modelo persiste un `ContextSnapshot` antes de invocar el Model Gateway.
+
+La tabla:
+
+```text
+context_snapshots
+```
+
+almacena:
+
+```text
+executionId
+stepId
+modelProfile
+budget
+components
+provenance
+promptTokenEstimate
+selectedTokenEstimate
+droppedTokenEstimate
+compressed
+createdAt
+```
+
+Cada component registra:
+
+```text
+type
+priority
+mandatory
+sourceRef
+tokenEstimate
+selected
+action = INCLUDE | COMPRESS_TRUNCATE | DROP_BUDGET
+metadata
+```
+
+No se persiste una copia completa del prompt final dentro del snapshot. Se guarda su composición y provenance, evitando duplicar indiscriminadamente contenido sensible o voluminoso.
+
+API:
+
+```text
+GET /v1/executions/{executionId}/context-snapshots
+GET /v1/executions/{executionId}/context-snapshots?stepId=<step>
+POST /v1/memories/retrieve
+```
+
+El Control Plane añade:
+
+```text
+Sessions
+Persistent Memory
+Memory retrieval playground
+Memory Policy + audit
+Context Engine runtime settings
+Context composition per model step
+selected/compressed/dropped token estimates
+provenance
+```
+
+La UI de creación de Execution permite asociar directamente una Session para probar continuidad de extremo a extremo.
+
+### Estado tras M7
+
+```text
+Session                    ✅
+Working Context            ✅
+Persistent Memory          ✅
+Automatic session memory   ✅
+Memory Policy              ✅
+Hybrid memory retrieval    ✅
+Context Engine             ✅
+Context Budget Manager     ✅
+Context compression        ✅
+Context snapshots          ✅
+Control Plane inspection   ✅
 ```
 
 ### ADR-032 — Session es la frontera explícita de continuidad
@@ -3340,3 +3483,68 @@ Platform -> decide qué se recuerda
 
 
 > If inferred persistence is disabled, automatic extraction is skipped entirely, avoiding an unnecessary model call.
+
+
+### ADR-039 — Context Engine es la única frontera de composición para llamadas de modelo
+
+**Estado:** Accepted  
+**Contexto:** M7.3
+
+Los steps AGENT, MODEL y VALIDATE no construyen directamente el `user_prompt`.
+
+```text
+StepExecutor
+   |
+   v
+ContextEngine
+   |
+   v
+EffectiveContext
+   |
+   v
+ModelGateway
+```
+
+Esta decisión centraliza selección, scopes, budgets, compression y provenance. Las Tools y operaciones de retrieval que no llaman a un modelo no necesitan ContextSnapshot.
+
+### ADR-040 — El budget de contexto se aplica antes de la llamada al proveedor
+
+**Estado:** Accepted  
+**Contexto:** M7.3
+
+La plataforma reserva explícitamente output y margen de seguridad antes de consumir el context window. Los componentes se seleccionan por prioridad y obligatoriedad.
+
+No se confía en que el proveedor rechace un prompt sobredimensionado como mecanismo normal de control.
+
+### ADR-041 — Persistent Memory usa retrieval híbrido, pero no es Knowledge
+
+**Estado:** Accepted  
+**Contexto:** M7.3
+
+Memory reutiliza pgvector y full-text search porque son mecanismos útiles de retrieval, pero mantiene tabla, lifecycle, scopes y policies propios.
+
+```text
+Knowledge != Memory
+```
+
+Compartir tecnología de búsqueda no fusiona sus semánticas.
+
+### ADR-042 — Context Snapshot registra composición y provenance, no el prompt completo
+
+**Estado:** Accepted  
+**Contexto:** M7.4
+
+El snapshot persiste qué componentes participaron, cuánto ocuparon, si fueron incluidos/comprimidos/descartados y de dónde procedían.
+
+No duplica necesariamente todo el contenido efectivo. Esto reduce almacenamiento, evita nuevas copias de datos sensibles y mantiene suficiente información para debugging, auditoría y M8 Evals.
+
+### ADR-043 — La continuidad cross-session depende del scope declarado por Session
+
+**Estado:** Accepted  
+**Contexto:** M7.3
+
+El Context Engine recupera automáticamente memoria `SESSION` y, cuando existe `ownerKey`, el scope declarado por la Session.
+
+No acepta scopes inventados por el Planner/LLM para ampliar visibilidad.
+
+Una futura capa IAM/tenant-aware puede endurecer esta relación sin cambiar el contrato conceptual del Context Engine.
