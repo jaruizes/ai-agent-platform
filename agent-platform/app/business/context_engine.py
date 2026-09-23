@@ -244,11 +244,11 @@ class ContextEngine:
             for component in selected
             if component.selected
         )
-        dropped_tokens = sum(
-            component.token_estimate
+        original_tokens = sum(
+            int(component.metadata.get("originalTokens") or component.token_estimate)
             for component in selected
-            if not component.selected
         )
+        dropped_tokens = max(0, original_tokens - selected_tokens)
         effective = EffectiveContext(
             user_prompt=user_prompt,
             components=selected,
