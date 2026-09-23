@@ -429,6 +429,10 @@ class StepExecutor:
             system_prompt=system_prompt,
             model_profile=self._execution_model_profile,
             attempt=attempt,
+            additional_memory_scopes=[
+                ("AGENT", agent.name),
+                ("AGENT", str(agent.id)),
+            ],
             knowledge_context=knowledge_context,
             knowledge_provenance=(
                 [
