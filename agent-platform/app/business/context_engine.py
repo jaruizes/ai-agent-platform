@@ -244,6 +244,15 @@ class ContextEngine:
             budget["availableInputTokens"],
         )
 
+        effective_system_prompt = next(
+            (
+                component.content
+                for component in selected
+                if component.selected
+                and component.metadata.get("channel") == "system"
+            ),
+            "",
+        )
         user_parts = [
             f"## {component.type}\n{component.content}"
             for component in selected
@@ -251,7 +260,9 @@ class ContextEngine:
             and component.metadata.get("channel") != "system"
         ]
         user_prompt = "\n\n".join(user_parts)
-        prompt_estimate = system_tokens + self._estimate_tokens(user_prompt)
+        prompt_estimate = self._estimate_tokens(
+            effective_system_prompt
+        ) + self._estimate_tokens(user_prompt)
         selected_tokens = sum(
             component.token_estimate
             for component in selected
@@ -288,6 +299,7 @@ class ContextEngine:
         ]
 
         effective = EffectiveContext(
+            system_prompt=effective_system_prompt,
             user_prompt=user_prompt,
             components=selected,
             budget=budget,
