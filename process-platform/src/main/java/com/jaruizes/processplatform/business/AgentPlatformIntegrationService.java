@@ -4,6 +4,7 @@ import com.jaruizes.processplatform.domain.model.AgentExecutionRequest;
 import com.jaruizes.processplatform.domain.model.AgentExecutionSubmission;
 import com.jaruizes.processplatform.domain.model.ExecutionCommand;
 import com.jaruizes.processplatform.domain.model.ExecutionEvent;
+import com.jaruizes.processplatform.domain.model.PreparedAgentExecution;
 import com.jaruizes.processplatform.domain.ports.AgentPlatformCommandPort;
 import com.jaruizes.processplatform.domain.ports.ExecutionEventPublisherPort;
 import org.springframework.stereotype.Service;
