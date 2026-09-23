@@ -1293,3 +1293,163 @@ The script verifies:
 6. actual model usage metering.
 
 The script uses a temporary TENANT Session with `ownerKey=m8-smoke` and cleans up the test policies/budget/session.
+
+
+---
+
+# M8.3 — Eval Framework
+
+M8.3 adds first-class evaluation resources owned by the platform.
+
+Core resources:
+
+```text
+EvalDataset
+  -> versioned cases
+  -> command
+  -> expected output
+  -> deterministic assertions
+  -> tags
+
+EvalDefinition
+  -> dataset
+  -> enabled metrics
+  -> thresholds
+  -> optional judge model profile
+
+EvalRun
+  -> durable asynchronous run
+  -> one normal platform Execution per dataset case
+  -> persisted EvalResult per case
+  -> aggregate scores / pass rate / token usage / cost
+```
+
+Supported deterministic assertions:
+
+```text
+CONTAINS
+NOT_CONTAINS
+REGEX
+MIN_LENGTH
+MAX_LENGTH
+```
+
+Optional LLM-as-judge metrics:
+
+```text
+relevance
+completeness
+groundedness
+coherence
+instruction_adherence
+```
+
+The judge must return structured JSON scores in the range 0..1. It is executed through the same governed Model Gateway as the rest of the runtime, so model policies and budgets continue to apply.
+
+Important invariant:
+
+```text
+Eval case
+   -> standard ExecutionSubmission
+   -> normal Planner / Governance / LangGraph runtime
+   -> standard durable execution result
+   -> evaluator scores that result
+```
+
+Evals do not introduce a parallel execution mechanism.
+
+API:
+
+```text
+GET    /v1/evals/datasets
+POST   /v1/evals/datasets
+DELETE /v1/evals/datasets/{id}
+
+GET    /v1/evals/definitions
+POST   /v1/evals/definitions
+DELETE /v1/evals/definitions/{id}
+
+GET    /v1/evals/runs
+POST   /v1/evals/definitions/{id}/runs
+GET    /v1/evals/runs/{id}
+```
+
+Creating a run returns immediately with `PENDING`. The internal eval worker claims it, launches dataset executions and persists results. Runs therefore survive HTTP client disconnects and remain inspectable.
+
+A threshold can be defined per judge metric plus `passRate`. Runs may also reference a previous completed run as baseline; aggregate deltas and threshold violations are persisted in the regression result.
+
+---
+
+# M8.4 — Regression Datasets + Governance / Evals UI
+
+M8.4 completes the M8 Control Plane surface.
+
+The Angular UI now contains:
+
+- Governance:
+  - policy CRUD;
+  - budget CRUD;
+  - recent policy decision audit;
+  - recent budget decision audit;
+- Evals:
+  - regression dataset management;
+  - eval definition management;
+  - asynchronous run launch;
+  - automatic use of the latest completed run as baseline;
+  - run history;
+  - aggregate metrics;
+  - case-level deterministic checks and judge scores;
+  - token/cost visibility;
+  - regression detail;
+  - drill-down from an eval case to its normal platform Execution.
+
+This keeps the ownership boundary unchanged:
+
+```text
+Control Plane = configure + inspect
+Platform      = execute + enforce + evaluate + persist
+```
+
+## M8.3 / M8.4 end-to-end smoke test
+
+After rebuilding the branch:
+
+```bash
+bash scripts/m8-evals-smoke.sh
+```
+
+The smoke test:
+
+1. creates a versioned regression dataset;
+2. creates an assertions-only EvalDefinition;
+3. launches a durable EvalRun;
+4. waits for the underlying normal platform Execution;
+5. verifies a 100% pass rate;
+6. launches a second run using the first as baseline;
+7. verifies baseline comparison metadata;
+8. leaves the resources available for inspection in the Control Plane.
+
+Open:
+
+```text
+http://localhost:8081
+```
+
+and inspect the new **Governance** and **Evals** sections.
+
+At the end of M8:
+
+```text
+Central Policy Engine             ✅
+Tool/Agent/Knowledge/Model policy ✅
+Memory-scope authorization        ✅
+Token + cost budgets              ✅
+Model degradation                 ✅
+Usage/cost metering               ✅
+Policy/budget audit               ✅
+Eval framework                    ✅
+Regression datasets               ✅
+Baseline comparison               ✅
+Governance UI                     ✅
+Evals UI                          ✅
+```
