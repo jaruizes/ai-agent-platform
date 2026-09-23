@@ -3,6 +3,7 @@ package com.jaruizes.processplatform.business;
 import com.jaruizes.processplatform.domain.model.*;
 import com.jaruizes.processplatform.domain.ports.*;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ public class ProcessRuntimeService {
     private final ProcessContractValidator contracts;
     private final ProcessServiceHandlerRegistry serviceHandlers;
     private final AgentPlatformIntegrationService agentPlatform;
+    private final long staleServiceSeconds;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public ProcessRuntimeService(
@@ -26,12 +28,15 @@ public class ProcessRuntimeService {
             ProcessDefinitionRepositoryPort definitions,
             ProcessContractValidator contracts,
             ProcessServiceHandlerRegistry serviceHandlers,
-            AgentPlatformIntegrationService agentPlatform) {
+            AgentPlatformIntegrationService agentPlatform,
+            @Value("${process.runtime.service-stale-seconds:60}")
+            long staleServiceSeconds) {
         this.runtime = runtime;
         this.definitions = definitions;
         this.contracts = contracts;
         this.serviceHandlers = serviceHandlers;
         this.agentPlatform = agentPlatform;
+        this.staleServiceSeconds = Math.max(1, staleServiceSeconds);
     }
 
     public ProcessInstance start(UUID instanceId) {
@@ -73,7 +78,16 @@ public class ProcessRuntimeService {
 
     @Scheduled(fixedDelayString = "${process.runtime.recovery-delay-ms:2000}")
     public void recoverRunnableInstances() {
+        var cutoff = java.time.Instant.now().minusSeconds(staleServiceSeconds);
         for (var instance : runtime.findRunnableInstances()) {
+            for (var step : instance.steps()) {
+                if (step.type() == ProcessStepType.SERVICE
+                        && step.status() == ProcessStepStatus.RUNNING
+                        && step.startedAt() != null
+                        && step.startedAt().isBefore(cutoff)) {
+                    runtime.resetRunningStep(instance.id(), step.stepKey());
+                }
+            }
             scheduleAdvance(instance.id());
         }
     }
