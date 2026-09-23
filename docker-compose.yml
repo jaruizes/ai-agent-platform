@@ -15,6 +15,23 @@ services:
       timeout: 5s
       retries: 20
 
+
+  process-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${PROCESS_POSTGRES_DB:-process_platform}
+      POSTGRES_USER: ${PROCESS_POSTGRES_USER:-process}
+      POSTGRES_PASSWORD: ${PROCESS_POSTGRES_PASSWORD:-process}
+    ports:
+      - "${PROCESS_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - process-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PROCESS_POSTGRES_USER:-process} -d ${PROCESS_POSTGRES_DB:-process_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   nats:
     image: nats:2.11-alpine
     command: ["-js", "-m", "8222", "--store_dir", "/data"]
@@ -166,6 +183,9 @@ services:
       dockerfile: process-platform/Dockerfile
     environment:
       SERVER_PORT: 8090
+      PROCESS_DB_URL: jdbc:postgresql://process-postgres:5432/${PROCESS_POSTGRES_DB:-process_platform}
+      PROCESS_DB_USER: ${PROCESS_POSTGRES_USER:-process}
+      PROCESS_DB_PASSWORD: ${PROCESS_POSTGRES_PASSWORD:-process}
       NATS_URL: nats://nats:4222
       AGENT_PLATFORM_COMMAND_SUBJECT: ${AGENT_PLATFORM_COMMAND_SUBJECT:-platform.commands.execution}
       AGENT_PLATFORM_EVENTS_SUBJECT: ${AGENT_PLATFORM_EVENTS_SUBJECT:-platform.events.execution.>}
@@ -175,6 +195,8 @@ services:
     ports:
       - "${PROCESS_PLATFORM_PORT:-8090}:8090"
     depends_on:
+      process-postgres:
+        condition: service_healthy
       nats:
         condition: service_started
       agent-platform:
@@ -199,3 +221,4 @@ volumes:
   prometheus-data:
   grafana-data:
   knowledge-data:
+  process-postgres-data:
