@@ -245,18 +245,13 @@ def create_admin_router(
                 "autoExtractSession": settings.memory_auto_extract_session,
                 "extractorModelProfile": settings.memory_extractor_model_profile,
                 "extractorMaxCandidates": settings.memory_extractor_max_candidates,
+                "cleanupPollSeconds": settings.memory_cleanup_poll_seconds,
             },
             "knowledge": {
                 "embeddingProvider": settings.knowledge_embedding_provider,
                 "embeddingModel": settings.knowledge_embedding_model,
                 "dimensions": settings.knowledge_embedding_dimensions,
                 "topK": settings.knowledge_top_k,
-            },
-            "memory": {
-                "allowInferredPersistence": settings.memory_allow_inferred_persistence,
-                "minInferredConfidence": settings.memory_min_inferred_confidence,
-                "maxContentChars": settings.memory_max_content_chars,
-                "cleanupPollSeconds": settings.memory_cleanup_poll_seconds,
             },
             "durability": {
                 "leaseSeconds": settings.execution_lease_seconds,
