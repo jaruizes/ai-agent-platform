@@ -4261,3 +4261,132 @@ A dataset version is captured on every EvalRun. Historical results remain tied t
 **Contexto:** M8.4
 
 The Angular application creates/edits resources and displays persisted state. It does not iterate cases, call agents/models, calculate scores or decide whether a run regressed.
+
+
+---
+
+## M9 — Deterministic Process Orchestration
+
+### M9.1 — Canonical Process Platform / Agent Platform integration
+
+M9 introduces a separate Process Platform. It is a different bounded context and
+deployable from Agent Platform.
+
+```text
+Process Platform
+= deterministic business/process flow
+
+Agent Platform
+= open-ended agentic problem solving
+```
+
+M9.1 defines only the asynchronous integration boundary.
+
+```text
+Process Platform
+      |
+      | ExecutionCommand
+      v
+ platform.commands.execution
+      |
+      v
+Agent Platform
+      |
+      +--> platform.events.execution.lifecycle
+      +--> platform.events.execution.orchestration
+      +--> platform.events.execution.result
+      |
+      v
+Process Platform
+```
+
+The Process Platform implementation is Spring Boot / Java 21 with base package:
+
+```text
+com.jaruizes.processplatform
+```
+
+and package boundaries:
+
+```text
+business
+domain
+infrastructure
+```
+
+Agent Platform internals are not shared with the Process Platform.
+
+### External-to-internal event boundary
+
+NATS is an infrastructure concern.
+
+```text
+NATS ExecutionEvent
+      ↓
+NatsAgentPlatformEventConsumer
+      ↓
+AgentPlatformIntegrationService
+      ↓
+ExecutionEventPublisherPort
+      ↓
+AgentExecutionEventReceived
+```
+
+Future process orchestration code consumes the internal event. Therefore replacing
+NATS does not modify ProcessDefinition/ProcessInstance semantics.
+
+### Delivery semantics
+
+Commands are published through JetStream and use the command `messageId` as
+`Nats-Msg-Id`.
+
+Agent Platform already persists request message IDs and treats duplicate command
+delivery idempotently.
+
+The Process Platform event consumer is durable. Its first creation uses
+`DeliverNew` to avoid consuming events emitted before that Process Platform
+integration existed; subsequent restarts resume from the durable consumer offset.
+
+### ADR-061 — Process Platform is a separate bounded context
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+Deterministic process orchestration is not added to the Agent Platform runtime.
+It is implemented as an independent Spring Boot service communicating exclusively
+through public platform contracts.
+
+### ADR-062 — ExecutionCommand / ExecutionEvent are the boundary, NATS is transport
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+Business/process code does not know NATS subjects, JetStream consumers or JSON
+transport details. It submits a canonical ExecutionCommand through a port and
+receives canonical ExecutionEvent objects.
+
+### ADR-063 — Process Platform never calls Agent Platform internals
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+The Process Platform cannot call Planner, LangGraph, MCP, Agent registries or
+model providers directly. Agentic work is always delegated as an execution.
+
+### ADR-064 — External execution events become internal application events
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+Inbound Agent Platform events are immediately converted into
+`AgentExecutionEventReceived`. M9.2 process runtime will consume that internal
+event and therefore remain independent of NATS.
+
+### ADR-065 — M9.1 diagnostic journal is not process state
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+The bounded in-memory event journal exists only to validate and inspect the
+integration. Durable ProcessDefinition, ProcessInstance, ProcessStep and
+ProcessContext state are deferred to M9.2.
