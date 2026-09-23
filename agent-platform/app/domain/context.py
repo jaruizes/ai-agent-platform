@@ -21,6 +21,7 @@ class ContextComponent:
 
 @dataclass(frozen=True)
 class EffectiveContext:
+    system_prompt: str
     user_prompt: str
     components: list[ContextComponent]
     budget: dict[str, Any]
