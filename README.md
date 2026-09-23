@@ -38,6 +38,10 @@ M7  Context & Memory                  ✅
     M7.2 Persistent Memory + Policies  ✅
     M7.3 Context Engine + Budgets      ✅
     M7.4 Context snapshots + UI        ✅
-M8  Governance & Evals                 next
+M8  Governance & Evals
+    M8.1 Policy Engine + Authorization  ✅
+    M8.2 Budget / Cost Governance       ✅
+    M8.3 Eval Framework                 next
+    M8.4 Regression Datasets + UI
 M9  Semantic Layer
 ```
