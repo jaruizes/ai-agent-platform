@@ -3927,7 +3927,7 @@ GOVERNANCE_DEFAULT_PROJECTED_COMPLETION_TOKENS=4096
 GOVERNANCE_PROMPT_ESTIMATE_MULTIPLIER=1.25
 ```
 
-Los projected completion tokens se utilizan también como `max_tokens` real en la llamada a LiteLLM. Así el preflight no presupone un output de 4096 mientras el proveedor puede generar arbitrariamente más.
+Cuando existe al menos un budget aplicable, los projected completion tokens se utilizan también como `max_tokens` real en la llamada a LiteLLM. Así el preflight no presupone un output de 4096 mientras el proveedor puede generar arbitrariamente más. Si no existe ningún budget aplicable, M8 no introduce un cap nuevo y conserva el comportamiento previo del Model Gateway.
 
 Después de la llamada, los tokens reales reportados por el proveedor se registran en:
 
