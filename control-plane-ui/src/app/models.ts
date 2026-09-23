@@ -18,3 +18,15 @@ export interface SessionInfo {id:string;name?:string;status:string;scope:string;
 export interface MemoryInfo {id:string;scopeType:string;scopeId:string;memoryType:string;key?:string;content:string;metadata:any;confidence:number;importance:number;explicit:boolean;status:string;policyDecision:any;sourceExecutionId?:string;sourceStepId?:string;supersedesMemoryId?:string;expiresAt?:string;createdAt:string;updatedAt:string;revokedAt?:string;}
 export interface ContextSnapshotComponent {type:string;priority:number;mandatory:boolean;sourceRef?:string;tokenEstimate:number;selected:boolean;action:string;metadata:any;}
 export interface ContextSnapshot {id:string;executionId:string;stepId:string;attempt:number;modelProfile:string;budget:any;components:ContextSnapshotComponent[];provenance:any[];promptTokenEstimate:number;selectedTokenEstimate:number;droppedTokenEstimate:number;compressed:boolean;createdAt:string;}
+
+
+export interface GovernancePolicy {id:string;name:string;description:string;policyType:string;effect:string;resourceType:string;resourcePattern:string;subjectType:string;subjectPattern:string;conditions:any;priority:number;enabled:boolean;source:string;createdAt:string;updatedAt:string;}
+export interface GovernanceBudget {id:string;name:string;scopeType:string;scopeId:string;period:string;maxPromptTokens?:number;maxCompletionTokens?:number;maxTotalTokens?:number;maxCostUsd?:number;action:string;degradeModelProfile?:string;enabled:boolean;createdAt:string;updatedAt:string;}
+export interface GovernanceDecision {id:string;executionId:string;stepId?:string;policyName?:string;policyType:string;effect:string;resourceType:string;resourceName:string;subjectType:string;subjectId:string;reason:string;createdAt:string;}
+export interface BudgetDecision {id:string;executionId:string;stepId?:string;budgetName?:string;action:string;allowed:boolean;requestedModelProfile:string;effectiveModelProfile:string;reason?:string;current:any;projected:any;createdAt:string;}
+
+export interface EvalDatasetItem {id?:string;name:string;command:any;expectedOutput?:string;assertions:any[];tags:string[];}
+export interface EvalDataset {id:string;name:string;description:string;version:number;enabled:boolean;items:EvalDatasetItem[];createdAt:string;updatedAt:string;}
+export interface EvalDefinition {id:string;name:string;description:string;datasetId:string;datasetName:string;metrics:string[];thresholds:Record<string,number>;judgeModelProfile?:string;enabled:boolean;createdAt:string;updatedAt:string;}
+export interface EvalResult {id:string;datasetItemId:string;itemName:string;executionId?:string;status:string;output?:string;scores:Record<string,number>;checks:any[];passed:boolean;tokenUsage:any;costUsd:number;latencyMs:number;error?:any;}
+export interface EvalRun {id:string;definitionId:string;baselineRunId?:string;status:string;datasetVersion:number;configurationSnapshot:any;aggregateScores:Record<string,number>;regression:any;totalCases:number;passedCases:number;failedCases:number;totalTokens:number;totalCostUsd:number;error?:any;createdAt:string;startedAt?:string;completedAt?:string;results?:EvalResult[];}
