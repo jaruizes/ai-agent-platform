@@ -24,16 +24,19 @@ class GovernedModelGateway:
     async def complete(
         self,*,system_prompt:str,user_prompt:str,model_profile:str,
         temperature:float=0.2,
+        max_tokens:int|None=None,
     )->str:
         detail=await self.complete_detailed(
             system_prompt=system_prompt,user_prompt=user_prompt,
             model_profile=model_profile,temperature=temperature,
+            max_tokens=max_tokens,
         )
         return detail["content"]
 
     async def complete_detailed(
         self,*,system_prompt:str,user_prompt:str,model_profile:str,
         temperature:float=0.2,
+        max_tokens:int|None=None,
     )->dict[str,Any]:
         ctx=get_governance_context()
         effective_profile=model_profile
@@ -60,7 +63,11 @@ class GovernedModelGateway:
                 execution_id=ctx.execution_id,
                 model_profile=model_profile,
                 projected_prompt_tokens=projected_prompt,
-                projected_completion_tokens=self._default_projected_completion_tokens,
+                projected_completion_tokens=(
+                    max_tokens
+                    if max_tokens is not None
+                    else self._default_projected_completion_tokens
+                ),
             )
             budget_detail={
                 "action":evaluation.action,
@@ -80,6 +87,11 @@ class GovernedModelGateway:
         detail=await self._delegate.complete_detailed(
             system_prompt=system_prompt,user_prompt=user_prompt,
             model_profile=effective_profile,temperature=temperature,
+            max_tokens=(
+                max_tokens
+                if max_tokens is not None
+                else self._default_projected_completion_tokens
+            ),
         )
         if ctx:
             cost=await self._governance.record_usage(
@@ -98,6 +110,7 @@ class GovernedModelGateway:
         detail=await self.complete_detailed(
             system_prompt=plan.system_prompt,user_prompt=plan.user_prompt,
             model_profile=plan.model_profile,temperature=0.2,
+            max_tokens=None,
         )
         return {
             "type":"agent-response" if plan.strategy.startswith("AGENT") else "direct-llm-response",
