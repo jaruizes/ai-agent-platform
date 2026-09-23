@@ -247,7 +247,12 @@ class MemoryService:
                 else None
             ),
             content=candidate.content.strip(),
-            metadata=candidate.metadata,
+            metadata={
+                **candidate.metadata,
+                "embeddingProvider": self._embedding_provider.provider_key,
+                "embeddingModel": self._embedding_provider.model,
+                "embeddingDimensions": self._embedding_provider.dimensions,
+            },
             confidence=candidate.confidence,
             importance=candidate.importance,
             explicit=candidate.explicit,
