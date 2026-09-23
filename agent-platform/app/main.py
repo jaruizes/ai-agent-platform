@@ -125,6 +125,7 @@ model_gateway = GovernedModelGateway(
     default_projected_completion_tokens=(
         settings.governance_default_projected_completion_tokens
     ),
+    prompt_estimate_multiplier=settings.governance_prompt_estimate_multiplier,
 )
 if (
     settings.memory_auto_extract_session
