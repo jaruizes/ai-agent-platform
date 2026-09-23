@@ -13,8 +13,8 @@ public interface ProcessRuntimeRepositoryPort {
     List<ProcessInstance> findRunnableInstances();
 
     ProcessInstance updateInstanceStatus(UUID instanceId, ProcessInstanceStatus status);
-    ProcessInstance updateStepStatus(UUID instanceId, String stepKey, ProcessStepStatus status);
-    ProcessInstance startStep(UUID instanceId, String stepKey, Map<String,Object> input);
+    boolean markReady(UUID instanceId, String stepKey);
+    boolean claimReady(UUID instanceId, String stepKey, Map<String,Object> input);
     ProcessInstance waitForAgent(UUID instanceId, String stepKey, UUID executionId);
     ProcessInstance completeStep(UUID instanceId, String stepKey, Map<String,Object> output, Map<String,Object> mergedContext);
     ProcessInstance failStep(UUID instanceId, String stepKey, Map<String,Object> error);
