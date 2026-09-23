@@ -128,8 +128,8 @@ class GovernanceService:
             precedence = {"DENY": 3, "REQUIRE_APPROVAL": 2, "ALLOW": 1}
             matches.sort(
                 key=lambda policy: (
-                    precedence[policy.effect],
                     policy.priority,
+                    precedence[policy.effect],
                 ),
                 reverse=True,
             )
@@ -419,6 +419,19 @@ class GovernanceService:
 
             exceeded = self._exceeded_dimensions(budget, projected)
             if not exceeded:
+                await self._repository.record_budget_decision(
+                    execution_id=execution_id,
+                    step_id=step_id,
+                    budget_id=budget.id,
+                    budget_name=budget.name,
+                    action="ALLOW",
+                    allowed=True,
+                    requested_model_profile=model_profile,
+                    effective_model_profile=model_profile,
+                    reason=f"Budget '{budget.name}' remains within limits.",
+                    current=current,
+                    projected=projected,
+                )
                 continue
 
             if (
