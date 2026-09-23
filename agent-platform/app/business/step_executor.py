@@ -23,6 +23,7 @@ from app.business.ports import (
 from app.business.prompt_service import PromptService
 from app.business.tool_service import ToolService
 from app.domain.execution import Command
+from app.domain.governance import GovernanceBudgetExceeded, GovernanceDenied
 from app.domain.orchestration import (
     OrchestrationCancelled,
     OrchestrationSuspended,
@@ -369,7 +370,10 @@ class StepExecutor:
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
-        return not isinstance(exc, (ValueError, LookupError))
+        return not isinstance(
+            exc,
+            (ValueError, LookupError, GovernanceDenied, GovernanceBudgetExceeded),
+        )
 
     async def _tool_step(
         self,
