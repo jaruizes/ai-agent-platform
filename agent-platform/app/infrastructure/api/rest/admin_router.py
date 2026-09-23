@@ -246,6 +246,10 @@ def create_admin_router(
                 "autoExtractSession": settings.memory_auto_extract_session,
                 "extractorModelProfile": settings.memory_extractor_model_profile,
                 "extractorMaxCandidates": settings.memory_extractor_max_candidates,
+                "extractorMaxInputChars": settings.memory_extractor_max_input_chars,
+                "embeddingProvider": settings.knowledge_embedding_provider,
+                "embeddingModel": settings.knowledge_embedding_model,
+                "embeddingDimensions": settings.knowledge_embedding_dimensions,
                 "cleanupPollSeconds": settings.memory_cleanup_poll_seconds,
             },
             "knowledge": {
