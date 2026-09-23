@@ -236,6 +236,12 @@ class MemoryService:
             raise RuntimeError(
                 "Persistent Memory storage expects 768-dimensional embeddings"
             )
+        vector = embedding_result.vectors[0]
+        stored_embedding = (
+            vector
+            if any(abs(value) > 1e-12 for value in vector)
+            else None
+        )
 
         memory = MemoryEntry(
             scope_type=decision.normalized_scope_type or candidate.scope_type,
@@ -260,7 +266,7 @@ class MemoryService:
             source_execution_id=candidate.source_execution_id,
             source_step_id=candidate.source_step_id,
             expires_at=self._normalize_datetime(candidate.expires_at),
-            embedding=embedding_result.vectors[0],
+            embedding=stored_embedding,
         )
         persisted = await self._repository.create_memory(
             memory,
