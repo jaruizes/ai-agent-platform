@@ -16,10 +16,12 @@ class GovernedModelGateway:
         governance_service,
         *,
         default_projected_completion_tokens: int,
+        prompt_estimate_multiplier: float = 1.25,
     ):
         self._delegate=delegate
         self._governance=governance_service
         self._default_projected_completion_tokens=default_projected_completion_tokens
+        self._prompt_estimate_multiplier=max(1.0,prompt_estimate_multiplier)
 
     async def complete(
         self,*,system_prompt:str,user_prompt:str,model_profile:str,
@@ -63,7 +65,13 @@ class GovernedModelGateway:
                     + " Approval-gated model access is only valid inside a durable step."
                 )
 
-            projected_prompt=max(1,(len(system_prompt)+len(user_prompt))//4)
+            projected_prompt=max(
+                1,
+                int(
+                    ((len(system_prompt)+len(user_prompt))//4)
+                    * self._prompt_estimate_multiplier
+                ),
+            )
             evaluation=await self._governance.evaluate_budget(
                 execution_id=ctx.execution_id,
                 step_id=ctx.step_id,
