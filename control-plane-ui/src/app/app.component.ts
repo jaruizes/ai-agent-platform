@@ -55,6 +55,8 @@ export class AppComponent implements OnInit,OnDestroy {
   closeModal(){this.modal.set(null);this.draft={};this.approvalComment='';}
   statusClass(s:string){return (s||'').toLowerCase().replaceAll('_','-');}
   tokens(v:any){return new Intl.NumberFormat('es-ES').format(Number(v||0));}
+  runningEvalCount(){return this.evalRuns().filter(r=>r.status==='RUNNING').length;}
+  regressionEvalCount(){return this.evalRuns().filter(r=>r.regression?.regressed).length;}
   date(v:any){return v?new Date(v).toLocaleString('es-ES'):'—';}
   json(v:any){return JSON.stringify(v??{},null,2);}
   short(v:string,n=80){return !v?'—':v.length>n?v.slice(0,n)+'…':v;}
