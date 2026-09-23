@@ -83,3 +83,27 @@ See `process-platform/README.md` and run:
 ```bash
 bash scripts/m9-process-platform-smoke.sh
 ```
+
+
+### M9.2 — Process Domain
+
+Process Platform now owns durable deterministic process state:
+
+```text
+ProcessDefinition -> versioned DAG + step I/O contracts
+ProcessInstance   -> exact definition version + ProcessContext
+ProcessStepInstance -> materialized durable step state
+```
+
+Definitions are editable only in `DRAFT`; ACTIVE versions are immutable and
+changes are made by cloning a new version.
+
+Process Platform uses its own PostgreSQL database and can be started independently
+from Agent Platform.
+
+Validate M9.2 with:
+
+```bash
+docker compose up -d process-postgres nats otel-collector process-platform
+bash scripts/m9-process-domain-smoke.sh
+```
