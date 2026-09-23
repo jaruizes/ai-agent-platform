@@ -229,7 +229,7 @@ public class ProcessRuntimeService {
         metadata.put("processDefinitionKey", instance.definitionKey());
         metadata.put("processDefinitionVersion", instance.definitionVersion());
 
-        var submission = agentPlatform.submit(new AgentExecutionRequest(
+        var prepared = agentPlatform.prepare(new AgentExecutionRequest(
                 stringValue(configuration.getOrDefault("name", step.stepKey())),
                 intent,
                 input,
@@ -242,10 +242,10 @@ public class ProcessRuntimeService {
                 stringValue(configuration.get("tenantId"))
         ));
 
-        runtime.waitForAgent(
+        runtime.delegateAgent(
                 instanceId,
                 step.stepKey(),
-                submission.executionId());
+                prepared.command());
     }
 
     private void handleTerminalAgentEvent(
