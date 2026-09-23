@@ -80,6 +80,7 @@ context_engine = ContextEngine(
     safety_margin_tokens=settings.context_safety_margin_tokens,
     max_session_entries=settings.context_session_max_entries,
     memory_top_k=settings.context_memory_top_k,
+    memory_min_score=settings.context_memory_min_score,
     min_compression_tokens=settings.context_min_compression_tokens,
 )
 
