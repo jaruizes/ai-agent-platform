@@ -11,6 +11,7 @@ class GovernanceRuntimeContext:
     step_id: str | None
     session_scope: str | None
     session_owner_key: str | None
+    agent_name: str | None = None
 
 
 _runtime_context: ContextVar[GovernanceRuntimeContext | None] = ContextVar(
