@@ -48,7 +48,7 @@ class GovernedModelGateway:
                 policy_type="MODEL_ACCESS",
                 resource_type="MODEL",
                 resource_name=model_profile,
-                context={"modelProfile": model_profile},
+                context={"modelProfile": model_profile, "phase": "MODEL_GATEWAY"},
             )
             if model_decision.effect == "DENY":
                 raise GovernanceDenied(model_decision.reason)
@@ -84,6 +84,24 @@ class GovernedModelGateway:
                     evaluation.reason or "Governance budget exceeded"
                 )
             effective_profile=evaluation.model_profile
+            if effective_profile != model_profile:
+                degraded_decision = await self._governance.evaluate(
+                    execution_id=ctx.execution_id,
+                    step_id=ctx.step_id,
+                    policy_type="MODEL_ACCESS",
+                    resource_type="MODEL",
+                    resource_name=effective_profile,
+                    context={
+                        "modelProfile": effective_profile,
+                        "phase": "BUDGET_DEGRADE",
+                        "requestedModelProfile": model_profile,
+                    },
+                )
+                if degraded_decision.effect != "ALLOW":
+                    raise GovernanceDenied(
+                        degraded_decision.reason
+                        + " Budget degradation cannot switch to a prohibited model."
+                    )
 
         detail=await self._delegate.complete_detailed(
             system_prompt=system_prompt,user_prompt=user_prompt,
