@@ -3605,3 +3605,27 @@ La plataforma separa dos preguntas:
 `CONTEXT_MEMORY_MIN_SCORE` se aplica sólo al score de relevancia vectorial + lexical. Confidence, importance y freshness participan después en el ranking.
 
 Esto evita que una memoria irrelevante entre en contexto sólo por ser reciente o estar marcada con importance alta.
+
+
+### ADR-046 — Session Working Context se proyecta antes de reutilizarse
+
+**Estado:** Accepted  
+**Contexto:** M7.3 hardening
+
+Persistir Working Context no implica reinyectar su payload bruto en ejecuciones futuras.
+
+Antes de entrar en `ContextEngine`, entradas previas se proyectan por tipo:
+
+```text
+COMMAND       -> name + intent
+PLAN          -> objective + finalStepId
+STEP_RESULT   -> summary + compact content
+TOOL_RESULT   -> summary; no raw tool payload replay
+KNOWLEDGE     -> summary; retrieval original se repite si hace falta
+SUMMARY       -> summary + plan refs
+INSTRUCTION   -> instruction text
+```
+
+Esto evita que continuidad de Session vuelva a introducir automáticamente outputs voluminosos de Tools/Knowledge y reduce la posibilidad de copiar payloads accidentales a nuevos prompts.
+
+La fuente completa sigue disponible como Working Context para inspección/auditoría, pero el modelo recibe una proyección controlada.
