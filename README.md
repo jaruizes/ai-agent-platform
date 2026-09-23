@@ -107,3 +107,27 @@ Validate M9.2 with:
 docker compose up -d process-postgres nats otel-collector process-platform
 bash scripts/m9-process-domain-smoke.sh
 ```
+
+
+### M9.3 — Deterministic Process Runtime
+
+Process Platform can now execute the persisted deterministic DAG.
+
+Implemented runtime semantics:
+
+```text
+PENDING -> READY -> RUNNING
+SERVICE -> COMPLETED
+AGENTIC_EXECUTION -> WAITING -> ExecutionEvent -> COMPLETED
+```
+
+Ready branches execute concurrently, ProcessContext merges are serialized,
+agent delegation uses a transactional command outbox, and persisted runtime state
+is recovered after restart.
+
+Validate locally with:
+
+```bash
+bash scripts/m9-process-runtime-smoke.sh
+bash scripts/m9-process-runtime-agentic-smoke.sh
+```
