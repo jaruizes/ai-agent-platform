@@ -387,15 +387,27 @@ class PostgresMemoryRepository:
                 """
                 SELECT m.*,
                     (
-                        0.72 * CASE
-                            WHEN m.embedding IS NULL THEN 0.0
-                            ELSE GREATEST(0.0, 1.0 - (m.embedding <=> $3::vector))
-                        END
-                        + 0.18 * ts_rank_cd(
-                            m.search_vector,
-                            plainto_tsquery('simple', $4)
-                        )
+                        (
+                            0.65 * CASE
+                                WHEN m.embedding IS NULL THEN 0.0
+                                ELSE GREATEST(0.0, 1.0 - (m.embedding <=> $3::vector))
+                            END
+                            + 0.15 * ts_rank_cd(
+                                m.search_vector,
+                                plainto_tsquery('simple', $4)
+                            )
+                        ) * m.confidence
                         + 0.10 * m.importance
+                        + 0.10 * (
+                            1.0 / (
+                                1.0
+                                + GREATEST(
+                                    0.0,
+                                    EXTRACT(EPOCH FROM (now() - m.updated_at))
+                                    / 2592000.0
+                                )
+                            )
+                        )
                     ) AS retrieval_score
                 FROM memory_entries m
                 WHERE m.status='ACTIVE'
