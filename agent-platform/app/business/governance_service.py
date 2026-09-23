@@ -396,6 +396,7 @@ class GovernanceService:
         projected_prompt_tokens: int,
         projected_completion_tokens: int,
         extra_subjects: list[tuple[str, str]] | None = None,
+        record: bool = True,
     ) -> BudgetEvaluation:
         budgets = await self._repository.list_budgets(enabled_only=True)
         subjects = await self._repository.execution_subjects(execution_id)
@@ -456,8 +457,9 @@ class GovernanceService:
                     current=current,
                     projected={},
                 )
-                await self._repository.record_budget_decision(
-                    execution_id=execution_id,
+                if record:
+                    await self._repository.record_budget_decision(
+                        execution_id=execution_id,
                     step_id=step_id,
                     budget_id=budget.id,
                     budget_name=budget.name,
@@ -481,8 +483,9 @@ class GovernanceService:
             exceeded = self._exceeded_dimensions(budget, projected)
 
             if not exceeded:
-                await self._repository.record_budget_decision(
-                    execution_id=execution_id,
+                if record:
+                    await self._repository.record_budget_decision(
+                        execution_id=execution_id,
                     step_id=step_id,
                     budget_id=budget.id,
                     budget_name=budget.name,
@@ -512,7 +515,8 @@ class GovernanceService:
                 )
                 if not degraded_exceeded and target:
                     effective_profile = target
-                    await self._repository.record_budget_decision(
+                    if record:
+                        await self._repository.record_budget_decision(
                         execution_id=execution_id,
                         step_id=step_id,
                         budget_id=budget.id,
