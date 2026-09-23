@@ -29,3 +29,14 @@ class MemoryRequest(BaseModel):
 class MemoryCandidateRequest(MemoryRequest):
     confidence: float = Field(default=0.0, ge=0, le=1)
     explicit: bool = False
+
+
+class MemoryScopeRequest(BaseModel):
+    scopeType: str
+    scopeId: str
+
+
+class MemoryRetrieveRequest(BaseModel):
+    query: str = Field(min_length=1)
+    scopes: list[MemoryScopeRequest] = Field(default_factory=list)
+    topK: int = Field(default=8, ge=1, le=50)
