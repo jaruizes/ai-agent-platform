@@ -13,7 +13,7 @@ class PostgresEvalRepository:
 
     async def list_datasets(self) -> list[dict[str, Any]]:
         rows = await self._database.require_pool().fetch(
-            "SELECT * FROM eval_datasets ORDER BY name"
+            "SELECT * FROM eval_datasets ORDER BY name, version DESC"
         )
         return [await self._dataset_row(row, include_items=True) for row in rows]
 
@@ -27,26 +27,46 @@ class PostgresEvalRepository:
         pool = self._database.require_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await conn.execute(
-                    """
-                    INSERT INTO eval_datasets(id,name,description,version,enabled)
-                    VALUES($1,$2,$3,$4,$5)
-                    ON CONFLICT(name) DO UPDATE SET
-                      description=EXCLUDED.description,
-                      version=EXCLUDED.version,
-                      enabled=EXCLUDED.enabled,
-                      updated_at=now()
-                    """,
-                    dataset.id, dataset.name, dataset.description,
-                    dataset.version, dataset.enabled,
+                existing = await conn.fetchrow(
+                    "SELECT * FROM eval_datasets WHERE name=$1 AND version=$2",
+                    dataset.name, dataset.version,
                 )
-                row = await conn.fetchrow(
-                    "SELECT * FROM eval_datasets WHERE name=$1", dataset.name
-                )
-                dataset_id = row["id"]
-                await conn.execute(
-                    "DELETE FROM eval_dataset_items WHERE dataset_id=$1", dataset_id
-                )
+                if existing:
+                    used = await conn.fetchval(
+                        """
+                        SELECT EXISTS(
+                          SELECT 1 FROM eval_results r
+                          JOIN eval_dataset_items i ON i.id=r.dataset_item_id
+                          WHERE i.dataset_id=$1
+                        )
+                        """,
+                        existing["id"],
+                    )
+                    if used:
+                        raise ValueError(
+                            "Dataset version is immutable after it has been used by an eval run; create a new version."
+                        )
+                    dataset_id = existing["id"]
+                    await conn.execute(
+                        """
+                        UPDATE eval_datasets SET description=$2,enabled=$3,updated_at=now()
+                        WHERE id=$1
+                        """,
+                        dataset_id, dataset.description, dataset.enabled,
+                    )
+                    await conn.execute(
+                        "DELETE FROM eval_dataset_items WHERE dataset_id=$1", dataset_id
+                    )
+                else:
+                    dataset_id = dataset.id
+                    await conn.execute(
+                        """
+                        INSERT INTO eval_datasets(id,name,description,version,enabled)
+                        VALUES($1,$2,$3,$4,$5)
+                        """,
+                        dataset_id, dataset.name, dataset.description,
+                        dataset.version, dataset.enabled,
+                    )
                 for item in dataset.items:
                     await conn.execute(
                         """
