@@ -186,6 +186,7 @@
           <details class="json-details"><summary>Provenance</summary><pre>{{json(s.provenance)}}</pre></details>
         </article>
       </section>
+      <details class="json-details"><summary>Working Context · {{executionContext().length}} entries</summary><pre>{{json(executionContext())}}</pre></details>
       <details class="json-details"><summary>Result / technical details</summary><pre>{{json(e.result||e.error)}}</pre></details>
     </div>
   </section>
