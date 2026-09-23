@@ -148,6 +148,7 @@ class ContextEngine:
                                 "channel": "user",
                                 "executionId": str(entry.execution_id),
                                 "entryType": entry.entry_type,
+                                "projection": "SAFE_SESSION_PROJECTION",
                                 "createdAt": (
                                     entry.created_at.isoformat()
                                     if entry.created_at
@@ -405,10 +406,47 @@ class ContextEngine:
 
     @staticmethod
     def _compact_session_entry(entry) -> str:
+        content = entry.content if isinstance(entry.content, dict) else {}
+        entry_type = entry.entry_type
+
+        if entry_type == "COMMAND":
+            projected: Any = {
+                "name": content.get("name"),
+                "intent": content.get("intent"),
+            }
+        elif entry_type == "INSTRUCTION":
+            projected = {"text": content.get("text")}
+        elif entry_type == "PLAN":
+            projected = {
+                "objective": content.get("objective"),
+                "finalStepId": content.get("finalStepId"),
+            }
+        elif entry_type in {"STEP_RESULT", "TOOL_RESULT", "KNOWLEDGE"}:
+            output = content.get("output") if isinstance(content.get("output"), dict) else {}
+            projected = {
+                "summary": content.get("summary"),
+                "content": output.get("content"),
+                "agent": content.get("agent"),
+                "tool": content.get("tool"),
+            }
+        elif entry_type == "SUMMARY":
+            data = content.get("data") if isinstance(content.get("data"), dict) else {}
+            projected = {
+                "summary": content.get("summary"),
+                "type": content.get("type"),
+                "planObjective": data.get("planObjective"),
+                "finalStepId": data.get("finalStepId"),
+            }
+        else:
+            projected = {
+                "summary": content.get("summary"),
+                "value": content.get("value"),
+            }
+
         payload = {
-            "type": entry.entry_type,
+            "type": entry_type,
             "key": entry.entry_key,
-            "content": entry.content,
+            "content": projected,
         }
         serialized = json.dumps(payload, ensure_ascii=False, default=str)
         if len(serialized) > 12000:
