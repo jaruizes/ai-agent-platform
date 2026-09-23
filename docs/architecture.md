@@ -3751,15 +3751,13 @@ USER
 AGENT
 ```
 
-Los subjects no son elegidos libremente por el Planner. Se derivan de estado ya controlado por plataforma:
+Los subjects no son elegidos libremente por el Planner. Se derivan de estado ya controlado por plataforma. En M8.1 no se acepta `command.metadata` como fuente de identidad/autorización porque es input del consumidor y por tanto autoafirmable:
 
 ```text
 GLOBAL:*
 EXECUTION:<executionId>          -- para budgets
 Session.scope + ownerKey
-command.metadata.tenantId
-command.metadata.teamId
-command.metadata.userId
+Session.scope + ownerKey        -- label de scope controlado por la plataforma
 AGENT:<agentName>                -- durante un Agent step
 ```
 
@@ -4099,3 +4097,19 @@ El preflight usa una estimación segura del prompt y un output cap real. Despué
 **Contexto:** M8.1
 
 Un memory scope no autorizado nunca debe recuperarse para después descartarse. ContextEngine filtra scopes mediante Governance Policy antes de consultar Persistent Memory.
+
+
+### ADR-055 — command.metadata no es una fuente de identidad
+
+**Estado:** Accepted  
+**Contexto:** M8.1 hardening
+
+Campos como `tenantId`, `teamId` o `userId` enviados dentro de `command.metadata` no se utilizan para resolver subjects de autorización.
+
+```text
+consumer metadata != authenticated principal
+```
+
+M8.1 puede gobernar scopes de Session y Agent porque son recursos de plataforma ya persistidos, pero una futura integración IAM deberá aportar claims autenticados para convertir USER/TEAM/TENANT en fronteras de seguridad fuertes.
+
+Esto evita que un consumidor pueda autoasignarse un subject privilegiado escribiendo un identificador en metadata.
