@@ -4,7 +4,7 @@ from typing import Any
 
 from app.business.governance_runtime import get_governance_context
 from app.domain.execution import ExecutionPlan
-from app.domain.governance import GovernanceBudgetExceeded
+from app.domain.governance import GovernanceBudgetExceeded, GovernanceDenied
 
 
 class GovernedModelGateway:
@@ -39,6 +39,22 @@ class GovernedModelGateway:
         effective_profile=model_profile
         budget_detail=None
         if ctx:
+            model_decision = await self._governance.evaluate(
+                execution_id=ctx.execution_id,
+                step_id=ctx.step_id,
+                policy_type="MODEL_ACCESS",
+                resource_type="MODEL",
+                resource_name=model_profile,
+                context={"modelProfile": model_profile},
+            )
+            if model_decision.effect == "DENY":
+                raise GovernanceDenied(model_decision.reason)
+            if model_decision.effect == "REQUIRE_APPROVAL" and ctx.step_id is None:
+                raise GovernanceDenied(
+                    model_decision.reason
+                    + " Approval-gated model access is only valid inside a durable step."
+                )
+
             projected_prompt=max(1,(len(system_prompt)+len(user_prompt))//4)
             evaluation=await self._governance.evaluate_budget(
                 execution_id=ctx.execution_id,
