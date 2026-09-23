@@ -236,6 +236,7 @@ def create_admin_router(
                 ),
                 "sessionMaxEntries": settings.context_session_max_entries,
                 "memoryTopK": settings.context_memory_top_k,
+                "memoryMinScore": settings.context_memory_min_score,
                 "minCompressionTokens": settings.context_min_compression_tokens,
             },
             "memory": {
