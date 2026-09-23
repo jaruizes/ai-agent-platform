@@ -164,6 +164,11 @@ class GovernanceService:
         enriched_steps = []
         for step in plan.steps:
             decisions: list[GovernanceDecision] = []
+            agent_subjects = (
+                [("AGENT", step.agent_name)]
+                if step.agent_name
+                else []
+            )
 
             if step.agent_name:
                 decisions.append(
@@ -174,7 +179,7 @@ class GovernanceService:
                         resource_type="AGENT",
                         resource_name=step.agent_name,
                         context={"stepType": step.type, "phase": "PLAN"},
-                        extra_subjects=[("AGENT", step.agent_name)],
+                        extra_subjects=agent_subjects,
                     )
                 )
 
@@ -191,6 +196,7 @@ class GovernanceService:
                             "sideEffect": step.tool_side_effect,
                             "phase": "PLAN",
                         },
+                        extra_subjects=agent_subjects,
                     )
                 )
 
@@ -203,6 +209,7 @@ class GovernanceService:
                         resource_type="MODEL",
                         resource_name=execution_model_profile,
                         context={"stepType": step.type, "phase": "PLAN"},
+                        extra_subjects=agent_subjects,
                     )
                 )
 
@@ -219,6 +226,7 @@ class GovernanceService:
                             "stepType": step.type,
                             "phase": "PLAN",
                         },
+                        extra_subjects=agent_subjects,
                     )
                 )
 
@@ -336,6 +344,7 @@ class GovernanceService:
         execution_id: UUID,
         step_id: str,
         scopes: list[tuple[str, str]],
+        extra_subjects: list[tuple[str, str]] | None = None,
     ) -> list[tuple[str, str]]:
         allowed: list[tuple[str, str]] = []
         for scope_type, scope_id in scopes:
@@ -348,7 +357,9 @@ class GovernanceService:
                 context={
                     "scopeType": scope_type,
                     "scopeId": scope_id,
+                    "phase": "CONTEXT_ENGINE",
                 },
+                extra_subjects=extra_subjects,
             )
             if decision.effect == "REQUIRE_APPROVAL":
                 raise GovernanceDenied(
