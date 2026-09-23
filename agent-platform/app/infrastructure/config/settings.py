@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     context_min_compression_tokens: int = 128
 
     governance_default_projected_completion_tokens: int = 4096
+    governance_prompt_estimate_multiplier: float = 1.25
     governance_router_input_usd_per_million: float = 0.0
     governance_router_output_usd_per_million: float = 0.0
     governance_execution_input_usd_per_million: float = 0.0
