@@ -2755,7 +2755,7 @@ M7.3  Context Engine + Budget Manager  ✅
 M7.4  Context snapshots + UI           ✅
 ```
 
-La decisión más importante es que implementar memoria **no significa todavía inyectarla automáticamente en los prompts**. M7.1 y M7.2 crean el modelo, persistencia, lifecycle, contratos y políticas. M7.3 decidirá qué contexto y qué memorias se recuperan y entran realmente en cada llamada al modelo.
+La decisión más importante fue separar persistencia de selección. M7.1 y M7.2 crean el modelo, persistencia, lifecycle, contratos y políticas; M7.3 añade después la selección efectiva, retrieval y budgeting antes de las llamadas de modelo del runtime.
 
 ### M7.1 — Sessions
 
@@ -3280,15 +3280,22 @@ embedding vector(768)
 search_vector tsvector
 ```
 
-El score inicial combina:
+La recuperación separa **relevancia** de **ranking final**.
 
 ```text
-0.72 vector similarity
-0.18 lexical rank
-0.10 importance
+relevance =
+  0.80 vector similarity
++ 0.20 lexical rank
+
+ranking =
+  (0.65 vector similarity + 0.15 lexical rank) * confidence
++ 0.10 importance
++ 0.10 freshness
 ```
 
-El Context Engine aplica además un score mínimo de relevancia (`CONTEXT_MEMORY_MIN_SCORE`) para evitar que una memoria de alta importance pero sin relación con el task entre sólo por prioridad. No consulta memoria global indiscriminadamente. Para una ejecución con Session recupera:
+El Context Engine aplica `CONTEXT_MEMORY_MIN_SCORE` sobre `relevance`, no sobre el ranking final. Así una memoria reciente o importante pero irrelevante no entra sólo por freshness/importance.
+
+No consulta memoria global indiscriminadamente. Para una ejecución con Session recupera:
 
 ```text
 SESSION:<sessionId>
@@ -3297,11 +3304,20 @@ SESSION:<sessionId>
 USER/TEAM/TENANT:<ownerKey>
 ```
 
-cuando la propia Session tiene un `ownerKey`. No se permite que el LLM invente scopes de memoria.
+cuando la propia Session tiene un `ownerKey`.
+
+Para un step `AGENT`, el runtime añade además scopes deterministas:
+
+```text
+AGENT:<agentName>
+AGENT:<agentId>
+```
+
+Estos scopes proceden del Agent Registry, no del LLM. No se permite que Planner/Agent inventen scopes para ampliar visibilidad.
 
 ### M7.4 — Context snapshots + Control Plane
 
-Cada llamada de modelo persiste un `ContextSnapshot` antes de invocar el Model Gateway.
+Cada llamada de modelo realizada por un step `AGENT`, `MODEL` o `VALIDATE` persiste un `ContextSnapshot` antes de invocar el Model Gateway.
 
 La tabla:
 
@@ -3314,6 +3330,7 @@ almacena:
 ```text
 executionId
 stepId
+attempt
 modelProfile
 budget
 components
@@ -3439,7 +3456,7 @@ Por ello el audit conserva hash SHA-256 y longitud, pero no el contenido ni valo
 
 La existencia de Persistent Memory no implica que toda memoria se añada a todo prompt.
 
-La selección depende de relevancia, scope, prioridad, budget, provenance y políticas. Esa responsabilidad pertenece al futuro `ContextEngine` de M7.3.
+La selección depende de relevancia, scope, prioridad, budget, provenance y políticas. Esa responsabilidad pertenece a `ContextEngine`, implementado en M7.3.
 
 Este ADR evita volver a caer en el patrón:
 
@@ -3549,3 +3566,42 @@ El Context Engine recupera automáticamente memoria `SESSION` y, cuando existe `
 No acepta scopes inventados por el Planner/LLM para ampliar visibilidad.
 
 Una futura capa IAM/tenant-aware puede endurecer esta relación sin cambiar el contrato conceptual del Context Engine.
+
+
+### ADR-044 — El system prompt también está sujeto al Context Budget
+
+**Estado:** Accepted  
+**Contexto:** M7.3 hardening
+
+El budget no se aplica sólo al `user_prompt`. El `system_prompt` forma parte del mismo context window y por tanto debe participar en la selección/compresión antes de invocar el proveedor.
+
+```text
+original system prompt
+        |
+        v
+ContextEngine
+        |
+        v
+budgeted system prompt
+        |
+        v
+ModelGateway
+```
+
+`EffectiveContext` transporta tanto `system_prompt` como `user_prompt`. `StepExecutor` usa ambos valores efectivos, evitando que el snapshot indique un prompt comprimido mientras el proveedor recibe el system prompt original completo.
+
+### ADR-045 — Relevance gating precede a importance/freshness ranking
+
+**Estado:** Accepted  
+**Contexto:** M7.3 hardening
+
+La plataforma separa dos preguntas:
+
+```text
+1. ¿Es esta memoria relevante para el task?
+2. Entre las relevantes, ¿cuál debe priorizarse?
+```
+
+`CONTEXT_MEMORY_MIN_SCORE` se aplica sólo al score de relevancia vectorial + lexical. Confidence, importance y freshness participan después en el ranking.
+
+Esto evita que una memoria irrelevante entre en contexto sólo por ser reciente o estar marcada con importance alta.
