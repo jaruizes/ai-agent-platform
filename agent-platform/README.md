@@ -1273,3 +1273,23 @@ GOVERNANCE_PLANNER_OUTPUT_USD_PER_MILLION=0
 Provider usage is persisted after each model call in `governance_usage`; policy and budget decisions are persisted separately for audit.
 
 Full Governance Control Plane screens are intentionally deferred to M8.4. M8.1/M8.2 deliver the runtime enforcement, APIs, audit state and admin runtime diagnostics first.
+
+
+## M8.1 / M8.2 end-to-end smoke test
+
+After rebuilding the branch:
+
+```bash
+bash scripts/m8-governance-smoke.sh
+```
+
+The script verifies:
+
+1. a normal baseline execution;
+2. policy priority override (broad DENY + higher-priority specific ALLOW);
+3. deterministic MODEL_ACCESS denial at runtime;
+4. a token budget that blocks the Planner before provider invocation;
+5. persisted policy/budget decision audit;
+6. actual model usage metering.
+
+The script uses a temporary TENANT Session with `ownerKey=m8-smoke` and cleans up the test policies/budget/session.
