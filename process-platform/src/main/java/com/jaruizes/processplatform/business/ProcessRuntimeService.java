@@ -294,15 +294,10 @@ public class ProcessRuntimeService {
                     step.outputSchema(),
                     output);
 
-            var instance = requireInstance(instanceId);
-            var context = new LinkedHashMap<>(instance.context());
-            context.put(step.stepKey(), output);
-
             runtime.completeStep(
                     instanceId,
                     step.stepKey(),
-                    output,
-                    context);
+                    output);
             scheduleAdvance(instanceId);
         } catch (Exception validationError) {
             failStep(
@@ -378,8 +373,8 @@ public class ProcessRuntimeService {
         executor.submit(() -> {
             try {
                 advance(instanceId);
-            } catch (Exception exception) {
-                runtime.failInstance(instanceId);
+            } catch (Exception ignored) {
+                // Durable state remains authoritative; the recovery loop will retry progression.
             }
         });
     }
