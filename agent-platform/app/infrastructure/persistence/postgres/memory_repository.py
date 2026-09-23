@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.domain.context import ContextSnapshot
 from app.domain.memory import MemoryEntry, Session, WorkingContextEntry
@@ -279,7 +279,7 @@ class PostgresMemoryRepository:
                             id,memory_id,candidate,decision,source_execution_id
                         ) VALUES($1,$2,$3::jsonb,$4::jsonb,$5)
                         """,
-                        audit_id or UUID(int=0),
+                        audit_id or uuid4(),
                         row["id"],
                         json.dumps(audit_candidate),
                         json.dumps(audit_decision),
