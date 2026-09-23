@@ -2746,7 +2746,7 @@ http://localhost:8081
 
 M7 introduce una separación explícita entre **estado de ejecución**, **contexto de trabajo**, **sesión**, **memoria persistente** y **knowledge**.
 
-En esta rama se implementan únicamente:
+En esta rama se completa M7 en cuatro bloques:
 
 ```text
 M7.1  Sessions + Working Context       ✅
