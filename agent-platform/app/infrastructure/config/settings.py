@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     service_name: str = "agent-platform"
-    service_version: str = "0.8.0"
+    service_version: str = "0.9.0-alpha.2"
 
     database_url: str = "postgresql://agent:agent@postgres:5432/agent_platform"
 
@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     context_memory_top_k: int = 8
     context_memory_min_score: float = 0.12
     context_min_compression_tokens: int = 128
+
+    governance_default_projected_completion_tokens: int = 4096
+    governance_router_input_usd_per_million: float = 0.0
+    governance_router_output_usd_per_million: float = 0.0
+    governance_execution_input_usd_per_million: float = 0.0
+    governance_execution_output_usd_per_million: float = 0.0
+    governance_planner_input_usd_per_million: float = 0.0
+    governance_planner_output_usd_per_million: float = 0.0
 
     otel_exporter_otlp_endpoint: str = "http://otel-collector:4317"
 
