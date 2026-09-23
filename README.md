@@ -1,6 +1,6 @@
 # AI Agent Platform
 
-Intent-driven AI execution platform with declarative Agents, Skills, Tools/MCP, managed Knowledge/RAG, LangGraph orchestration, durable execution and an Angular Control Plane.
+Intent-driven AI execution platform with declarative Agents, Skills, Tools/MCP, managed Knowledge/RAG, LangGraph orchestration, durable execution, Context/Memory, deterministic Governance and an Angular Control Plane.
 
 ## Local stack
 
