@@ -34,6 +34,12 @@ public class AgentPlatformIntegrationService {
     }
 
     public AgentExecutionSubmission submit(AgentExecutionRequest request) {
+        var prepared = prepare(request);
+        commandPort.submit(prepared.command());
+        return prepared.submission();
+    }
+
+    public PreparedAgentExecution prepare(AgentExecutionRequest request) {
         if (request == null || request.intent() == null || request.intent().isBlank()) {
             throw new IllegalArgumentException("Execution intent is required");
         }
@@ -73,8 +79,11 @@ public class AgentPlatformIntegrationService {
                 )
         );
 
-        commandPort.submit(command);
-        return new AgentExecutionSubmission(executionId, messageId, correlationId);
+        var submission = new AgentExecutionSubmission(
+                executionId,
+                messageId,
+                correlationId);
+        return new PreparedAgentExecution(submission, command);
     }
 
     /**
