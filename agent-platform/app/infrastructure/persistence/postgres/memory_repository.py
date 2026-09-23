@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from app.domain.context import ContextSnapshot
 from app.domain.memory import MemoryEntry, Session, WorkingContextEntry
 from app.infrastructure.persistence.postgres.database import Database
 
@@ -240,10 +241,10 @@ class PostgresMemoryRepository:
                         id,scope_type,scope_id,memory_type,memory_key,content,
                         metadata,confidence,importance,explicit,status,
                         policy_decision,source_execution_id,source_step_id,
-                        supersedes_memory_id,expires_at
+                        supersedes_memory_id,expires_at,embedding
                     ) VALUES(
                         $1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,'ACTIVE',
-                        $11::jsonb,$12,$13,$14,$15
+                        $11::jsonb,$12,$13,$14,$15,$16::vector
                     )
                     RETURNING *
                     """,
@@ -262,6 +263,7 @@ class PostgresMemoryRepository:
                     memory.source_step_id,
                     superseded_id,
                     memory.expires_at,
+                    self._vector_literal(memory.embedding),
                 )
         return self._memory(row)
 
@@ -367,6 +369,126 @@ class PostgresMemoryRepository:
             result.append(item)
         return result
 
+    async def retrieve_memories(
+        self,
+        *,
+        scopes: list[tuple[str, str]],
+        query: str,
+        query_embedding: list[float],
+        limit: int,
+    ) -> list[MemoryEntry]:
+        if not scopes:
+            return []
+        scope_types = [item[0] for item in scopes]
+        scope_ids = [item[1] for item in scopes]
+        vector = self._vector_literal(query_embedding)
+        async with self._db.require_pool().acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT m.*,
+                    (
+                        0.72 * CASE
+                            WHEN m.embedding IS NULL THEN 0.0
+                            ELSE GREATEST(0.0, 1.0 - (m.embedding <=> $3::vector))
+                        END
+                        + 0.18 * ts_rank_cd(
+                            m.search_vector,
+                            plainto_tsquery('simple', $4)
+                        )
+                        + 0.10 * m.importance
+                    ) AS retrieval_score
+                FROM memory_entries m
+                WHERE m.status='ACTIVE'
+                  AND (m.expires_at IS NULL OR m.expires_at > now())
+                  AND EXISTS (
+                    SELECT 1
+                    FROM unnest($1::text[], $2::text[]) AS s(scope_type, scope_id)
+                    WHERE s.scope_type=m.scope_type
+                      AND s.scope_id=m.scope_id
+                  )
+                ORDER BY retrieval_score DESC, m.updated_at DESC
+                LIMIT $5
+                """,
+                scope_types,
+                scope_ids,
+                vector,
+                query,
+                limit,
+            )
+        memories: list[MemoryEntry] = []
+        for row in rows:
+            item = self._memory(row)
+            memories.append(
+                MemoryEntry(
+                    **{
+                        **item.__dict__,
+                        "metadata": {
+                            **item.metadata,
+                            "retrievalScore": float(row["retrieval_score"] or 0.0),
+                        },
+                    }
+                )
+            )
+        return memories
+
+    async def save_context_snapshot(
+        self,
+        snapshot: ContextSnapshot,
+    ) -> ContextSnapshot:
+        async with self._db.require_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO context_snapshots(
+                    id,execution_id,step_id,model_profile,budget,components,
+                    provenance,prompt_token_estimate,selected_token_estimate,
+                    dropped_token_estimate,compressed
+                ) VALUES(
+                    $1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11
+                )
+                RETURNING *
+                """,
+                snapshot.id,
+                snapshot.execution_id,
+                snapshot.step_id,
+                snapshot.model_profile,
+                json.dumps(snapshot.budget),
+                json.dumps(snapshot.components),
+                json.dumps(snapshot.provenance),
+                snapshot.prompt_token_estimate,
+                snapshot.selected_token_estimate,
+                snapshot.dropped_token_estimate,
+                snapshot.compressed,
+            )
+        return self._snapshot(row)
+
+    async def list_context_snapshots(
+        self,
+        execution_id: UUID,
+        *,
+        step_id: str | None = None,
+    ) -> list[ContextSnapshot]:
+        async with self._db.require_pool().acquire() as conn:
+            if step_id:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM context_snapshots
+                    WHERE execution_id=$1 AND step_id=$2
+                    ORDER BY created_at DESC
+                    """,
+                    execution_id,
+                    step_id,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM context_snapshots
+                    WHERE execution_id=$1
+                    ORDER BY created_at,step_id
+                    """,
+                    execution_id,
+                )
+        return [self._snapshot(row) for row in rows]
+
     async def expire_sessions(self) -> int:
         pool = self._db.require_pool()
         async with pool.acquire() as conn:
@@ -445,6 +567,23 @@ class PostgresMemoryRepository:
         )
 
     @classmethod
+    def _snapshot(cls, row) -> ContextSnapshot:
+        return ContextSnapshot(
+            id=row["id"],
+            execution_id=row["execution_id"],
+            step_id=row["step_id"],
+            model_profile=row["model_profile"],
+            budget=dict(cls._decode(row["budget"]) or {}),
+            components=list(cls._decode(row["components"]) or []),
+            provenance=list(cls._decode(row["provenance"]) or []),
+            prompt_token_estimate=row["prompt_token_estimate"],
+            selected_token_estimate=row["selected_token_estimate"],
+            dropped_token_estimate=row["dropped_token_estimate"],
+            compressed=row["compressed"],
+            created_at=row["created_at"],
+        )
+
+    @classmethod
     def _memory(cls, row) -> MemoryEntry:
         return MemoryEntry(
             id=row["id"],
@@ -467,3 +606,10 @@ class PostgresMemoryRepository:
             expires_at=row["expires_at"],
             revoked_at=row["revoked_at"],
         )
+
+
+    @staticmethod
+    def _vector_literal(values: list[float] | None) -> str | None:
+        if values is None:
+            return None
+        return "[" + ",".join(str(float(value)) for value in values) + "]"
