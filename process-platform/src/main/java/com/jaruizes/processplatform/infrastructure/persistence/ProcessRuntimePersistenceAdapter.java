@@ -193,7 +193,7 @@ public class ProcessRuntimePersistenceAdapter
     }
 
     private ProcessStepInstanceJpaEntity requireStep(UUID instanceId, String stepKey) {
-        return steps.findByInstanceIdAndStepKey(instanceId, stepKey)
+        return steps.findLocked(instanceId, stepKey)
                 .orElseThrow(() -> new NoSuchElementException(
                         "Process step '%s' not found in instance %s"
                                 .formatted(stepKey, instanceId)));
