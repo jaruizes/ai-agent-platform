@@ -1,6 +1,16 @@
 spring:
   application:
     name: process-platform
+  datasource:
+    url: ${PROCESS_DB_URL:jdbc:postgresql://localhost:5433/process_platform}
+    username: ${PROCESS_DB_USER:process}
+    password: ${PROCESS_DB_PASSWORD:process}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
 
 server:
   port: ${SERVER_PORT:8090}
