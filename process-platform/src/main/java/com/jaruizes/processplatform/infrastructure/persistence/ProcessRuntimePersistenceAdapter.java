@@ -95,6 +95,18 @@ public class ProcessRuntimePersistenceAdapter
 
     @Override
     @Transactional
+    public boolean resetRunningStep(UUID instanceId, String stepKey) {
+        var step = requireStep(instanceId, stepKey);
+        if (step.getStatus() != ProcessStepStatus.RUNNING) return false;
+        step.setStatus(ProcessStepStatus.READY);
+        step.setStartedAt(null);
+        step.setUpdatedAt(Instant.now());
+        steps.saveAndFlush(step);
+        return true;
+    }
+
+    @Override
+    @Transactional
     public ProcessInstance delegateAgent(
             UUID instanceId,
             String stepKey,
