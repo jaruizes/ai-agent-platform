@@ -126,14 +126,18 @@ class GovernedModelGateway:
                         + " Budget degradation cannot switch to a prohibited model."
                     )
 
+        effective_max_tokens = max_tokens
+        if (
+            effective_max_tokens is None
+            and budget_detail is not None
+            and evaluation.budget_name is not None
+        ):
+            effective_max_tokens = self._default_projected_completion_tokens
+
         detail=await self._delegate.complete_detailed(
             system_prompt=system_prompt,user_prompt=user_prompt,
             model_profile=effective_profile,temperature=temperature,
-            max_tokens=(
-                max_tokens
-                if max_tokens is not None
-                else self._default_projected_completion_tokens
-            ),
+            max_tokens=effective_max_tokens,
         )
         if ctx:
             cost=await self._governance.record_usage(
