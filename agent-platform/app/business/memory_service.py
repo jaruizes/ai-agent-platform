@@ -262,12 +262,10 @@ class MemoryService:
             expires_at=self._normalize_datetime(candidate.expires_at),
             embedding=embedding_result.vectors[0],
         )
-        persisted = await self._repository.create_memory(memory)
-        await self._repository.record_policy_audit(
-            candidate=candidate_snapshot,
-            decision=decision.as_dict(),
-            memory_id=persisted.id,
-            source_execution_id=candidate.source_execution_id,
+        persisted = await self._repository.create_memory(
+            memory,
+            audit_candidate=candidate_snapshot,
+            audit_decision=decision.as_dict(),
             audit_id=uuid4(),
         )
         return persisted, decision
