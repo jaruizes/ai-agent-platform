@@ -61,6 +61,7 @@ class GovernedModelGateway:
             projected_prompt=max(1,(len(system_prompt)+len(user_prompt))//4)
             evaluation=await self._governance.evaluate_budget(
                 execution_id=ctx.execution_id,
+                step_id=ctx.step_id,
                 model_profile=model_profile,
                 projected_prompt_tokens=projected_prompt,
                 projected_completion_tokens=(
