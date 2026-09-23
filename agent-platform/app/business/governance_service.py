@@ -102,7 +102,13 @@ class GovernanceService:
             await self._repository.record_decision(decision)
         return decision
 
-    async def apply_plan(self, execution: dict[str,Any], plan: LogicalPlan) -> LogicalPlan:
+    async def apply_plan(
+        self,
+        execution: dict[str,Any],
+        plan: LogicalPlan,
+        *,
+        execution_model_profile: str,
+    ) -> LogicalPlan:
         steps=[]
         for step in plan.steps:
             decisions=[]
@@ -120,7 +126,16 @@ class GovernanceService:
                     resource_name=step.tool_name,
                     context={"stepType":step.type,"sideEffect":step.tool_side_effect},
                 ))
-            for kb in step.knowledge_base_names:
+            if step.type in {"AGENT","MODEL","VALIDATE"}:
+                decisions.append(await self.evaluate(
+                    execution_id=execution["id"],step_id=step.id,
+                    policy_type="MODEL_ACCESS",resource_type="MODEL",
+                    resource_name=execution_model_profile,
+                    context={"stepType":step.type},
+                ))
+            if step.type in {"AGENT","MODEL","VALIDATE"}:
+            resources.append(("MODEL_ACCESS","MODEL",execution_model_profile,{"stepType":step.type}))
+        for kb in step.knowledge_base_names:
                 decisions.append(await self.evaluate(
                     execution_id=execution["id"],step_id=step.id,
                     policy_type="KNOWLEDGE_ACCESS",resource_type="KNOWLEDGE",
@@ -140,7 +155,13 @@ class GovernanceService:
             steps.append(step)
         return LogicalPlan(objective=plan.objective,steps=steps,final_step_id=plan.final_step_id)
 
-    async def enforce_step(self, execution:dict[str,Any], step) -> GovernanceDecision|None:
+    async def enforce_step(
+        self,
+        execution:dict[str,Any],
+        step,
+        *,
+        execution_model_profile:str,
+    ) -> GovernanceDecision|None:
         resources=[]
         if step.agent_name:
             resources.append(("RESOURCE_ACCESS","AGENT",step.agent_name,{}))
