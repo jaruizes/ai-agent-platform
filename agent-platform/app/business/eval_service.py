@@ -216,7 +216,7 @@ class EvalService:
             },
         }, ensure_ascii=False)
         token = set_governance_context(GovernanceRuntimeContext(
-            execution_id=execution_id, step_id="__eval_judge__",
+            execution_id=execution_id, step_id=None,
             session_scope=None, session_owner_key=None,
         ))
         try:
