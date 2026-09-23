@@ -174,6 +174,7 @@ class GovernanceService:
                         resource_type="AGENT",
                         resource_name=step.agent_name,
                         context={"stepType": step.type, "phase": "PLAN"},
+                        extra_subjects=[("AGENT", step.agent_name)],
                     )
                 )
 
@@ -307,6 +308,11 @@ class GovernanceService:
             )
 
         approval: GovernanceDecision | None = None
+        extra_subjects = (
+            [("AGENT", step.agent_name)]
+            if step.agent_name
+            else []
+        )
         for policy_type, resource_type, resource_name, context in resources:
             decision = await self.evaluate(
                 execution_id=execution["id"],
@@ -315,6 +321,7 @@ class GovernanceService:
                 resource_type=resource_type,
                 resource_name=resource_name,
                 context=context,
+                extra_subjects=extra_subjects,
             )
             if decision.effect == "DENY":
                 raise GovernanceDenied(decision.reason)
@@ -343,6 +350,12 @@ class GovernanceService:
                     "scopeId": scope_id,
                 },
             )
+            if decision.effect == "REQUIRE_APPROVAL":
+                raise GovernanceDenied(
+                    "Memory scope access requires approval, but memory retrieval "
+                    "has no independent approval gate. Apply approval to the "
+                    "enclosing AGENT/MODEL step instead."
+                )
             if decision.effect != "DENY":
                 allowed.append((scope_type, scope_id))
         return allowed
@@ -355,9 +368,12 @@ class GovernanceService:
         model_profile: str,
         projected_prompt_tokens: int,
         projected_completion_tokens: int,
+        extra_subjects: list[tuple[str, str]] | None = None,
     ) -> BudgetEvaluation:
         budgets = await self._repository.list_budgets(enabled_only=True)
         subjects = await self._repository.execution_subjects(execution_id)
+        subjects.extend(extra_subjects or [])
+        subjects = list(dict.fromkeys(subjects))
 
         applicable = [
             budget
@@ -532,6 +548,7 @@ class GovernanceService:
         step_id: str | None,
         model_profile: str,
         usage: dict[str, Any],
+        extra_scopes: list[tuple[str, str]] | None = None,
     ) -> float:
         prompt_tokens = int(
             usage.get("prompt_tokens")
@@ -562,6 +579,8 @@ class GovernanceService:
             scopes = await self._repository.execution_subjects(
                 execution_id
             )
+            scopes.extend(extra_scopes or [])
+            scopes = list(dict.fromkeys(scopes))
             await self._repository.record_usage(
                 execution_id=execution_id,
                 step_id=step_id,
