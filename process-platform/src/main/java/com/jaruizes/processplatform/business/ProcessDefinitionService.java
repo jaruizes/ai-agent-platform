@@ -109,6 +109,42 @@ public class ProcessDefinitionService {
         ));
     }
 
+    public ProcessDefinition createNextVersion(UUID sourceId) {
+        var source = get(sourceId);
+        if (source.status() == ProcessDefinitionStatus.DRAFT) {
+            throw new IllegalStateException("Create the next version from an ACTIVE or RETIRED definition");
+        }
+
+        var nextVersion = source.version() + 1;
+        while (repository.existsByKeyAndVersion(source.definitionKey(), nextVersion)) {
+            nextVersion++;
+        }
+
+        var clonedSteps = source.steps().stream().map(step ->
+                new ProcessStepDefinition(
+                        UUID.randomUUID(),
+                        step.stepKey(),
+                        step.name(),
+                        step.description(),
+                        step.type(),
+                        step.dependsOn(),
+                        step.inputSchema(),
+                        step.outputSchema(),
+                        step.configuration()
+                )
+        ).toList();
+
+        return create(
+                source.definitionKey(),
+                source.name(),
+                source.description(),
+                nextVersion,
+                source.inputSchema(),
+                source.outputSchema(),
+                clonedSteps
+        );
+    }
+
     public ProcessDefinition retire(UUID id) {
         var current = get(id);
         if (current.status() == ProcessDefinitionStatus.RETIRED) return current;
