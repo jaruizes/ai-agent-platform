@@ -45,6 +45,7 @@ class ContextEngine:
         system_prompt: str,
         model_profile: str,
         attempt: int = 1,
+        additional_memory_scopes: list[tuple[str, str]] | None = None,
         knowledge_context: str = "",
         knowledge_provenance: list[dict[str, Any]] | None = None,
     ) -> EffectiveContext:
@@ -115,7 +116,7 @@ class ContextEngine:
             )
 
         session_id = execution.get("session_id")
-        scopes: list[tuple[str, str]] = []
+        scopes: list[tuple[str, str]] = list(additional_memory_scopes or [])
         retrieval_query = self._retrieval_query(command, step, dependencies)
         if session_id:
             session = await self._memory_service.get_session(session_id)
@@ -163,6 +164,8 @@ class ContextEngine:
                             "entryType": entry.entry_type,
                         }
                     )
+
+        scopes = list(dict.fromkeys(scopes))
 
         memories = await self._memory_service.retrieve_relevant(
             query=retrieval_query,
