@@ -15,6 +15,7 @@ public interface ProcessRuntimeRepositoryPort {
     ProcessInstance updateInstanceStatus(UUID instanceId, ProcessInstanceStatus status);
     boolean markReady(UUID instanceId, String stepKey);
     boolean claimReady(UUID instanceId, String stepKey, Map<String,Object> input);
+    boolean resetRunningStep(UUID instanceId, String stepKey);
     ProcessInstance delegateAgent(UUID instanceId, String stepKey, ExecutionCommand command);
     ProcessInstance completeStep(UUID instanceId, String stepKey, Map<String,Object> output);
     ProcessInstance failStep(UUID instanceId, String stepKey, Map<String,Object> error);
