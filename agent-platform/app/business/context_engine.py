@@ -258,11 +258,36 @@ class ContextEngine:
             for component in selected
         )
         dropped_tokens = max(0, original_tokens - selected_tokens)
+        selected_refs = {
+            component.source_ref
+            for component in selected
+            if component.selected and component.source_ref
+        }
+        knowledge_selected = any(
+            component.selected and component.type == "KNOWLEDGE"
+            for component in selected
+        )
+        effective_provenance = [
+            {
+                **item,
+                "selected": (
+                    knowledge_selected
+                    if item.get("type") == "KNOWLEDGE"
+                    else (
+                        item.get("id") in selected_refs
+                        if item.get("id")
+                        else True
+                    )
+                ),
+            }
+            for item in provenance
+        ]
+
         effective = EffectiveContext(
             user_prompt=user_prompt,
             components=selected,
             budget=budget,
-            provenance=provenance,
+            provenance=effective_provenance,
             prompt_token_estimate=prompt_estimate,
             selected_token_estimate=selected_tokens,
             dropped_token_estimate=dropped_tokens,
