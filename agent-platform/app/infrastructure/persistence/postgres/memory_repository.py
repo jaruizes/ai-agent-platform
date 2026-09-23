@@ -203,7 +203,14 @@ class PostgresMemoryRepository:
             )
         return [self._context(row) for row in reversed(rows)]
 
-    async def create_memory(self, memory: MemoryEntry) -> MemoryEntry:
+    async def create_memory(
+        self,
+        memory: MemoryEntry,
+        *,
+        audit_candidate: dict[str, Any] | None = None,
+        audit_decision: dict[str, Any] | None = None,
+        audit_id: UUID | None = None,
+    ) -> MemoryEntry:
         pool = self._db.require_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -265,6 +272,19 @@ class PostgresMemoryRepository:
                     memory.expires_at,
                     self._vector_literal(memory.embedding),
                 )
+                if audit_candidate is not None and audit_decision is not None:
+                    await conn.execute(
+                        """
+                        INSERT INTO memory_policy_audit(
+                            id,memory_id,candidate,decision,source_execution_id
+                        ) VALUES($1,$2,$3::jsonb,$4::jsonb,$5)
+                        """,
+                        audit_id or UUID(int=0),
+                        row["id"],
+                        json.dumps(audit_candidate),
+                        json.dumps(audit_decision),
+                        memory.source_execution_id,
+                    )
         return self._memory(row)
 
     async def get_memory(self, memory_id: UUID) -> MemoryEntry | None:
