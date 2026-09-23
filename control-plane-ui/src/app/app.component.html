@@ -183,8 +183,8 @@
       <section class="stat-grid">
         <article class="stat-card"><span>DATASETS</span><strong>{{evalDatasets().length}}</strong><small>versioned regression cases</small></article>
         <article class="stat-card"><span>EVAL DEFINITIONS</span><strong>{{evalDefinitions().length}}</strong><small>metrics, judge and thresholds</small></article>
-        <article class="stat-card"><span>RUNS</span><strong>{{evalRuns().length}}</strong><small>{{evalRuns().filter(r=>r.status==='RUNNING').length}} running</small></article>
-        <article class="stat-card"><span>REGRESSIONS</span><strong>{{evalRuns().filter(r=>r.regression?.regressed).length}}</strong><small>threshold/baseline failures</small></article>
+        <article class="stat-card"><span>RUNS</span><strong>{{evalRuns().length}}</strong><small>{{runningEvalCount()}} running</small></article>
+        <article class="stat-card"><span>REGRESSIONS</span><strong>{{regressionEvalCount()}}</strong><small>threshold/baseline failures</small></article>
       </section>
       <section class="two-col">
         <article class="panel">
