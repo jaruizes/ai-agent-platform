@@ -175,7 +175,7 @@ class ContextEngine:
         memories = [
             memory
             for memory in memories
-            if float(memory.metadata.get("retrievalScore") or 0.0)
+            if float(memory.metadata.get("relevanceScore") or 0.0)
             >= self._memory_min_score
         ][: self._memory_top_k]
         for memory in memories:
@@ -200,6 +200,7 @@ class ContextEngine:
                         "key": memory.memory_key,
                         "confidence": memory.confidence,
                         "importance": memory.importance,
+                        "relevanceScore": memory.metadata.get("relevanceScore"),
                         "retrievalScore": memory.metadata.get("retrievalScore"),
                     },
                 )
