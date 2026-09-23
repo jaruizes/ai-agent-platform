@@ -21,6 +21,7 @@ export class ApiService {
   cancel(id:string,reason='Control Plane cancellation'){return firstValueFrom(this.http.post(`${this.base}/executions/${id}/cancel`,{reason}));}
   approval(executionId:string,stepId:string,approved:boolean,actor:string,comment:string){return firstValueFrom(this.http.post(`${this.base}/executions/${executionId}/steps/${stepId}/approval`,{approved,actor,comment}));}
   contextSnapshots(executionId:string){return firstValueFrom(this.http.get<ContextSnapshot[]>(`${this.base}/executions/${executionId}/context-snapshots`));}
+  executionContext(executionId:string){return firstValueFrom(this.http.get<any[]>(`${this.base}/executions/${executionId}/context`));}
 
   sessions(status=''){return firstValueFrom(this.http.get<SessionInfo[]>(`${this.base}/sessions`,{params:status?{status}:{}}));}
   createSession(body:any){return firstValueFrom(this.http.post<SessionInfo>(`${this.base}/sessions`,body));}
