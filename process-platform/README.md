@@ -849,3 +849,369 @@ external service
 ```
 
 Process Platform never selects, lists or invokes Agent Platform Tools directly.
+
+
+---
+
+# M9.4 — Process Capabilities & Long-running Workflow
+
+M9.4 completes the backend primitives required before building the visual Process
+Control Plane.
+
+## Process execution primitives
+
+Process Platform now exposes:
+
+```text
+SERVICE
+AGENTIC_EXECUTION
+DECISION
+HUMAN
+WAIT_EVENT
+SUBPROCESS   (modeled, activation rejected until a later milestone)
+```
+
+`TOOL` is intentionally not part of Process Platform.
+
+## Service Registry
+
+A SERVICE is selected from the Process Platform catalog, not by writing a Spring
+handler name in a ProcessDefinition.
+
+Catalog resource:
+
+```text
+ProcessServiceDefinition
+  - serviceKey
+  - version
+  - status: DRAFT | ACTIVE | RETIRED
+  - name / description
+  - inputSchema / outputSchema
+  - implementationKey   (internal adapter binding)
+```
+
+Lifecycle:
+
+```text
+DRAFT -> ACTIVE -> RETIRED
+          |
+          +-> next-version -> DRAFT
+```
+
+APIs:
+
+```http
+GET  /v1/process-services
+GET  /v1/process-services?activeOnly=true
+GET  /v1/process-services/{id}
+POST /v1/process-services
+PUT  /v1/process-services/{id}
+POST /v1/process-services/{id}/activate
+POST /v1/process-services/{id}/retire
+POST /v1/process-services/{id}/next-version
+```
+
+A process designer references only:
+
+```json
+{
+  "type": "SERVICE",
+  "configuration": {
+    "serviceKey": "customer.lookup"
+  }
+}
+```
+
+When the ProcessDefinition is activated, the latest ACTIVE version is resolved
+and pinned:
+
+```json
+{
+  "serviceKey": "customer.lookup",
+  "serviceVersion": 3
+}
+```
+
+If version 3 is later RETIRED, already-active ProcessDefinitions remain
+executable with that pinned version. New activation cannot select a retired
+version.
+
+The internal `implementationKey` maps to `ProcessServiceHandlerPort`. It is
+not part of the ProcessDefinition language.
+
+## DECISION
+
+DECISION is deterministic. It does not invoke an LLM.
+
+Example:
+
+```json
+{
+  "type": "DECISION",
+  "configuration": {
+    "path": "processInput.riskScore",
+    "operator": "GTE",
+    "value": 80,
+    "onTrue": "HIGH",
+    "onFalse": "LOW"
+  }
+}
+```
+
+Supported operators:
+
+```text
+EQ NE GT GTE LT LTE EXISTS IN
+```
+
+The persisted output is:
+
+```json
+{
+  "outcome": "HIGH",
+  "matched": true,
+  "actual": 92
+}
+```
+
+A branch step declares a condition:
+
+```json
+{
+  "dependsOn": ["risk-route"],
+  "configuration": {
+    "when": {
+      "decisionStep": "risk-route",
+      "equals": "HIGH"
+    }
+  }
+}
+```
+
+Non-selected branches become `SKIPPED`.
+
+Skip propagation is dependency-aware:
+
+```text
+decision
+   |
+   +-- chosen branch ------ COMPLETED ----+
+   |                                     |
+   +-- other branch ------- SKIPPED ------+--> join
+```
+
+A step whose dependencies are all SKIPPED is itself skipped. A join with at least
+one completed dependency and the remaining dependencies skipped can execute.
+
+## HUMAN
+
+A HUMAN step creates durable `HumanTask` state and moves the step to WAITING.
+
+Definition:
+
+```json
+{
+  "type": "HUMAN",
+  "configuration": {
+    "title": "Approve proposal",
+    "description": "Review risk and cost"
+  }
+}
+```
+
+Inbox:
+
+```http
+GET /v1/human-tasks
+GET /v1/human-tasks?pendingOnly=true
+```
+
+Complete:
+
+```http
+POST /v1/human-tasks/{taskId}/complete
+Content-Type: application/json
+
+{
+  "decision": "APPROVED",
+  "result": {
+    "comment": "Reviewed"
+  }
+}
+```
+
+The step output becomes:
+
+```json
+{
+  "decision": "APPROVED",
+  "result": {
+    "comment": "Reviewed"
+  }
+}
+```
+
+Human task completion uses a pessimistic lock and is idempotent with respect to
+process progression.
+
+## WAIT_EVENT
+
+WAIT_EVENT persists a durable subscription without blocking a thread.
+
+Definition:
+
+```json
+{
+  "type": "WAIT_EVENT",
+  "configuration": {
+    "eventType": "contract.signed"
+  }
+}
+```
+
+By default the ProcessInstance `correlationId` is used.
+
+Signal:
+
+```http
+POST /v1/process-events
+
+{
+  "eventType": "contract.signed",
+  "correlationId": "CASE-123",
+  "payload": {
+    "documentId": "D-9"
+  }
+}
+```
+
+The API returns:
+
+```json
+{
+  "matchedWaits": 1
+}
+```
+
+Event consumption is durable and pessimistically locked. Duplicate delivery
+cannot advance the same waiting step twice.
+
+## Pause / resume / cancel
+
+```http
+POST /v1/process-instances/{id}/pause
+POST /v1/process-instances/{id}/resume
+POST /v1/process-instances/{id}/cancel
+```
+
+`PAUSED` freezes DAG progression.
+
+External work already in flight is not forcibly interrupted. For example, an
+Agent Platform execution or a deterministic SERVICE already running may still
+finish; its durable result is stored while the ProcessInstance remains PAUSED.
+Resume continues from persisted state.
+
+Cancel marks all non-terminal process steps CANCELLED and cancels pending Human
+Tasks/Event Waits.
+
+M9.4 does not yet send a cancellation command to an already delegated Agent
+Platform execution. Agent cancellation remains a separate public-contract
+extension; Process Platform never calls Agent Platform internals.
+
+## Retry and timeout
+
+Automated executable steps can declare:
+
+```json
+{
+  "retry": {
+    "maxAttempts": 3,
+    "backoffMs": 2000
+  },
+  "timeoutSeconds": 60
+}
+```
+
+Retry is supported for:
+
+```text
+SERVICE
+AGENTIC_EXECUTION
+DECISION
+```
+
+Retry state is persisted on ProcessStepInstance:
+
+```text
+attemptCount
+availableAt
+deadlineAt
+```
+
+Backoff therefore survives process/runtime restarts.
+
+A retry clears the old delegatedExecutionId before a new AGENTIC_EXECUTION is
+created so late events from an older attempt cannot complete the new attempt.
+
+HUMAN and WAIT_EVENT use timeout as a terminal waiting deadline rather than
+automatic retry.
+
+For AGENTIC_EXECUTION, retry after a timeout has at-least-once semantics: the old
+remote execution may still consume resources because M9.4 does not yet expose
+cross-platform cancellation.
+
+## Activation-time semantic validation
+
+Before a ProcessDefinition becomes ACTIVE, M9.4 validates:
+
+- SERVICE references resolve to an ACTIVE service and get version-pinned;
+- AGENTIC_EXECUTION has `intent`;
+- HUMAN has `title`;
+- WAIT_EVENT has `eventType`;
+- DECISION path/operator are valid;
+- conditional branch references point to a DECISION dependency;
+- retry values are valid;
+- timeout is positive;
+- SUBPROCESS is rejected because it is not executable yet.
+
+## M9.4 smoke
+
+```bash
+docker compose up -d process-postgres nats otel-collector process-platform
+bash scripts/m9-process-long-running-smoke.sh
+```
+
+The smoke test verifies:
+
+```text
+Service Registry discovery
+        |
+SERVICE version pinning
+        |
+SERVICE
+        |
+DECISION
+     /       \
+ HUMAN      SERVICE
+ WAITING    SKIPPED
+     \       /
+        join
+         |
+     pause
+         |
+human result persisted while PAUSED
+         |
+       resume
+         |
+     WAIT_EVENT
+         |
+correlated event
+         |
+      SERVICE
+         |
+     COMPLETED
+
++ process cancellation
++ pending human-task cancellation
++ durable WAIT_EVENT timeout
+```
