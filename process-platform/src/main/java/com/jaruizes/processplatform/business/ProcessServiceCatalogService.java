@@ -25,6 +25,7 @@ public class ProcessServiceCatalogService {
             String description,
             int version,
             String implementationKey,
+            Map<String,Object> configuration,
             Map<String,Object> inputSchema,
             Map<String,Object> outputSchema) {
         if(serviceKey==null||serviceKey.isBlank()) throw new IllegalArgumentException("serviceKey is required");
@@ -38,7 +39,7 @@ public class ProcessServiceCatalogService {
         return repository.save(new ProcessServiceDefinition(
                 UUID.randomUUID(),serviceKey.trim(),name.trim(),description==null?"":description,
                 version,ProcessServiceStatus.DRAFT,implementationKey.trim(),
-                safe(inputSchema),safe(outputSchema),now,now,null));
+                safe(configuration),safe(inputSchema),safe(outputSchema),now,now,null));
     }
 
     public ProcessServiceDefinition updateDraft(
@@ -46,6 +47,7 @@ public class ProcessServiceCatalogService {
             String name,
             String description,
             String implementationKey,
+            Map<String,Object> configuration,
             Map<String,Object> inputSchema,
             Map<String,Object> outputSchema) {
         var current=get(id);
@@ -58,7 +60,8 @@ public class ProcessServiceCatalogService {
         return repository.save(new ProcessServiceDefinition(
                 current.id(),current.serviceKey(),name.trim(),description==null?"":description,
                 current.version(),current.status(),implementationKey.trim(),
-                safe(inputSchema),safe(outputSchema),current.createdAt(),Instant.now(),current.activatedAt()));
+                safe(configuration),safe(inputSchema),safe(outputSchema),
+                current.createdAt(),Instant.now(),current.activatedAt()));
     }
 
     public ProcessServiceDefinition createNextVersion(UUID sourceId){
@@ -69,7 +72,7 @@ public class ProcessServiceCatalogService {
         while(repository.existsByKeyAndVersion(source.serviceKey(),next)) next++;
         return create(
                 source.serviceKey(),source.name(),source.description(),next,
-                source.implementationKey(),source.inputSchema(),source.outputSchema());
+                source.implementationKey(),source.configuration(),source.inputSchema(),source.outputSchema());
     }
 
     public ProcessServiceDefinition activate(UUID id){
@@ -129,7 +132,8 @@ public class ProcessServiceCatalogService {
 
     private static ProcessServiceDefinition copy(ProcessServiceDefinition v,ProcessServiceStatus status,Instant activatedAt){
         return new ProcessServiceDefinition(v.id(),v.serviceKey(),v.name(),v.description(),v.version(),status,
-                v.implementationKey(),v.inputSchema(),v.outputSchema(),v.createdAt(),Instant.now(),activatedAt);
+                v.implementationKey(),v.configuration(),v.inputSchema(),v.outputSchema(),
+                v.createdAt(),Instant.now(),activatedAt);
     }
     private static Map<String,Object> safe(Map<String,Object> v){return v==null?Map.of():new LinkedHashMap<>(v);}
 }
