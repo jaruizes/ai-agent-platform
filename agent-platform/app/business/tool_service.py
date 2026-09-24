@@ -46,13 +46,11 @@ class ToolService:
         approval_policy = approval_policy.upper()
         self._validate_tool_policy(side_effect, approval_policy)
 
-        if implementation_type.upper() == "MCP":
-            server_name = configuration.get("server")
-            remote_tool = configuration.get("tool")
-            if not server_name or not remote_tool:
-                raise ValueError("MCP tools require configuration.server and configuration.tool")
-            if not await self._repository.get_mcp_server_by_name(server_name):
-                raise ValueError(f"MCP server '{server_name}' does not exist")
+        implementation_type = implementation_type.upper()
+        await self._validate_implementation(
+            implementation_type,
+            configuration,
+        )
 
         return await self._repository.create_tool(
             Tool(
@@ -60,7 +58,7 @@ class ToolService:
                 name=name,
                 description=description,
                 instructions=instructions,
-                implementation_type=implementation_type.upper(),
+                implementation_type=implementation_type,
                 configuration=configuration,
                 input_schema=input_schema,
                 side_effect=side_effect,
@@ -90,12 +88,17 @@ class ToolService:
         side_effect = side_effect.upper()
         approval_policy = approval_policy.upper()
         self._validate_tool_policy(side_effect, approval_policy)
+        implementation_type = implementation_type.upper()
+        await self._validate_implementation(
+            implementation_type,
+            configuration,
+        )
         tool = Tool(
             id=tool_id,
             name=name,
             description=description,
             instructions=instructions,
-            implementation_type=implementation_type.upper(),
+            implementation_type=implementation_type,
             configuration=configuration,
             input_schema=input_schema,
             side_effect=side_effect,
@@ -104,6 +107,36 @@ class ToolService:
             source=existing.source,
         )
         return await self._repository.update_tool(tool)
+
+    async def _validate_implementation(
+        self,
+        implementation_type: str,
+        configuration: dict[str, Any],
+    ) -> None:
+        if implementation_type == "MCP":
+            server_name = configuration.get("server")
+            remote_tool = configuration.get("tool")
+            if not server_name or not remote_tool:
+                raise ValueError(
+                    "MCP tools require configuration.server and configuration.tool"
+                )
+            if not await self._repository.get_mcp_server_by_name(server_name):
+                raise ValueError(f"MCP server '{server_name}' does not exist")
+            return
+
+        if implementation_type == "GOOGLE_DRIVE_READ":
+            server_name = configuration.get("server")
+            if not server_name:
+                raise ValueError(
+                    "GOOGLE_DRIVE_READ tools require configuration.server"
+                )
+            if not await self._repository.get_mcp_server_by_name(server_name):
+                raise ValueError(f"MCP server '{server_name}' does not exist")
+            return
+
+        raise ValueError(
+            "implementationType must be MCP or GOOGLE_DRIVE_READ"
+        )
 
     @staticmethod
     def _validate_tool_policy(side_effect: str, approval_policy: str) -> None:
