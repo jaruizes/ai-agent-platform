@@ -112,6 +112,7 @@ export interface ProcessHumanTask {
   id:string;
   processInstanceId:string;
   stepKey:string;
+  iteration:number;
   title:string;
   description:string;
   payload:any;
