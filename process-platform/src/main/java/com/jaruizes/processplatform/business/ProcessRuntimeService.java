@@ -550,9 +550,9 @@ public class ProcessRuntimeService {
             runtime.completeStep(instanceId, step.stepKey(), output);
             scheduleAdvance(instanceId);
         } catch (Exception validationError) {
-            failStep(
+            handleStepFailure(
                     instanceId,
-                    step.stepKey(),
+                    step,
                     "OUTPUT_CONTRACT_VIOLATION",
                     validationError.getMessage());
         }
@@ -634,6 +634,8 @@ public class ProcessRuntimeService {
     }
 
     private void failStep(UUID instanceId, String stepKey, String code, String message) {
+        humanTasks.cancelPendingForInstance(instanceId);
+        eventWaits.cancelWaitingForInstance(instanceId);
         runtime.failStep(instanceId, stepKey, error(code, message));
     }
 
