@@ -448,7 +448,12 @@ export class AppComponent implements OnInit,OnDestroy {
 
   async completeHumanTask(x:ProcessHumanTask){
     await this.run(async()=>{
-      await this.api.completeProcessHumanTask(x.id,this.processHumanDecision,JSON.parse(this.processHumanResult||'{}'));
+      const review=this.humanTaskReviewPolicy(x);
+      const allowed=review?[review.approveDecision||'APPROVE',review.repeatDecision||'REQUEST_CHANGES']:[];
+      const decision=review&&!allowed.includes(this.processHumanDecision)
+        ? (review.approveDecision||'APPROVE')
+        : this.processHumanDecision;
+      await this.api.completeProcessHumanTask(x.id,decision,JSON.parse(this.processHumanResult||'{}'));
       this.processHumanTasks.set(await this.api.processHumanTasks());
       this.processInstances.set(await this.api.processInstances());
     });
