@@ -22,4 +22,20 @@ public class ProcessRuntimeController {
     public ProcessInstance start(@PathVariable UUID id) {
         return runtime.start(id);
     }
+
+    @PostMapping("/{id}/pause")
+    public ProcessInstance pause(@PathVariable UUID id) {
+        return runtime.pause(id);
+    }
+
+    @PostMapping("/{id}/resume")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ProcessInstance resume(@PathVariable UUID id) {
+        return runtime.resume(id);
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ProcessInstance cancel(@PathVariable UUID id) {
+        return runtime.cancel(id);
+    }
 }
