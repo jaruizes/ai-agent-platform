@@ -466,7 +466,7 @@
     </ng-container>
 
     <ng-container *ngIf="modal()==='process-instance-create'">
-      <div class="form-grid two"><label>Process<select [(ngModel)]="draft.definitionKey"><option value="">Select ACTIVE definition</option><option *ngFor="let d of processDefinitions()" [value]="d.definitionKey" [disabled]="d.status!=='ACTIVE'">{{d.name}} · {{d.definitionKey}} · v{{d.version}}</option></select></label><label>Version<input type="number" min="1" [(ngModel)]="draft.version" placeholder="empty = latest ACTIVE"></label></div>
+      <label>Process version<select [ngModel]="draft.definitionSelection" (ngModelChange)="selectProcessDefinitionForNewInstance($event)"><option value="">Select an ACTIVE definition</option><option *ngFor="let d of activeProcessDefinitions()" [value]="d.definitionKey+'::'+d.version">{{d.name}} · {{d.definitionKey}} · v{{d.version}}</option></select></label>
       <label>Correlation ID<input class="mono" [(ngModel)]="draft.correlationId"></label>
       <div class="form-grid two"><label>Input JSON<textarea rows="8" class="mono" [(ngModel)]="draft.input"></textarea></label><label>Initial context JSON<textarea rows="8" class="mono" [(ngModel)]="draft.context"></textarea></label></div>
       <label class="check"><input type="checkbox" [(ngModel)]="draft.start"> Start immediately</label>
