@@ -6,6 +6,7 @@ POLL_SECONDS="${POLL_SECONDS:-1}"
 MAX_POLLS="${MAX_POLLS:-60}"
 KEY="m94-$(date +%s)"
 SERVICE_KEY="$KEY.echo"
+HTTP_SERVICE_KEY="$KEY.http-health"
 CORRELATION_ID="$KEY-correlation"
 
 command -v curl >/dev/null
@@ -29,7 +30,30 @@ curl -fsS -X POST "$BASE_URL/v1/process-services/$SERVICE_ID/activate" >/dev/nul
 
 ACTIVE_SERVICES=$(curl -fsS "$BASE_URL/v1/process-services?activeOnly=true")
 jq -e --arg key "$SERVICE_KEY" 'any(.[]; .serviceKey==$key and .status=="ACTIVE")' <<<"$ACTIVE_SERVICES" >/dev/null
-echo "service registry discovery OK"
+HTTP_SERVICE=$(curl -fsS -X POST "$BASE_URL/v1/process-services" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"serviceKey\":\"$HTTP_SERVICE_KEY\",
+    \"name\":\"M9.4 HTTP health service\",
+    \"description\":\"Generic HTTP adapter smoke capability\",
+    \"version\":1,
+    \"implementationKey\":\"http\",
+    \"configuration\":{
+      \"url\":\"http://localhost:8090/actuator/health\",
+      \"method\":\"GET\"
+    },
+    \"inputSchema\":{\"type\":\"object\"},
+    \"outputSchema\":{\"type\":\"object\",\"required\":[\"status\"]}
+  }")
+HTTP_SERVICE_ID=$(jq -r '.id' <<<"$HTTP_SERVICE")
+curl -fsS -X POST "$BASE_URL/v1/process-services/$HTTP_SERVICE_ID/activate" >/dev/null
+
+ACTIVE_SERVICES=$(curl -fsS "$BASE_URL/v1/process-services?activeOnly=true")
+jq -e --arg echo "$SERVICE_KEY" --arg http "$HTTP_SERVICE_KEY" '
+  any(.[]; .serviceKey==$echo and .status=="ACTIVE")
+  and any(.[]; .serviceKey==$http and .status=="ACTIVE")
+' <<<"$ACTIVE_SERVICES" >/dev/null
+echo "service registry discovery + HTTP adapter activation OK"
 
 DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions" \
   -H 'Content-Type: application/json' \
@@ -47,7 +71,7 @@ DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions" \
         \"dependsOn\":[],
         \"inputSchema\":{\"type\":\"object\"},
         \"outputSchema\":{\"type\":\"object\"},
-        \"configuration\":{\"serviceKey\":\"$SERVICE_KEY\"}
+        \"configuration\":{\"serviceKey\":\"$HTTP_SERVICE_KEY\"}
       },
       {
         \"stepKey\":\"route\",
@@ -110,9 +134,12 @@ DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions" \
   }")
 DEF_ID=$(jq -r '.id' <<<"$DEF")
 ACTIVE_DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions/$DEF_ID/activate")
-jq -e --arg key "$SERVICE_KEY" '
+jq -e --arg echo "$SERVICE_KEY" --arg http "$HTTP_SERVICE_KEY" '
   .status=="ACTIVE"
-  and all(.steps[] | select(.type=="SERVICE"); .configuration.serviceKey==$key and .configuration.serviceVersion==1)
+  and (.steps[] | select(.stepKey=="prepare") | .configuration.serviceKey)==$http
+  and (.steps[] | select(.stepKey=="prepare") | .configuration.serviceVersion)==1
+  and all(.steps[] | select(.type=="SERVICE" and .stepKey!="prepare");
+      .configuration.serviceKey==$echo and .configuration.serviceVersion==1)
 ' <<<"$ACTIVE_DEF" >/dev/null
 echo "process activation pinned service version"
 
