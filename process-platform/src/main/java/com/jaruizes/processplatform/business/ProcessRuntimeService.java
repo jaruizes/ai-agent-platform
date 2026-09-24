@@ -181,6 +181,7 @@ public class ProcessRuntimeService {
                     handleStepFailure(
                             instance.id(),
                             stepDefinition,
+                            step.attemptCount(),
                             "STEP_TIMEOUT",
                             "Step timed out while waiting");
                     continue;
@@ -203,7 +204,7 @@ public class ProcessRuntimeService {
                             && (step.type() == ProcessStepType.SERVICE
                                 || step.type() == ProcessStepType.AGENTIC_EXECUTION
                                 || step.type() == ProcessStepType.DECISION)) {
-                        runtime.resetRunningStep(instance.id(), step.stepKey());
+                        runtime.resetRunningStep(instance.id(), step.stepKey(), step.attemptCount());
                     }
                 }
             }
@@ -337,21 +338,22 @@ public class ProcessRuntimeService {
             return;
         }
 
-        if (!runtime.claimReady(
+        var attempt = runtime.claimReady(
                 instanceId,
                 stepKey,
                 input,
-                longValue(stepDefinition.configuration().get("timeoutSeconds")))) {
+                longValue(stepDefinition.configuration().get("timeoutSeconds")));
+        if (attempt == 0) {
             return;
         }
 
         try {
             switch (stepDefinition.type()) {
-                case SERVICE -> executeService(instanceId, stepDefinition, input);
-                case AGENTIC_EXECUTION -> executeAgentic(instanceId, stepDefinition, input);
-                case DECISION -> executeDecision(instanceId, stepDefinition, input);
-                case HUMAN -> executeHuman(instanceId, stepDefinition, input);
-                case WAIT_EVENT -> executeWaitEvent(instanceId, stepDefinition, input);
+                case SERVICE -> executeService(instanceId, stepDefinition, attempt, input);
+                case AGENTIC_EXECUTION -> executeAgentic(instanceId, stepDefinition, attempt, input);
+                case DECISION -> executeDecision(instanceId, stepDefinition, attempt, input);
+                case HUMAN -> executeHuman(instanceId, stepDefinition, attempt, input);
+                case WAIT_EVENT -> executeWaitEvent(instanceId, stepDefinition, attempt, input);
                 case SUBPROCESS -> failStep(
                         instanceId,
                         stepKey,
@@ -362,6 +364,7 @@ public class ProcessRuntimeService {
             handleStepFailure(
                     instanceId,
                     stepDefinition,
+                    attempt,
                     "STEP_EXECUTION_ERROR",
                     exception.getMessage());
         }
@@ -370,6 +373,7 @@ public class ProcessRuntimeService {
     private void executeService(
             UUID instanceId,
             ProcessStepDefinition step,
+            int attempt,
             Map<String,Object> input) {
         var key = stringValue(step.configuration().get("serviceKey"));
         var version = integerValue(step.configuration().get("serviceVersion"));
@@ -391,13 +395,14 @@ public class ProcessRuntimeService {
                 "service.%s.v%d.output".formatted(key, version),
                 binding.service().outputSchema(),
                 safeOutput);
-        completeStep(instanceId, step, safeOutput);
+        completeStep(instanceId, step, attempt, safeOutput);
     }
 
     @SuppressWarnings("unchecked")
     private void executeAgentic(
             UUID instanceId,
             ProcessStepDefinition step,
+            int attempt,
             Map<String,Object> input) {
         var instance = requireInstance(instanceId);
         var configuration = step.configuration();
@@ -431,19 +436,25 @@ public class ProcessRuntimeService {
                 stringValue(configuration.get("tenantId"))
         ));
 
-        runtime.delegateAgent(instanceId, step.stepKey(), prepared.command());
+        runtime.delegateAgent(instanceId, step.stepKey(), attempt, prepared.command());
     }
 
     private void executeDecision(
             UUID instanceId,
             ProcessStepDefinition step,
+            int attempt,
             Map<String,Object> input) {
-        completeStep(instanceId, step, decisions.evaluate(input, step.configuration()));
+        completeStep(
+                instanceId,
+                step,
+                attempt,
+                decisions.evaluate(input, step.configuration()));
     }
 
     private void executeHuman(
             UUID instanceId,
             ProcessStepDefinition step,
+            int attempt,
             Map<String,Object> input) {
         var config = step.configuration();
         humanTasks.createIfAbsent(new HumanTask(
@@ -458,12 +469,13 @@ public class ProcessRuntimeService {
                 Map.of(),
                 Instant.now(),
                 null));
-        runtime.waitStep(instanceId, step.stepKey());
+        runtime.waitStep(instanceId, step.stepKey(), attempt);
     }
 
     private void executeWaitEvent(
             UUID instanceId,
             ProcessStepDefinition step,
+            int attempt,
             Map<String,Object> input) {
         var instance = requireInstance(instanceId);
         var eventType = stringValue(step.configuration().get("eventType"));
@@ -485,7 +497,7 @@ public class ProcessRuntimeService {
                 Map.of(),
                 Instant.now(),
                 null));
-        runtime.waitStep(instanceId, step.stepKey());
+        runtime.waitStep(instanceId, step.stepKey(), attempt);
     }
 
     private void handleTerminalAgentEvent(ProcessInstance instance, ExecutionEvent event) {
@@ -506,6 +518,7 @@ public class ProcessRuntimeService {
             handleStepFailure(
                     instance.id(),
                     stepDefinition,
+                    step.attemptCount(),
                     "AGENT_EXECUTION_FAILED",
                     error == null
                             ? "Delegated Agent Platform execution ended with status "
@@ -519,7 +532,7 @@ public class ProcessRuntimeService {
         var result = event.execution().result() == null
                 ? Map.<String,Object>of()
                 : new LinkedHashMap<>(event.execution().result());
-        completeStep(instance.id(), stepDefinition, result);
+        completeStep(instance.id(), stepDefinition, step.attemptCount(), result);
     }
 
     private void completeWaitingStep(
@@ -535,24 +548,31 @@ public class ProcessRuntimeService {
                 .findFirst()
                 .orElseThrow(() -> new NoSuchElementException("Process step not found: " + stepKey));
         if (step.status() != ProcessStepStatus.WAITING) return;
-        completeStep(instanceId, stepDefinition, output);
+        completeStep(instanceId, stepDefinition, step.attemptCount(), output);
     }
 
     private void completeStep(
             UUID instanceId,
             ProcessStepDefinition step,
+            int expectedAttempt,
             Map<String,Object> output) {
         try {
             contracts.validate(
                     "step.%s.output".formatted(step.stepKey()),
                     step.outputSchema(),
                     output);
-            runtime.completeStep(instanceId, step.stepKey(), output);
-            scheduleAdvance(instanceId);
+            if (runtime.completeStep(
+                    instanceId,
+                    step.stepKey(),
+                    expectedAttempt,
+                    output)) {
+                scheduleAdvance(instanceId);
+            }
         } catch (Exception validationError) {
             handleStepFailure(
                     instanceId,
                     step,
+                    expectedAttempt,
                     "OUTPUT_CONTRACT_VIOLATION",
                     validationError.getMessage());
         }
@@ -561,6 +581,7 @@ public class ProcessRuntimeService {
     private void handleStepFailure(
             UUID instanceId,
             ProcessStepDefinition step,
+            int expectedAttempt,
             String code,
             String message) {
         var instance = requireInstance(instanceId);
@@ -570,7 +591,7 @@ public class ProcessRuntimeService {
                 .filter(value -> value.stepKey().equals(step.stepKey()))
                 .findFirst()
                 .orElse(null);
-        if (current == null) return;
+        if (current == null || current.attemptCount() != expectedAttempt) return;
 
         var retry = retryPolicy(step.configuration());
         var error = error(code, message);
@@ -580,12 +601,22 @@ public class ProcessRuntimeService {
         if (retryableType && current.attemptCount() < retry.maxAttempts()) {
             var multiplier = Math.max(1, current.attemptCount());
             var availableAt = Instant.now().plusMillis(retry.backoffMs() * multiplier);
-            runtime.retryStep(instanceId, step.stepKey(), error, availableAt);
-            scheduleAdvance(instanceId);
+            if (runtime.retryStep(
+                    instanceId,
+                    step.stepKey(),
+                    expectedAttempt,
+                    error,
+                    availableAt)) {
+                scheduleAdvance(instanceId);
+            }
         } else {
             humanTasks.cancelPendingForInstance(instanceId);
             eventWaits.cancelWaitingForInstance(instanceId);
-            runtime.failStep(instanceId, step.stepKey(), error);
+            runtime.failAttempt(
+                    instanceId,
+                    step.stepKey(),
+                    expectedAttempt,
+                    error);
         }
     }
 
