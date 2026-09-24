@@ -340,6 +340,11 @@ public class ProcessDefinitionService {
                             "Step '%s' has invalid configuration.when.decisionStep"
                                     .formatted(step.stepKey()));
                 }
+                if (!condition.containsKey("equals")) {
+                    throw new IllegalArgumentException(
+                            "Conditional step '%s' requires configuration.when.equals"
+                                    .formatted(step.stepKey()));
+                }
                 if (!step.dependsOn().contains(decisionKey)) {
                     throw new IllegalArgumentException(
                             "Conditional step '%s' must depend on decision step '%s'"
