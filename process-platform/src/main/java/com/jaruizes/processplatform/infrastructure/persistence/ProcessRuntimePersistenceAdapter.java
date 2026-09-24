@@ -124,6 +124,7 @@ public class ProcessRuntimePersistenceAdapter
         step.setError(new LinkedHashMap<>(error));
         step.setAvailableAt(availableAt);
         step.setDeadlineAt(null);
+        step.setDelegatedExecutionId(null);
         step.setStartedAt(null);
         step.setUpdatedAt(Instant.now());
         steps.save(step);
@@ -209,6 +210,8 @@ public class ProcessRuntimePersistenceAdapter
         step.setStatus(ProcessStepStatus.COMPLETED);
         step.setOutput(new LinkedHashMap<>(output));
         step.setError(new LinkedHashMap<>());
+        step.setAvailableAt(null);
+        step.setDeadlineAt(null);
         step.setCompletedAt(Instant.now());
         step.setUpdatedAt(Instant.now());
         steps.save(step);
@@ -236,6 +239,8 @@ public class ProcessRuntimePersistenceAdapter
         var step = requireStep(instanceId, stepKey);
         step.setStatus(ProcessStepStatus.FAILED);
         step.setError(new LinkedHashMap<>(error));
+        step.setAvailableAt(null);
+        step.setDeadlineAt(null);
         step.setCompletedAt(Instant.now());
         step.setUpdatedAt(Instant.now());
         steps.save(step);
