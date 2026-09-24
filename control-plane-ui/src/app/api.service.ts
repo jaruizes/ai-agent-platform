@@ -1,11 +1,12 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
+import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, ProcessDefinition, ProcessHumanTask, ProcessInstance, ProcessServiceDefinition, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
 
 @Injectable({providedIn:'root'})
 export class ApiService {
   private readonly base='/api/v1';
+  private readonly processBase='/process-api/v1';
   constructor(private http:HttpClient){}
 
   overview(){return firstValueFrom(this.http.get<Overview>(`${this.base}/admin/overview`));}
@@ -89,6 +90,40 @@ export class ApiService {
   evalRuns(){return firstValueFrom(this.http.get<EvalRun[]>(`${this.base}/evals/runs`));}
   createEvalRun(definitionId:string,baselineRunId?:string){return firstValueFrom(this.http.post<EvalRun>(`${this.base}/evals/definitions/${definitionId}/runs`,{baselineRunId:baselineRunId||null}));}
   evalRun(id:string){return firstValueFrom(this.http.get<EvalRun>(`${this.base}/evals/runs/${id}`));}
+
+  processServices(activeOnly=false){return firstValueFrom(this.http.get<ProcessServiceDefinition[]>(`${this.processBase}/process-services`,{params:activeOnly?{activeOnly:'true'}:{}}));}
+  saveProcessService(item:any){
+    const body={serviceKey:item.serviceKey,name:item.name,description:item.description||'',version:Number(item.version||1),implementationKey:item.implementationKey||'http',configuration:this.json(item.configuration),inputSchema:this.json(item.inputSchema),outputSchema:this.json(item.outputSchema)};
+    if(item.id)return firstValueFrom(this.http.put<ProcessServiceDefinition>(`${this.processBase}/process-services/${item.id}`,{name:body.name,description:body.description,implementationKey:body.implementationKey,configuration:body.configuration,inputSchema:body.inputSchema,outputSchema:body.outputSchema}));
+    return firstValueFrom(this.http.post<ProcessServiceDefinition>(`${this.processBase}/process-services`,body));
+  }
+  activateProcessService(id:string){return firstValueFrom(this.http.post<ProcessServiceDefinition>(`${this.processBase}/process-services/${id}/activate`,{}));}
+  retireProcessService(id:string){return firstValueFrom(this.http.post<ProcessServiceDefinition>(`${this.processBase}/process-services/${id}/retire`,{}));}
+  nextProcessServiceVersion(id:string){return firstValueFrom(this.http.post<ProcessServiceDefinition>(`${this.processBase}/process-services/${id}/next-version`,{}));}
+
+  processDefinitions(){return firstValueFrom(this.http.get<ProcessDefinition[]>(`${this.processBase}/process-definitions`));}
+  processDefinition(id:string){return firstValueFrom(this.http.get<ProcessDefinition>(`${this.processBase}/process-definitions/${id}`));}
+  saveProcessDefinition(item:any){
+    const body={definitionKey:item.definitionKey,name:item.name,description:item.description||'',version:Number(item.version||1),inputSchema:this.json(item.inputSchema),outputSchema:this.json(item.outputSchema),steps:item.steps||[]};
+    return item.id
+      ? firstValueFrom(this.http.put<ProcessDefinition>(`${this.processBase}/process-definitions/${item.id}`,{name:body.name,description:body.description,inputSchema:body.inputSchema,outputSchema:body.outputSchema,steps:body.steps}))
+      : firstValueFrom(this.http.post<ProcessDefinition>(`${this.processBase}/process-definitions`,body));
+  }
+  activateProcessDefinition(id:string){return firstValueFrom(this.http.post<ProcessDefinition>(`${this.processBase}/process-definitions/${id}/activate`,{}));}
+  retireProcessDefinition(id:string){return firstValueFrom(this.http.post<ProcessDefinition>(`${this.processBase}/process-definitions/${id}/retire`,{}));}
+  nextProcessDefinitionVersion(id:string){return firstValueFrom(this.http.post<ProcessDefinition>(`${this.processBase}/process-definitions/${id}/next-version`,{}));}
+
+  processInstances(){return firstValueFrom(this.http.get<ProcessInstance[]>(`${this.processBase}/process-instances`));}
+  processInstance(id:string){return firstValueFrom(this.http.get<ProcessInstance>(`${this.processBase}/process-instances/${id}`));}
+  createProcessInstance(body:any){return firstValueFrom(this.http.post<ProcessInstance>(`${this.processBase}/process-instances`,body));}
+  startProcessInstance(id:string){return firstValueFrom(this.http.post<ProcessInstance>(`${this.processBase}/process-instances/${id}/start`,{}));}
+  pauseProcessInstance(id:string){return firstValueFrom(this.http.post<ProcessInstance>(`${this.processBase}/process-instances/${id}/pause`,{}));}
+  resumeProcessInstance(id:string){return firstValueFrom(this.http.post<ProcessInstance>(`${this.processBase}/process-instances/${id}/resume`,{}));}
+  cancelProcessInstance(id:string){return firstValueFrom(this.http.post<ProcessInstance>(`${this.processBase}/process-instances/${id}/cancel`,{}));}
+
+  processHumanTasks(pendingOnly=false){return firstValueFrom(this.http.get<ProcessHumanTask[]>(`${this.processBase}/human-tasks`,{params:pendingOnly?{pendingOnly:'true'}:{}}));}
+  completeProcessHumanTask(id:string,decision:string,result:any){return firstValueFrom(this.http.post<ProcessHumanTask>(`${this.processBase}/human-tasks/${id}/complete`,{decision,result}));}
+  signalProcessEvent(eventType:string,correlationId:string,payload:any){return firstValueFrom(this.http.post<any>(`${this.processBase}/process-events`,{eventType,correlationId,payload}));}
 
   private json(v:any){if(typeof v==='string'){try{return JSON.parse(v||'{}')}catch{throw new Error('JSON inválido');}}return v||{};}
   private jsonArray(v:any){if(Array.isArray(v))return v;if(typeof v==='string'){try{return JSON.parse(v||'[]')}catch{return v.split(/\s+/).filter(Boolean);}}return [];}
