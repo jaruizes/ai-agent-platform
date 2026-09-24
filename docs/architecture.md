@@ -5033,7 +5033,14 @@ deadlineAt
 Automated steps may configure max attempts and backoff. Retry scheduling is
 therefore restart-safe.
 
-When an AGENTIC_EXECUTION is retried, the previous delegatedExecutionId is
+Every claimed execution receives a persisted `attemptCount`. Completion,
+retry, failure, delegation and stale-recovery transitions are fenced by that
+expected attempt number.
+
+Therefore a SERVICE result that arrives after its attempt timed out cannot
+overwrite the state of a newer retry.
+
+When an AGENTIC_EXECUTION is retried, the previous delegatedExecutionId is also
 cleared before the new execution is created. Late events from the previous
 attempt cannot correlate with the new attempt.
 
@@ -5096,5 +5103,9 @@ Retry state is durable and can repeat side-effecting work after failures or
 timeouts. SERVICE implementations must be idempotent. Agentic retries create a
 new execution and ignore late events from older attempts.
 
-Exactly-once business effects must be implemented through idempotency keys or
-transactional domain boundaries, not assumed from the workflow engine.
+Runtime state transitions use attempt fencing so stale results cannot mutate a
+newer retry. This protects workflow state, but it cannot undo an external side
+effect already performed by an older attempt.
+
+Exactly-once business effects must therefore be implemented through idempotency
+keys or transactional domain boundaries, not assumed from the workflow engine.
