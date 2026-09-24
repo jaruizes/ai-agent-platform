@@ -41,6 +41,37 @@ public class ProcessServiceCatalogService {
                 safe(inputSchema),safe(outputSchema),now,now,null));
     }
 
+    public ProcessServiceDefinition updateDraft(
+            UUID id,
+            String name,
+            String description,
+            String implementationKey,
+            Map<String,Object> inputSchema,
+            Map<String,Object> outputSchema) {
+        var current=get(id);
+        if(current.status()!=ProcessServiceStatus.DRAFT)
+            throw new IllegalStateException("Only DRAFT process services can be modified");
+        if(name==null||name.isBlank()) throw new IllegalArgumentException("name is required");
+        if(implementationKey==null||implementationKey.isBlank())
+            throw new IllegalArgumentException("implementationKey is required");
+
+        return repository.save(new ProcessServiceDefinition(
+                current.id(),current.serviceKey(),name.trim(),description==null?"":description,
+                current.version(),current.status(),implementationKey.trim(),
+                safe(inputSchema),safe(outputSchema),current.createdAt(),Instant.now(),current.activatedAt()));
+    }
+
+    public ProcessServiceDefinition createNextVersion(UUID sourceId){
+        var source=get(sourceId);
+        if(source.status()==ProcessServiceStatus.DRAFT)
+            throw new IllegalStateException("Create the next version from an ACTIVE or RETIRED service");
+        var next=source.version()+1;
+        while(repository.existsByKeyAndVersion(source.serviceKey(),next)) next++;
+        return create(
+                source.serviceKey(),source.name(),source.description(),next,
+                source.implementationKey(),source.inputSchema(),source.outputSchema());
+    }
+
     public ProcessServiceDefinition activate(UUID id){
         var current=get(id);
         if(current.status()==ProcessServiceStatus.ACTIVE) return current;
