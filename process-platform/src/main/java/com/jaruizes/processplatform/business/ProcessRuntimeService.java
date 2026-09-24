@@ -389,7 +389,10 @@ public class ProcessRuntimeService {
                 binding.service().inputSchema(),
                 input);
 
-        var output = binding.handler().execute(input, step.configuration());
+        var output = binding.handler().execute(
+                input,
+                binding.service().configuration(),
+                step.configuration());
         var safeOutput = output == null ? Map.<String,Object>of() : output;
 
         contracts.validate(
