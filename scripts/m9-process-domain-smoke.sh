@@ -40,7 +40,7 @@ V1=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions"   -H 'Content-Type: ap
         \"dependsOn\":[],
         \"inputSchema\":{\"type\":\"object\"},
         \"outputSchema\":{\"type\":\"object\"},
-        \"configuration\":{\"handler\":\"validate-input\"}
+        \"configuration\":{\"serviceKey\":\"$SERVICE_KEY\"}
       },
       {
         \"stepKey\":\"analyse\",
