@@ -322,12 +322,43 @@ public class ProcessDefinitionService {
                         "WAIT_EVENT step '%s' requires configuration.eventType"
                                 .formatted(step.stepKey()));
             }
-            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.DECISION
-                    && (!hasText(step.configuration().get("path"))
-                        || !hasText(step.configuration().get("operator")))) {
+            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.DECISION) {
+                if (!hasText(step.configuration().get("path"))
+                        || !hasText(step.configuration().get("operator"))) {
+                    throw new IllegalArgumentException(
+                            "DECISION step '%s' requires configuration.path and configuration.operator"
+                                    .formatted(step.stepKey()));
+                }
+                var operator = String.valueOf(step.configuration().get("operator")).toUpperCase(Locale.ROOT);
+                if (!Set.of("EQ","NE","GT","GTE","LT","LTE","EXISTS","IN").contains(operator)) {
+                    throw new IllegalArgumentException(
+                            "DECISION step '%s' uses unsupported operator '%s'"
+                                    .formatted(step.stepKey(), operator));
+                }
+            }
+            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.SUBPROCESS) {
                 throw new IllegalArgumentException(
-                        "DECISION step '%s' requires configuration.path and configuration.operator"
-                                .formatted(step.stepKey()));
+                        "SUBPROCESS is modeled but not executable in M9.4");
+            }
+
+            var timeout = longValue(step.configuration().get("timeoutSeconds"));
+            if (timeout != null && timeout <= 0) {
+                throw new IllegalArgumentException(
+                        "Step '%s' timeoutSeconds must be > 0".formatted(step.stepKey()));
+            }
+
+            var retryValue = step.configuration().get("retry");
+            if (retryValue instanceof Map<?,?> retry) {
+                var maxAttempts = integerValue(retry.get("maxAttempts"));
+                var backoffMs = longValue(retry.get("backoffMs"));
+                if (maxAttempts != null && maxAttempts < 1) {
+                    throw new IllegalArgumentException(
+                            "Step '%s' retry.maxAttempts must be >= 1".formatted(step.stepKey()));
+                }
+                if (backoffMs != null && backoffMs < 0) {
+                    throw new IllegalArgumentException(
+                            "Step '%s' retry.backoffMs must be >= 0".formatted(step.stepKey()));
+                }
             }
 
             var when = step.configuration().get("when");
@@ -366,6 +397,12 @@ public class ProcessDefinitionService {
         if (value == null) return null;
         if (value instanceof Number number) return number.intValue();
         return Integer.valueOf(String.valueOf(value));
+    }
+
+    private static Long longValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return number.longValue();
+        return Long.valueOf(String.valueOf(value));
     }
 
     private static Map<String,Object> safeMap(Map<String,Object> value) {
