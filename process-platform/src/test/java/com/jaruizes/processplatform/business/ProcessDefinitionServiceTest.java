@@ -82,6 +82,88 @@ class ProcessDefinitionServiceTest {
                 .isNotEqualTo(active.steps().getFirst().id());
     }
 
+
+    @Test
+    void activatesControlledHumanReviewLoop() {
+        var repository = new InMemoryDefinitions();
+        var service = definitionService(repository);
+
+        var producer = step("analysis", List.of());
+        var review = new ProcessStepDefinition(
+                UUID.randomUUID(),
+                "analysis-review",
+                "Analysis review",
+                "",
+                ProcessStepType.HUMAN,
+                List.of("analysis"),
+                Map.of(),
+                Map.of(),
+                Map.of(
+                        "title", "Review analysis",
+                        "review", Map.of(
+                                "repeatStep", "analysis",
+                                "approveDecision", "APPROVE",
+                                "repeatDecision", "REQUEST_CHANGES",
+                                "maxIterations", 5)
+                )
+        );
+        var finish = step("finish", List.of("analysis-review"));
+
+        var draft = service.create(
+                "review-process",
+                "Review process",
+                "",
+                1,
+                Map.of(),
+                Map.of(),
+                List.of(producer, review, finish));
+
+        var active = service.activate(draft.id());
+
+        assertThat(active.status()).isEqualTo(ProcessDefinitionStatus.ACTIVE);
+        assertThat(active.steps().stream()
+                .filter(step -> step.stepKey().equals("analysis-review"))
+                .findFirst()
+                .orElseThrow()
+                .configuration())
+                .containsKey("review");
+    }
+
+    @Test
+    void rejectsReviewLoopWhenProducerFeedsAnotherBranch() {
+        var repository = new InMemoryDefinitions();
+        var service = definitionService(repository);
+
+        var producer = step("analysis", List.of());
+        var review = new ProcessStepDefinition(
+                UUID.randomUUID(),
+                "analysis-review",
+                "Analysis review",
+                "",
+                ProcessStepType.HUMAN,
+                List.of("analysis"),
+                Map.of(),
+                Map.of(),
+                Map.of(
+                        "title", "Review analysis",
+                        "review", Map.of("repeatStep", "analysis"))
+        );
+        var sideBranch = step("side-branch", List.of("analysis"));
+
+        var draft = service.create(
+                "invalid-review-process",
+                "Invalid review process",
+                "",
+                1,
+                Map.of(),
+                Map.of(),
+                List.of(producer, review, sideBranch));
+
+        assertThatThrownBy(() -> service.activate(draft.id()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must feed only HUMAN review");
+    }
+
     private static ProcessStepDefinition step(String key, List<String> dependencies) {
         return new ProcessStepDefinition(
                 UUID.randomUUID(),
