@@ -5306,3 +5306,77 @@ opportunity using the `google-drive-folder` SERVICE adapter.
 Document interpretation remains agentic. Agent Platform may retrieve actual
 content through its own Google Drive Tool/MCP. Process Platform never invokes
 Agent Platform MCP directly.
+
+
+---
+
+## Google Drive document access in Agent Platform
+
+Agent Platform exposes Google Workspace through a stdio MCP server and governed
+Tools.
+
+The preferred document-reading abstraction is:
+
+```text
+google-drive-read-file(fileId)
+```
+
+This is intentionally a Tool owned by Agent Platform, not a Process Platform
+SERVICE.
+
+Internally:
+
+```text
+Agent / Planner
+      |
+      v
+google-drive-read-file
+      |
+      v
+Google Workspace MCP
+      |
+      +-- drive_get_file
+      |
+      +-- Google Docs   -> docs_get_text
+      +-- Google Sheets -> sheets_get_text
+      +-- Google Slides -> slides_get_text
+      |
+      +-- binary file -> drive_download_file
+                            |
+                            v
+                    Agent Platform
+                    DocumentParser
+```
+
+The temporary binary is written only under MCP scratch storage and deleted
+after parsing.
+
+### ADR-095 — Google Drive semantic reading is an Agent Platform Tool backed by MCP
+
+**Estado:** Accepted
+
+Process Platform may deterministically identify which files belong to a process,
+but it does not invoke Agent Platform MCP servers.
+
+When an AGENTIC_EXECUTION needs document contents, the planner/agent uses the
+governed `google-drive-read-file` Tool.
+
+This keeps:
+
+- Google Workspace connectivity in MCP;
+- Tool selection and governance in Agent Platform;
+- binary parsing in the existing Agent Platform document parser;
+- business-process orchestration in Process Platform.
+
+### ADR-096 — MIME dispatch is hidden behind the high-level Drive reader
+
+**Estado:** Accepted
+
+Agents should not normally have to branch explicitly between Docs, Sheets,
+Slides and downloaded binary files.
+
+`google-drive-read-file` resolves the Drive MIME type and chooses the correct
+MCP reader or download+parser path.
+
+The lower-level Drive MCP Tools remain registered for diagnostics and advanced
+workflows.
