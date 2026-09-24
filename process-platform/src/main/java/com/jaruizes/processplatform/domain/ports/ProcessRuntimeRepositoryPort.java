@@ -23,6 +23,12 @@ public interface ProcessRuntimeRepositoryPort {
     boolean delegateAgent(UUID instanceId, String stepKey, int expectedAttempt, ExecutionCommand command);
     boolean completeStep(UUID instanceId, String stepKey, int expectedAttempt, Map<String,Object> output);
     boolean failAttempt(UUID instanceId, String stepKey, int expectedAttempt, Map<String,Object> error);
+    ProcessInstance repeatReviewedStep(
+            UUID instanceId,
+            String producerStepKey,
+            String reviewStepKey,
+            int reviewAttempt,
+            Map<String,Object> feedback);
     ProcessInstance failStep(UUID instanceId, String stepKey, Map<String,Object> error);
     ProcessInstance completeInstance(UUID instanceId);
     ProcessInstance failInstance(UUID instanceId);
