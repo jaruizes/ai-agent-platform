@@ -183,3 +183,29 @@ cd control-plane-ui && npm run build
 docker compose up -d --build
 bash scripts/m95-process-control-plane-smoke.sh
 ```
+
+
+### M9.6 — Controlled Human Review Loops
+
+Process Platform now supports review-driven iteration without allowing arbitrary
+dependency cycles.
+
+A HUMAN step can request that its direct SERVICE/AGENTIC producer run again,
+with previous output and append-only review feedback available in
+`context._reviewHistory`.
+
+Reference process:
+
+```bash
+bash scripts/m96-create-presales-reference-process.sh
+```
+
+Deterministic review-loop smoke:
+
+```bash
+bash scripts/m96-review-loop-smoke.sh
+```
+
+An optional `google-drive-folder` Process SERVICE discovers proposal files from
+Google Drive. Agents still read/analyse document content through Agent Platform
+Tools/MCP.
