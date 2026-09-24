@@ -464,7 +464,7 @@ Creating an instance only materializes durable state. It does not start executio
       "dependsOn": [],
       "inputSchema": {"type": "object"},
       "outputSchema": {"type": "object"},
-      "configuration": {"handler": "validate-input"}
+      "configuration": {"serviceKey": "proposal.validate"}
     },
     {
       "stepKey": "analyse",
@@ -576,7 +576,11 @@ process definition.
 ProcessDefinition
       |
       | type = SERVICE
-      | configuration.handler
+      | configuration.serviceKey
+      | (serviceVersion pinned on activation)
+      v
+Process Service Registry
+      |
       v
 ProcessServiceHandlerPort
       |
@@ -589,11 +593,12 @@ The important boundary is ownership: Process Platform explicitly knows that this
 service/capability must be called. A SERVICE handler may internally call an external
 system, but it is still deterministic process orchestration.
 
-Handlers are Spring adapters/plugins and must be idempotent because durable
+The Service Registry resolves the public capability to an internal
+ProcessServiceHandlerPort adapter. Handlers must be idempotent because durable
 recovery provides at-least-once execution semantics.
 
-M9.3 includes only the generic `echo` handler used by smoke/integration tests.
-Business-specific deterministic handlers must implement the same port.
+The repository includes the generic `echo` implementation for smoke/integration
+tests; process definitions never reference that implementation key directly.
 
 `TOOL` is not part of this model. If an AGENTIC_EXECUTION needs a Tool, Agent
 Platform decides and invokes it through its own Tool/MCP subsystem.
