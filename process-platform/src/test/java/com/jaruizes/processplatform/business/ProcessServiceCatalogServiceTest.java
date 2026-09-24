@@ -24,6 +24,7 @@ class ProcessServiceCatalogServiceTest {
                 "",
                 1,
                 "echo",
+                Map.of(),
                 Map.of("type", "object"),
                 Map.of("type", "object"));
 
@@ -50,7 +51,7 @@ class ProcessServiceCatalogServiceTest {
 
         var draft = catalog.create(
                 "missing.service", "Missing", "", 1, "not-installed",
-                Map.of(), Map.of());
+                Map.of(), Map.of(), Map.of());
 
         assertThatThrownBy(() -> catalog.activate(draft.id()))
                 .isInstanceOf(IllegalArgumentException.class)
