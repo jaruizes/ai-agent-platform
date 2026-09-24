@@ -17,11 +17,13 @@ public class HumanTaskPersistenceAdapter implements HumanTaskRepositoryPort {
 
     @Override @Transactional
     public HumanTask createIfAbsent(HumanTask task){
-        return repository.findByProcessInstanceIdAndStepKey(task.processInstanceId(), task.stepKey())
+        return repository.findByProcessInstanceIdAndStepKeyAndIteration(
+                        task.processInstanceId(), task.stepKey(), task.iteration())
                 .map(this::map)
                 .orElseGet(() -> {
                     var e=new HumanTaskJpaEntity();
                     e.setId(task.id()); e.setProcessInstanceId(task.processInstanceId()); e.setStepKey(task.stepKey());
+                    e.setIteration(task.iteration());
                     e.setTitle(task.title()); e.setDescription(task.description());
                     e.setPayload(new LinkedHashMap<>(task.payload())); e.setStatus(task.status());
                     e.setDecision(task.decision()); e.setResult(new LinkedHashMap<>(task.result()));
@@ -56,7 +58,7 @@ public class HumanTaskPersistenceAdapter implements HumanTaskRepositoryPort {
     }
 
     private HumanTask map(HumanTaskJpaEntity e){
-        return new HumanTask(e.getId(),e.getProcessInstanceId(),e.getStepKey(),e.getTitle(),e.getDescription(),
+        return new HumanTask(e.getId(),e.getProcessInstanceId(),e.getStepKey(),e.getIteration(),e.getTitle(),e.getDescription(),
                 e.getPayload(),e.getStatus(),e.getDecision(),e.getResult(),e.getCreatedAt(),e.getCompletedAt());
     }
 }
