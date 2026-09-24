@@ -5127,3 +5127,95 @@ HTTP adapter configuration is validated when the Process Service is activated.
 The M9.4 request body for body-capable methods is the standard process-step input
 envelope. Fine-grained mapping expressions are deferred so the runtime does not
 invent a second workflow language before the visual designer.
+
+
+---
+
+## M9.5 — Process Control Plane
+
+M9.5 adds a visual/operator surface over the M9.1-M9.4 Process Platform
+contracts.
+
+### One visual model, one runtime model
+
+The designer does not persist nodes/edges separately.
+
+```text
+Visual node        == ProcessStepDefinition
+Visual edge A -> B == B.dependsOn contains A.stepKey
+```
+
+The canvas is therefore a projection of the authoritative ProcessDefinition.
+
+### Dual-backend Control Plane
+
+The Angular SPA is shared, but API ownership remains explicit:
+
+```text
+/api/v1/*         -> Agent Platform
+/process-api/v1/* -> Process Platform
+```
+
+Nginx provides routing only. It does not translate domain contracts.
+
+### Cross-platform drill-down
+
+Process Platform persists `delegatedExecutionId` on AGENTIC_EXECUTION.
+
+M9.5 uses that public correlation to navigate from a process step to the Agent
+Platform Execution Explorer. No Process Platform UI calls internal planner,
+agent, tool or MCP endpoints.
+
+### Human work stays process-owned
+
+Process HUMAN tasks are not represented as Agent Platform approvals.
+
+```text
+Process HUMAN task
+  -> business/process continuation
+
+Agent approval
+  -> governance/side-effect gate inside an agentic execution
+```
+
+The Control Plane intentionally gives them separate inboxes.
+
+### ADR-086 — The visual designer is a projection of ProcessDefinition
+
+**Estado:** Accepted  
+**Contexto:** M9.5
+
+No UI-specific workflow graph is persisted. Nodes map to ProcessStepDefinition
+and edges map to `dependsOn`.
+
+This prevents drift between design-time UI and runtime semantics.
+
+### ADR-087 — One Control Plane may operate multiple bounded contexts
+
+**Estado:** Accepted  
+**Contexto:** M9.5
+
+A shared Angular shell may expose Agent Platform and Process Platform, while
+Nginx routes requests directly to the owning backend.
+
+A shared user experience does not imply a shared domain API.
+
+### ADR-088 — Process and Agent human approvals are distinct concepts
+
+**Estado:** Accepted  
+**Contexto:** M9.5
+
+Process HUMAN tasks are durable business-workflow activities. Agent Platform
+approvals are governance gates for an agentic execution.
+
+They remain separate models, APIs and inboxes.
+
+### ADR-089 — Agentic drill-down uses delegatedExecutionId only
+
+**Estado:** Accepted  
+**Contexto:** M9.5
+
+The Process Control Plane may navigate to Agent Platform execution diagnostics
+using the public delegated execution id persisted by Process Platform.
+
+It must not infer or depend on Agent Platform internal planner/agent/tool state.
