@@ -12,7 +12,7 @@ const drive=google.drive({version:"v3",auth});
 const slides=google.slides({version:"v1",auth});
 const docs=google.docs({version:"v1",auth});
 const sheets=google.sheets({version:"v4",auth});
-const server=new McpServer({name:"proposal-copilot-google-workspace",version:"0.2.0"});
+const server=new McpServer({name:"ai-agent-platform-google-workspace",version:"0.2.0"});
 function text(data:unknown){return {content:[{type:"text" as const,text:typeof data==="string"?data:JSON.stringify(data,null,2)}]};}
 function escapeDrive(value:string){return value.replace(/\\/g,"\\\\").replace(/'/g,"\\'");}
 function elementText(element:slides_v1.Schema$PageElement){const shape=element.shape?.text?.textElements?.map(x=>x.textRun?.content??"").join("").trim()??"";const table=element.table?.tableRows?.map(r=>r.tableCells?.map(c=>c.text?.textElements?.map(x=>x.textRun?.content??"").join("").trim()).join(" | ")).join("\n").trim()??"";return [shape,table].filter(Boolean).join("\n");}
