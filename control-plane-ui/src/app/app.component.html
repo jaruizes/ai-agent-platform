@@ -182,9 +182,11 @@
             <h3>{{t.title}}</h3><p>{{t.description||'Human action required by process.'}}</p>
             <dl><div><dt>Process</dt><dd class="mono">{{t.processInstanceId}}</dd></div><div><dt>Step</dt><dd>{{t.stepKey}}</dd></div><div *ngIf="t.decision"><dt>Decision</dt><dd>{{t.decision}}</dd></div></dl>
             <ng-container *ngIf="t.status==='PENDING'">
-              <label>Decision<select [(ngModel)]="processHumanDecision"><ng-container *ngIf="humanTaskReviewPolicy(t) as review;else genericHumanDecisions"><option [value]="review.approveDecision||'APPROVE'">{{review.approveDecision||'APPROVE'}}</option><option [value]="review.repeatDecision||'REQUEST_CHANGES'">{{review.repeatDecision||'REQUEST_CHANGES'}}</option></ng-container><ng-template #genericHumanDecisions><option>APPROVED</option><option>REJECTED</option><option>REVIEWED</option></ng-template></select></label>
-              <textarea class="mono" rows="3" [(ngModel)]="processHumanResult" placeholder='{"comment":"..."}'></textarea>
-              <div class="actions"><button class="primary" (click)="completeHumanTask(t)">Complete task</button><button class="ghost" (click)="openProcessInstance(t.processInstanceId)">Inspect process</button></div>
+              <textarea class="mono" rows="3" [(ngModel)]="processHumanResult" placeholder='{"comment":"Add review feedback here"}'></textarea>
+              <ng-container *ngIf="humanTaskReviewPolicy(t) as review;else genericHumanActions">
+                <div class="actions"><button class="danger" (click)="completeHumanTask(t,review.repeatDecision||'REQUEST_CHANGES')">{{review.repeatDecision||'REQUEST_CHANGES'}}</button><button class="approve" (click)="completeHumanTask(t,review.approveDecision||'APPROVE')">{{review.approveDecision||'APPROVE'}}</button><button class="ghost" (click)="openProcessInstance(t.processInstanceId)">Inspect process</button></div>
+              </ng-container>
+              <ng-template #genericHumanActions><label>Decision<select [(ngModel)]="processHumanDecision"><option>APPROVED</option><option>REJECTED</option><option>REVIEWED</option></select></label><div class="actions"><button class="primary" (click)="completeHumanTask(t)">Complete task</button><button class="ghost" (click)="openProcessInstance(t.processInstanceId)">Inspect process</button></div></ng-template>
             </ng-container>
             <details class="json-details"><summary>Payload / result</summary><pre>{{json(t.status==='PENDING'?t.payload:t.result)}}</pre></details>
           </article>
@@ -452,7 +454,7 @@
         <label class="check"><input type="checkbox" [(ngModel)]="s.reviewEnabled"> Review loop: allow this human task to request changes from a producer step</label>
         <div class="review-config" *ngIf="s.reviewEnabled">
           <div class="form-grid two">
-            <label>Repeat producer<select [(ngModel)]="s.reviewRepeatStep"><option value="">Select producer</option><option *ngFor="let producer of reviewableProducerSteps(s.stepKey)" [value]="producer.stepKey">{{producer.stepKey}} · {{producer.type}}</option></select></label>
+            <label>Repeat producer<select [ngModel]="s.reviewRepeatStep" (ngModelChange)="selectReviewProducer(s,$event)"><option value="">Select producer</option><option *ngFor="let producer of reviewableProducerSteps(s.stepKey)" [value]="producer.stepKey">{{producer.stepKey}} · {{producer.type}}</option></select></label>
             <label>Maximum iterations<input type="number" min="1" [(ngModel)]="s.reviewMaxIterations"></label>
             <label>Approve decision<input [(ngModel)]="s.reviewApproveDecision"></label>
             <label>Repeat decision<input [(ngModel)]="s.reviewRepeatDecision"></label>
