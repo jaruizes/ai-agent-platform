@@ -36,7 +36,7 @@ public class ProcessEventWaitPersistenceAdapter implements ProcessEventWaitRepos
 
     @Override @Transactional
     public ProcessEventWait consume(UUID id,Map<String,Object> payload){
-        var e=repository.findById(id).orElseThrow(() -> new NoSuchElementException("Process event wait not found: "+id));
+        var e=repository.findLockedById(id).orElseThrow(() -> new NoSuchElementException("Process event wait not found: "+id));
         if(e.getStatus()!=ProcessEventWaitStatus.WAITING) return map(e);
         e.setPayload(new LinkedHashMap<>(payload==null?Map.of():payload));
         e.setStatus(ProcessEventWaitStatus.CONSUMED); e.setConsumedAt(Instant.now());
