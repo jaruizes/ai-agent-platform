@@ -16,7 +16,11 @@ public class ProcessServiceController {
     private final ProcessServiceCatalogService services;
     public ProcessServiceController(ProcessServiceCatalogService services){this.services=services;}
 
-    @GetMapping public List<ProcessServiceDefinition> list(){return services.list();}
+    @GetMapping
+    public List<ProcessServiceDefinition> list(
+            @RequestParam(name="activeOnly", defaultValue="false") boolean activeOnly) {
+        return activeOnly ? services.listActive() : services.list();
+    }
     @GetMapping("/{id}") public ProcessServiceDefinition get(@PathVariable UUID id){return services.get(id);}
 
     @PostMapping @ResponseStatus(HttpStatus.CREATED)
