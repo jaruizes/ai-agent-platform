@@ -446,13 +446,13 @@ export class AppComponent implements OnInit,OnDestroy {
     });
   }
 
-  async completeHumanTask(x:ProcessHumanTask){
+  async completeHumanTask(x:ProcessHumanTask,explicitDecision?:string){
     await this.run(async()=>{
       const review=this.humanTaskReviewPolicy(x);
       const allowed=review?[review.approveDecision||'APPROVE',review.repeatDecision||'REQUEST_CHANGES']:[];
-      const decision=review&&!allowed.includes(this.processHumanDecision)
+      const decision=explicitDecision||(review&&!allowed.includes(this.processHumanDecision)
         ? (review.approveDecision||'APPROVE')
-        : this.processHumanDecision;
+        : this.processHumanDecision);
       await this.api.completeProcessHumanTask(x.id,decision,JSON.parse(this.processHumanResult||'{}'));
       this.processHumanTasks.set(await this.api.processHumanTasks());
       this.processInstances.set(await this.api.processInstances());
@@ -499,6 +499,16 @@ export class AppComponent implements OnInit,OnDestroy {
     return {};
   }
 
+
+  selectReviewProducer(step:any,key:string){
+    const previous=step.reviewRepeatStep;
+    const deps=new Set<string>(step.dependsOn||[]);
+    if(previous)deps.delete(previous);
+    if(key)deps.add(key);
+    step.reviewRepeatStep=key;
+    step.dependsOn=[...deps];
+    this.processStepDraft.set({...step});
+  }
 
   reviewableProducerSteps(currentStepKey:string){
     return (this.processDesigner()?.steps||[]).filter((s:any)=>
