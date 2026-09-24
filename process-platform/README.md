@@ -1510,3 +1510,268 @@ http://localhost:8081
 ```
 
 and select `Processes`.
+
+
+---
+
+# M9.6 — Controlled Human Review Loops & Presales Reference Process
+
+M9.6 adds the controlled iteration pattern required by real presales and
+document-review workflows without turning Process Platform into a general cyclic
+BPM engine.
+
+## Review loop model
+
+The ProcessDefinition remains a valid acyclic DAG:
+
+```text
+producer
+   |
+   v
+HUMAN review
+   |
+   v
+next step
+```
+
+A HUMAN step may additionally declare a controlled review policy:
+
+```json
+{
+  "type": "HUMAN",
+  "dependsOn": ["business-analysis"],
+  "configuration": {
+    "title": "Validate qualification",
+    "review": {
+      "repeatStep": "business-analysis",
+      "approveDecision": "APPROVE",
+      "repeatDecision": "REQUEST_CHANGES",
+      "maxIterations": 5
+    }
+  }
+}
+```
+
+Runtime semantics:
+
+```text
+business-analysis attempt 1
+        |
+        v
+human review iteration 1
+        |
+        +-- APPROVE --------------------> next step
+        |
+        +-- REQUEST_CHANGES
+                  |
+                  v
+          persist review feedback
+                  |
+                  v
+          business-analysis attempt 2
+                  |
+                  v
+          human review iteration 2
+```
+
+The review back-edge is runtime semantics, not a persisted `dependsOn` cycle.
+
+## Safety constraints
+
+Activation rejects a review loop unless:
+
+- `review.repeatStep` exists;
+- the producer is SERVICE or AGENTIC_EXECUTION;
+- the HUMAN step directly depends on that producer;
+- the producer feeds only that HUMAN review step;
+- approve and repeat decisions are different;
+- `maxIterations >= 1`.
+
+These restrictions prevent a repeat from silently invalidating work that already
+ran on another branch.
+
+When the configured maximum iteration is reached, REQUEST_CHANGES is rejected.
+The operator must APPROVE or cancel the process.
+
+## Durable review history
+
+Every human review iteration is a separate persisted HumanTask:
+
+```text
+HumanTask
+  processInstanceId
+  stepKey
+  iteration
+  decision
+  result
+```
+
+The unique identity is:
+
+```text
+(processInstanceId, stepKey, iteration)
+```
+
+REQUEST_CHANGES stores an append-only review history in ProcessContext:
+
+```json
+{
+  "_reviewHistory": {
+    "business-analysis-review": [
+      {
+        "iteration": 1,
+        "feedback": {
+          "decision": "REQUEST_CHANGES",
+          "result": {
+            "comment": "Clarify the deadline."
+          }
+        },
+        "previousOutput": {},
+        "createdAt": "..."
+      }
+    ]
+  }
+}
+```
+
+The producer's previous output stays available in ProcessContext until the new
+attempt completes. The new producer therefore receives both the previous result
+and the accumulated review history through the standard step input envelope.
+
+Human-task completion and the review-loop transition participate in the same
+database transaction. DAG progression is scheduled after commit.
+
+## Google Drive folder SERVICE
+
+Process Platform now includes:
+
+```text
+implementationKey = google-drive-folder
+```
+
+Example catalog entry:
+
+```json
+{
+  "serviceKey": "proposal.google-drive-source",
+  "version": 1,
+  "implementationKey": "google-drive-folder",
+  "configuration": {
+    "accessTokenEnv": "GOOGLE_DRIVE_ACCESS_TOKEN",
+    "folderIdPath": "processInput.driveFolderId"
+  }
+}
+```
+
+The service calls Google Drive's files API and returns the files in the folder:
+
+```json
+{
+  "folderId": "...",
+  "documentCount": 3,
+  "documents": [
+    {
+      "id": "...",
+      "name": "RFP.pdf",
+      "mimeType": "application/pdf",
+      "modifiedTime": "...",
+      "webViewLink": "..."
+    }
+  ]
+}
+```
+
+Credentials are never stored in the ProcessServiceDefinition. The adapter reads
+the access token from the configured environment variable.
+
+The adapter deliberately identifies the deterministic input corpus; it does not
+implement document reasoning. An AGENTIC_EXECUTION can use the resulting Drive
+IDs with an Agent Platform Google Drive Tool/MCP to retrieve and analyse the
+actual content.
+
+## Reference presales process
+
+The repository includes:
+
+```bash
+scripts/m96-create-presales-reference-process.sh
+```
+
+It creates:
+
+```text
+load-input-documents                  SERVICE
+        |
+        v
+business-analysis              AGENTIC_EXECUTION
+        |
+        v
+business-analysis-review              HUMAN
+        |                    \
+        | APPROVE              \ REQUEST_CHANGES
+        |                       +-----> business-analysis
+        v
+solution-design                AGENTIC_EXECUTION
+        |
+        v
+solution-review                       HUMAN
+        |                    \
+        | APPROVE              \ REQUEST_CHANGES
+        |                       +-----> solution-design
+        v
+    COMPLETED
+```
+
+### Test without Google Drive
+
+Default mode uses an embedded mock proposal but exercises the real Agent
+Platform and both human review loops:
+
+```bash
+bash scripts/m96-create-presales-reference-process.sh
+```
+
+Open:
+
+```text
+http://localhost:8081
+Processes -> Instances
+```
+
+At the first human task:
+
+1. choose REQUEST_CHANGES;
+2. enter feedback JSON;
+3. observe `business-analysis` run again;
+4. inspect `context._reviewHistory`;
+5. APPROVE the next iteration.
+
+Do the same for `solution-review`.
+
+### Test the review engine without an LLM
+
+```bash
+bash scripts/m96-review-loop-smoke.sh
+```
+
+Expected:
+
+```text
+M9.6 controlled human review-loop smoke test PASSED.
+```
+
+### Test with a real Google Drive folder
+
+Set:
+
+```bash
+export PROPOSAL_SOURCE_MODE=drive
+export GOOGLE_DRIVE_FOLDER_ID=<folder-id>
+export GOOGLE_DRIVE_ACCESS_TOKEN=<oauth-token-with-drive-read-scope>
+docker compose up -d --force-recreate process-platform
+bash scripts/m96-create-presales-reference-process.sh
+```
+
+For full document analysis, Agent Platform must also have a Google Drive
+Tool/MCP available to the planning/execution layer. Process Platform never calls
+that MCP directly.
