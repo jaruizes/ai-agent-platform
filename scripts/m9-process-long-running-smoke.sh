@@ -177,6 +177,7 @@ MATCH=$(curl -fsS -X POST "$BASE_URL/v1/process-events" \
 jq -e '.matchedWaits==1' <<<"$MATCH" >/dev/null
 echo "durable correlated WAIT_EVENT resumed"
 
+COMPLETED_OK=false
 for ((i=1;i<=MAX_POLLS;i++)); do
   CURRENT=$(curl -fsS "$BASE_URL/v1/process-instances/$INSTANCE_ID")
   STATUS=$(jq -r '.status' <<<"$CURRENT")
@@ -191,13 +192,81 @@ for ((i=1;i<=MAX_POLLS;i++)); do
       and (.steps[] | select(.stepKey=="finish") | .status)=="COMPLETED"
       and .context.confirmed.payload.externalId=="EXT-1"
     ' <<<"$CURRENT" >/dev/null
-    echo
-    echo "M9.4 long-running workflow smoke test PASSED."
-    exit 0
+    COMPLETED_OK=true
+    break
   fi
   if [[ "$STATUS" == "FAILED" || "$STATUS" == "CANCELLED" ]]; then jq . <<<"$CURRENT"; exit 1; fi
   sleep "$POLL_SECONDS"
 done
+[[ "$COMPLETED_OK" == "true" ]]
+echo "long-running happy path COMPLETED"
 
-echo "Timed out waiting for M9.4 process completion" >&2
-exit 1
+# Cancel a second instance while it is waiting for a human.
+CANCEL_INSTANCE=$(curl -fsS -X POST "$BASE_URL/v1/process-instances" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"definitionKey\":\"$KEY\",
+    \"correlationId\":\"$KEY-cancel\",
+    \"input\":{\"requiresApproval\":true},
+    \"context\":{}
+  }")
+CANCEL_ID=$(jq -r '.id' <<<"$CANCEL_INSTANCE")
+curl -fsS -X POST "$BASE_URL/v1/process-instances/$CANCEL_ID/start" >/dev/null
+
+for ((i=1;i<=MAX_POLLS;i++)); do
+  CURRENT=$(curl -fsS "$BASE_URL/v1/process-instances/$CANCEL_ID")
+  APPROVAL_STATUS=$(jq -r '.steps[] | select(.stepKey=="approval") | .status' <<<"$CURRENT")
+  [[ "$APPROVAL_STATUS" == "WAITING" ]] && break
+  sleep "$POLL_SECONDS"
+done
+
+CANCELLED=$(curl -fsS -X POST "$BASE_URL/v1/process-instances/$CANCEL_ID/cancel")
+jq -e '.status=="CANCELLED" and all(.steps[]; (.status=="COMPLETED" or .status=="SKIPPED" or .status=="CANCELLED"))' <<<"$CANCELLED" >/dev/null
+PENDING_AFTER_CANCEL=$(curl -fsS "$BASE_URL/v1/human-tasks?pendingOnly=true")
+jq -e --arg iid "$CANCEL_ID" 'all(.[]; .processInstanceId != $iid)' <<<"$PENDING_AFTER_CANCEL" >/dev/null
+echo "cancel terminates process and pending human work"
+
+# Validate durable WAIT_EVENT timeout.
+TIMEOUT_KEY="$KEY-timeout"
+TIMEOUT_DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"definitionKey\":\"$TIMEOUT_KEY\",
+    \"name\":\"M9.4 timeout process\",
+    \"version\":1,
+    \"inputSchema\":{\"type\":\"object\"},
+    \"outputSchema\":{\"type\":\"object\"},
+    \"steps\":[{
+      \"stepKey\":\"wait\",
+      \"name\":\"Timed wait\",
+      \"type\":\"WAIT_EVENT\",
+      \"dependsOn\":[],
+      \"inputSchema\":{\"type\":\"object\"},
+      \"outputSchema\":{\"type\":\"object\"},
+      \"configuration\":{\"eventType\":\"never.arrives\",\"timeoutSeconds\":1}
+    }]
+  }")
+TIMEOUT_DEF_ID=$(jq -r '.id' <<<"$TIMEOUT_DEF")
+curl -fsS -X POST "$BASE_URL/v1/process-definitions/$TIMEOUT_DEF_ID/activate" >/dev/null
+TIMEOUT_INSTANCE=$(curl -fsS -X POST "$BASE_URL/v1/process-instances" \
+  -H 'Content-Type: application/json' \
+  -d "{\"definitionKey\":\"$TIMEOUT_KEY\",\"correlationId\":\"$KEY-timeout-corr\",\"input\":{},\"context\":{}}")
+TIMEOUT_ID=$(jq -r '.id' <<<"$TIMEOUT_INSTANCE")
+curl -fsS -X POST "$BASE_URL/v1/process-instances/$TIMEOUT_ID/start" >/dev/null
+
+TIMEOUT_OK=false
+for ((i=1;i<=MAX_POLLS;i++)); do
+  CURRENT=$(curl -fsS "$BASE_URL/v1/process-instances/$TIMEOUT_ID")
+  STATUS=$(jq -r '.status' <<<"$CURRENT")
+  if [[ "$STATUS" == "FAILED" ]]; then
+    jq -e '(.steps[] | select(.stepKey=="wait") | .error.code)=="STEP_TIMEOUT"' <<<"$CURRENT" >/dev/null
+    TIMEOUT_OK=true
+    break
+  fi
+  sleep "$POLL_SECONDS"
+done
+[[ "$TIMEOUT_OK" == "true" ]]
+echo "WAIT_EVENT timeout fails durably"
+
+echo
+echo "M9.4 long-running workflow smoke test PASSED."
