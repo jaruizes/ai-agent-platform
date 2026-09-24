@@ -79,13 +79,13 @@ public class ProcessRuntimePersistenceAdapter
 
     @Override
     @Transactional
-    public boolean claimReady(
+    public int claimReady(
             UUID instanceId,
             String stepKey,
             Map<String,Object> input,
             Long timeoutSeconds) {
         var step = requireStep(instanceId, stepKey);
-        if (step.getStatus() != ProcessStepStatus.READY) return false;
+        if (step.getStatus() != ProcessStepStatus.READY) return 0;
         var now = Instant.now();
         step.setStatus(ProcessStepStatus.RUNNING);
         step.setInput(new LinkedHashMap<>(input));
@@ -96,14 +96,15 @@ public class ProcessRuntimePersistenceAdapter
                 ? null : now.plusSeconds(timeoutSeconds));
         step.setUpdatedAt(now);
         steps.saveAndFlush(step);
-        return true;
+        return step.getAttemptCount();
     }
 
     @Override
     @Transactional
-    public boolean resetRunningStep(UUID instanceId, String stepKey) {
+    public boolean resetRunningStep(UUID instanceId, String stepKey, int expectedAttempt) {
         var step = requireStep(instanceId, stepKey);
-        if (step.getStatus() != ProcessStepStatus.RUNNING) return false;
+        if (step.getStatus() != ProcessStepStatus.RUNNING
+                || step.getAttemptCount() != expectedAttempt) return false;
         step.setStatus(ProcessStepStatus.READY);
         step.setStartedAt(null);
         step.setDeadlineAt(null);
@@ -114,12 +115,18 @@ public class ProcessRuntimePersistenceAdapter
 
     @Override
     @Transactional
-    public ProcessInstance retryStep(
+    public boolean retryStep(
             UUID instanceId,
             String stepKey,
+            int expectedAttempt,
             Map<String,Object> error,
             Instant availableAt) {
         var step = requireStep(instanceId, stepKey);
+        if ((step.getStatus() != ProcessStepStatus.RUNNING
+                && step.getStatus() != ProcessStepStatus.WAITING)
+                || step.getAttemptCount() != expectedAttempt) {
+            return false;
+        }
         step.setStatus(ProcessStepStatus.READY);
         step.setError(new LinkedHashMap<>(error));
         step.setAvailableAt(availableAt);
@@ -134,13 +141,16 @@ public class ProcessRuntimePersistenceAdapter
             instance.setStatus(ProcessInstanceStatus.RUNNING);
         }
         instance.setUpdatedAt(Instant.now());
-        return toDomain(instances.saveAndFlush(instance));
+        instances.saveAndFlush(instance);
+        return true;
     }
 
     @Override
     @Transactional
-    public ProcessInstance waitStep(UUID instanceId, String stepKey) {
+    public boolean waitStep(UUID instanceId, String stepKey, int expectedAttempt) {
         var step = requireStep(instanceId, stepKey);
+        if (step.getStatus() != ProcessStepStatus.RUNNING
+                || step.getAttemptCount() != expectedAttempt) return false;
         step.setStatus(ProcessStepStatus.WAITING);
         step.setUpdatedAt(Instant.now());
         steps.save(step);
@@ -150,7 +160,8 @@ public class ProcessRuntimePersistenceAdapter
             instance.setStatus(ProcessInstanceStatus.WAITING);
         }
         instance.setUpdatedAt(Instant.now());
-        return toDomain(instances.saveAndFlush(instance));
+        instances.saveAndFlush(instance);
+        return true;
     }
 
     @Override
@@ -174,11 +185,14 @@ public class ProcessRuntimePersistenceAdapter
 
     @Override
     @Transactional
-    public ProcessInstance delegateAgent(
+    public boolean delegateAgent(
             UUID instanceId,
             String stepKey,
+            int expectedAttempt,
             ExecutionCommand command) {
         var step = requireStep(instanceId, stepKey);
+        if (step.getStatus() != ProcessStepStatus.RUNNING
+                || step.getAttemptCount() != expectedAttempt) return false;
         step.setStatus(ProcessStepStatus.WAITING);
         step.setDelegatedExecutionId(command.data().execution().executionId());
         step.setUpdatedAt(Instant.now());
@@ -197,16 +211,23 @@ public class ProcessRuntimePersistenceAdapter
 
         var instance = requireInstance(instanceId);
         instance.setUpdatedAt(Instant.now());
-        return toDomain(instances.saveAndFlush(instance));
+        instances.saveAndFlush(instance);
+        return true;
     }
 
     @Override
     @Transactional
-    public ProcessInstance completeStep(
+    public boolean completeStep(
             UUID instanceId,
             String stepKey,
+            int expectedAttempt,
             Map<String,Object> output) {
         var step = requireStep(instanceId, stepKey);
+        if ((step.getStatus() != ProcessStepStatus.RUNNING
+                && step.getStatus() != ProcessStepStatus.WAITING)
+                || step.getAttemptCount() != expectedAttempt) {
+            return false;
+        }
         step.setStatus(ProcessStepStatus.COMPLETED);
         step.setOutput(new LinkedHashMap<>(output));
         step.setError(new LinkedHashMap<>());
@@ -227,7 +248,25 @@ public class ProcessRuntimePersistenceAdapter
             instance.setStatus(ProcessInstanceStatus.RUNNING);
         }
         instance.setUpdatedAt(Instant.now());
-        return toDomain(instances.saveAndFlush(instance));
+        instances.saveAndFlush(instance);
+        return true;
+    }
+
+    @Override
+    @Transactional
+    public boolean failAttempt(
+            UUID instanceId,
+            String stepKey,
+            int expectedAttempt,
+            Map<String,Object> error) {
+        var step = requireStep(instanceId, stepKey);
+        if ((step.getStatus() != ProcessStepStatus.RUNNING
+                && step.getStatus() != ProcessStepStatus.WAITING)
+                || step.getAttemptCount() != expectedAttempt) {
+            return false;
+        }
+        terminalFail(instanceId, step, error);
+        return true;
     }
 
     @Override
@@ -237,19 +276,7 @@ public class ProcessRuntimePersistenceAdapter
             String stepKey,
             Map<String,Object> error) {
         var step = requireStep(instanceId, stepKey);
-        step.setStatus(ProcessStepStatus.FAILED);
-        step.setError(new LinkedHashMap<>(error));
-        step.setAvailableAt(null);
-        step.setDeadlineAt(null);
-        step.setCompletedAt(Instant.now());
-        step.setUpdatedAt(Instant.now());
-        steps.save(step);
-
-        var instance = requireInstance(instanceId);
-        instance.setStatus(ProcessInstanceStatus.FAILED);
-        instance.setCompletedAt(Instant.now());
-        instance.setUpdatedAt(Instant.now());
-        return toDomain(instances.saveAndFlush(instance));
+        return terminalFail(instanceId, step, error);
     }
 
     @Override
@@ -290,6 +317,26 @@ public class ProcessRuntimePersistenceAdapter
             }
         }
         instance.setStatus(ProcessInstanceStatus.CANCELLED);
+        instance.setCompletedAt(now);
+        instance.setUpdatedAt(now);
+        return toDomain(instances.saveAndFlush(instance));
+    }
+
+    private ProcessInstance terminalFail(
+            UUID instanceId,
+            ProcessStepInstanceJpaEntity step,
+            Map<String,Object> error) {
+        var now = Instant.now();
+        step.setStatus(ProcessStepStatus.FAILED);
+        step.setError(new LinkedHashMap<>(error));
+        step.setAvailableAt(null);
+        step.setDeadlineAt(null);
+        step.setCompletedAt(now);
+        step.setUpdatedAt(now);
+        steps.save(step);
+
+        var instance = requireInstance(instanceId);
+        instance.setStatus(ProcessInstanceStatus.FAILED);
         instance.setCompletedAt(now);
         instance.setUpdatedAt(now);
         return toDomain(instances.saveAndFlush(instance));
