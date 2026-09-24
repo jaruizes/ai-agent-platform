@@ -223,6 +223,8 @@ services:
     depends_on:
       agent-platform:
         condition: service_started
+      process-platform:
+        condition: service_started
 
 
 volumes:
