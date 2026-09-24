@@ -1220,3 +1220,57 @@ correlated event
 + pending human-task cancellation
 + durable WAIT_EVENT timeout
 ```
+
+
+## M9.4 generic HTTP SERVICE adapter
+
+The Service Registry includes a built-in `http` implementation so deterministic
+external-service calls do not require a new Java handler for every endpoint.
+
+Example catalog entry:
+
+```json
+{
+  "serviceKey": "customer.lookup",
+  "name": "Lookup customer",
+  "version": 1,
+  "implementationKey": "http",
+  "configuration": {
+    "url": "http://customer-service:8080/v1/customers/lookup",
+    "method": "POST",
+    "headers": {
+      "X-Client": "process-platform"
+    }
+  },
+  "inputSchema": {"type": "object"},
+  "outputSchema": {"type": "object"}
+}
+```
+
+Supported methods:
+
+```text
+GET POST PUT PATCH DELETE
+```
+
+For POST/PUT/PATCH the request body is the standard step input envelope:
+
+```json
+{
+  "processInput": {},
+  "context": {},
+  "dependencies": {}
+}
+```
+
+GET and DELETE are invoked without a request body.
+
+HTTP 4xx/5xx responses are treated as SERVICE execution failures and therefore
+participate in the normal retry/timeout policy.
+
+Do not store credentials or long-lived secrets as literal catalog headers.
+Secret references/credential providers are a later hardening concern.
+
+Fine-grained input/output mapping expressions are intentionally not introduced
+in M9.4; the future designer can add them without changing SERVICE ownership or
+the Service Registry model.
