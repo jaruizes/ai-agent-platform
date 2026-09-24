@@ -7,8 +7,23 @@ command -v curl >/dev/null
 command -v jq >/dev/null
 
 KEY="m9-process-$(date +%s)"
+SERVICE_KEY="$KEY.echo"
 
 echo "== M9.2 Process Domain smoke test =="
+
+SERVICE=$(curl -fsS -X POST "$BASE_URL/v1/process-services" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"serviceKey\":\"$SERVICE_KEY\",
+    \"name\":\"Smoke echo service\",
+    \"version\":1,
+    \"implementationKey\":\"echo\",
+    \"inputSchema\":{\"type\":\"object\"},
+    \"outputSchema\":{\"type\":\"object\"}
+  }")
+SERVICE_ID=$(jq -r '.id' <<<"$SERVICE")
+curl -fsS -X POST "$BASE_URL/v1/process-services/$SERVICE_ID/activate" >/dev/null
+
 
 V1=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions"   -H 'Content-Type: application/json'   -d "{
     \"definitionKey\":\"$KEY\",
