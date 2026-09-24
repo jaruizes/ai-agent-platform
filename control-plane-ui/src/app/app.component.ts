@@ -250,6 +250,7 @@ export class AppComponent implements OnInit,OnDestroy {
   editProcessStep(step:any){
     this.processStepDraft.set({
       ...step,
+      originalStepKey:step.stepKey,
       dependsOn:[...(step.dependsOn||[])],
       configuration:{...(step.configuration||{})},
       inputSchema:typeof step.inputSchema==='string'?step.inputSchema:this.json(step.inputSchema),
@@ -359,7 +360,7 @@ export class AppComponent implements OnInit,OnDestroy {
   }
   async saveProcessInstance(){
     await this.run(async()=>{
-      const body={definitionKey:this.draft.definitionKey,version:this.draft.version?Number(this.draft.version):null,correlationId:this.draft.correlationId||crypto.randomUUID(),input:JSON.parse(this.draft.input||'{}'),initialContext:JSON.parse(this.draft.context||'{}')};
+      const body={definitionKey:this.draft.definitionKey,version:this.draft.version?Number(this.draft.version):null,correlationId:this.draft.correlationId||crypto.randomUUID(),input:JSON.parse(this.draft.input||'{}'),context:JSON.parse(this.draft.context||'{}')};
       const created=await this.api.createProcessInstance(body);
       if(this.draft.start!==false)await this.api.startProcessInstance(created.id);
       this.processInstances.set(await this.api.processInstances());
@@ -421,6 +422,12 @@ export class AppComponent implements OnInit,OnDestroy {
     if(type==='WAIT_EVENT')return {eventType:'event.received'};
     return {};
   }
+
+  pendingProcessHumanTasks(){return this.processHumanTasks().filter(x=>x.status==='PENDING').length;}
+  activeProcessServices(){return this.processServices().filter(x=>x.status==='ACTIVE').length;}
+  processProgress(x:ProcessInstance){return x.steps.filter(s=>s.status==='COMPLETED'||s.status==='SKIPPED').length;}
+  processCompletedSteps(x:ProcessInstance){return x.steps.filter(s=>s.status==='COMPLETED').length;}
+  processWaitingSteps(x:ProcessInstance){return x.steps.filter(s=>s.status==='WAITING').length;}
 
   processServiceName(step:any){
     if(step.type!=='SERVICE')return '';
