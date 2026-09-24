@@ -16,6 +16,7 @@ public class HumanTaskJpaEntity {
     @Id private UUID id;
     @Column(name="process_instance_id", nullable=false) private UUID processInstanceId;
     @Column(name="step_key", nullable=false, length=200) private String stepKey;
+    @Column(nullable=false) private int iteration;
     @Column(nullable=false, length=500) private String title;
     @Column(nullable=false, columnDefinition="text") private String description;
     @JdbcTypeCode(SqlTypes.JSON) @Column(nullable=false, columnDefinition="jsonb")
@@ -31,6 +32,7 @@ public class HumanTaskJpaEntity {
     public UUID getId(){return id;} public void setId(UUID v){id=v;}
     public UUID getProcessInstanceId(){return processInstanceId;} public void setProcessInstanceId(UUID v){processInstanceId=v;}
     public String getStepKey(){return stepKey;} public void setStepKey(String v){stepKey=v;}
+    public int getIteration(){return iteration;} public void setIteration(int v){iteration=v;}
     public String getTitle(){return title;} public void setTitle(String v){title=v;}
     public String getDescription(){return description;} public void setDescription(String v){description=v;}
     public Map<String,Object> getPayload(){return payload;} public void setPayload(Map<String,Object> v){payload=v;}
