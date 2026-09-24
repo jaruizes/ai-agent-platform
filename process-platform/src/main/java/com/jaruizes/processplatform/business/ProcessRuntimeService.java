@@ -198,6 +198,7 @@ public class ProcessRuntimeService {
                         handleStepFailure(
                                 instance.id(),
                                 stepDefinition,
+                                step.attemptCount(),
                                 "STEP_TIMEOUT",
                                 "Step execution exceeded its timeout");
                     } else if (staleWithoutDeadline
