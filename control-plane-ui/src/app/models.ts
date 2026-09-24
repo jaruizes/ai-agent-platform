@@ -30,3 +30,94 @@ export interface EvalDataset {id:string;name:string;description:string;version:n
 export interface EvalDefinition {id:string;name:string;description:string;datasetId:string;datasetName:string;metrics:string[];thresholds:Record<string,number>;judgeModelProfile?:string;enabled:boolean;createdAt:string;updatedAt:string;}
 export interface EvalResult {id:string;datasetItemId:string;itemName:string;executionId?:string;status:string;output?:string;scores:Record<string,number>;checks:any[];passed:boolean;tokenUsage:any;costUsd:number;latencyMs:number;error?:any;}
 export interface EvalRun {id:string;definitionId:string;baselineRunId?:string;status:string;datasetVersion:number;configurationSnapshot:any;aggregateScores:Record<string,number>;regression:any;totalCases:number;passedCases:number;failedCases:number;totalTokens:number;totalCostUsd:number;error?:any;createdAt:string;startedAt?:string;completedAt?:string;results?:EvalResult[];}
+
+
+export type ProcessStepType='SERVICE'|'AGENTIC_EXECUTION'|'DECISION'|'HUMAN'|'WAIT_EVENT'|'SUBPROCESS';
+export type ProcessDefinitionStatus='DRAFT'|'ACTIVE'|'RETIRED';
+export type ProcessInstanceStatus='CREATED'|'RUNNING'|'WAITING'|'PAUSED'|'COMPLETED'|'FAILED'|'CANCELLED';
+
+export interface ProcessServiceDefinition {
+  id:string;
+  serviceKey:string;
+  name:string;
+  description:string;
+  version:number;
+  status:'DRAFT'|'ACTIVE'|'RETIRED';
+  implementationKey:string;
+  configuration:any;
+  inputSchema:any;
+  outputSchema:any;
+  createdAt:string;
+  updatedAt:string;
+  activatedAt?:string;
+}
+export interface ProcessStepDefinition {
+  id?:string;
+  stepKey:string;
+  name:string;
+  description:string;
+  type:ProcessStepType;
+  dependsOn:string[];
+  inputSchema:any;
+  outputSchema:any;
+  configuration:any;
+}
+export interface ProcessDefinition {
+  id:string;
+  definitionKey:string;
+  name:string;
+  description:string;
+  version:number;
+  status:ProcessDefinitionStatus;
+  inputSchema:any;
+  outputSchema:any;
+  steps:ProcessStepDefinition[];
+  createdAt:string;
+  updatedAt:string;
+  activatedAt?:string;
+}
+export interface ProcessStepInstance {
+  id:string;
+  processInstanceId:string;
+  stepDefinitionId:string;
+  stepKey:string;
+  type:ProcessStepType;
+  status:string;
+  input:any;
+  output:any;
+  error:any;
+  delegatedExecutionId?:string;
+  attemptCount:number;
+  availableAt?:string;
+  deadlineAt?:string;
+  startedAt?:string;
+  completedAt?:string;
+  updatedAt:string;
+}
+export interface ProcessInstance {
+  id:string;
+  definitionId:string;
+  definitionKey:string;
+  definitionVersion:number;
+  status:ProcessInstanceStatus;
+  correlationId:string;
+  input:any;
+  context:any;
+  steps:ProcessStepInstance[];
+  createdAt:string;
+  updatedAt:string;
+  completedAt?:string;
+}
+export interface ProcessHumanTask {
+  id:string;
+  processInstanceId:string;
+  stepKey:string;
+  title:string;
+  description:string;
+  payload:any;
+  status:'PENDING'|'COMPLETED'|'CANCELLED';
+  decision?:string;
+  result:any;
+  createdAt:string;
+  completedAt?:string;
+}
