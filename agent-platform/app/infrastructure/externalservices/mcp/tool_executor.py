@@ -105,6 +105,12 @@ class InfrastructureToolExecutor:
                 "output": output,
             }
 
+        if mime_type.startswith("application/vnd.google-apps."):
+            raise ValueError(
+                f"Google-native Drive type '{mime_type}' is not supported for "
+                f"semantic reading yet: {name}"
+            )
+
         safe_name = self._safe_filename(name)
         workspace_id = uuid4().hex
         relative_output = f"workspace/google-drive-reader/{workspace_id}/{safe_name}"
