@@ -52,6 +52,9 @@ public class ProcessInstanceService {
                         Map.of(),
                         Map.of(),
                         null,
+                        0,
+                        null,
+                        null,
                         null,
                         null,
                         now
