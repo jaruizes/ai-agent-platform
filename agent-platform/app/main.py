@@ -115,11 +115,17 @@ catalog_service = CatalogService(catalog_repository)
 prompt_repository = PostgresPromptRepository(database)
 prompt_service = PromptService(prompt_repository)
 tool_repository = PostgresToolRepository(database)
+document_parser = DocumentParser()
 mcp_client = McpStdioClient(
     timeout_seconds=settings.mcp_timeout_seconds,
     max_message_bytes=settings.mcp_max_message_bytes,
 )
-tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
+tool_executor = InfrastructureToolExecutor(
+    tool_repository,
+    mcp_client,
+    document_parser,
+    mcp_workspace_root=settings.mcp_workspace_root,
+)
 tool_service = ToolService(tool_repository, tool_executor)
 raw_model_gateway = LiteLLMModelGateway(settings)
 model_gateway = GovernedModelGateway(
@@ -147,7 +153,7 @@ knowledge_service = KnowledgeService(
     repository=knowledge_repository,
     embedding_provider=embedding_provider,
     tool_service=tool_service,
-    parser=DocumentParser(),
+    parser=document_parser,
     storage_root=settings.knowledge_storage_root,
     embedding_batch_size=settings.knowledge_embedding_batch_size,
     worker_poll_seconds=settings.knowledge_worker_poll_seconds,
