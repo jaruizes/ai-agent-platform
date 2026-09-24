@@ -131,3 +131,27 @@ Validate locally with:
 bash scripts/m9-process-runtime-smoke.sh
 bash scripts/m9-process-runtime-agentic-smoke.sh
 ```
+
+
+### M9.4 — Process Capabilities & Long-running Workflow
+
+Process Platform now adds the primitives required before the visual designer:
+
+```text
+Service Registry       -> discoverable/versioned deterministic capabilities
+DECISION               -> deterministic branching
+HUMAN                  -> durable human tasks
+WAIT_EVENT             -> durable correlated external waits
+PAUSE/RESUME/CANCEL    -> runtime controls
+RETRY/TIMEOUT          -> persisted execution policies
+```
+
+SERVICE references are pinned to an exact catalog version when a
+ProcessDefinition is activated. Agent Tools/MCP remain exclusively inside Agent
+Platform.
+
+Validate locally with:
+
+```bash
+bash scripts/m9-process-long-running-smoke.sh
+```
