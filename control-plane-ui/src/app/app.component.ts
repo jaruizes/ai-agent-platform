@@ -383,8 +383,26 @@ export class AppComponent implements OnInit,OnDestroy {
 
   openCreateProcessInstance(x?:ProcessDefinition){
     const active=x||(this.processDefinitions().find(d=>d.status==='ACTIVE'));
-    this.draft={definitionKey:active?.definitionKey||'',version:active?.version||null,correlationId:crypto.randomUUID(),input:'{}',context:'{}',start:true};
+    this.draft={
+      definitionSelection:active?`${active.definitionKey}::${active.version}`:'',
+      definitionKey:active?.definitionKey||'',
+      version:active?.version||null,
+      correlationId:crypto.randomUUID(),input:'{}',context:'{}',start:true
+    };
     this.modal.set('process-instance-create');
+  }
+
+  selectProcessDefinitionForNewInstance(value:string){
+    const [definitionKey,version]=String(value||'').split('::');
+    this.draft.definitionSelection=value;
+    this.draft.definitionKey=definitionKey||'';
+    this.draft.version=version?Number(version):null;
+  }
+
+  activeProcessDefinitions(){
+    return this.processDefinitions()
+      .filter(d=>d.status==='ACTIVE')
+      .sort((a,b)=>a.definitionKey.localeCompare(b.definitionKey)||b.version-a.version);
   }
   async saveProcessInstance(){
     await this.run(async()=>{
@@ -421,7 +439,13 @@ export class AppComponent implements OnInit,OnDestroy {
   }
 
   openSignalProcessEvent(x?:ProcessInstance){
-    this.processSignalEventType='';
+    let eventType='';
+    if(x){
+      const waiting=x.steps.find(s=>s.type==='WAIT_EVENT'&&s.status==='WAITING');
+      const definition=this.processDefinitions().find(d=>d.id===x.definitionId);
+      eventType=definition?.steps.find(s=>s.stepKey===waiting?.stepKey)?.configuration?.eventType||'';
+    }
+    this.processSignalEventType=eventType;
     this.processSignalCorrelation=x?.correlationId||'';
     this.processSignalPayload='{}';
     this.modal.set('process-event');
