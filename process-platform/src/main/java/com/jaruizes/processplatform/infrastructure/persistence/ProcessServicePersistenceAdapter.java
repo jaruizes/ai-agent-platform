@@ -28,6 +28,7 @@ public class ProcessServicePersistenceAdapter implements ProcessServiceRepositor
         entity.setVersion(value.version());
         entity.setStatus(value.status());
         entity.setImplementationKey(value.implementationKey());
+        entity.setConfiguration(new LinkedHashMap<>(value.configuration()));
         entity.setInputSchema(new LinkedHashMap<>(value.inputSchema()));
         entity.setOutputSchema(new LinkedHashMap<>(value.outputSchema()));
         entity.setCreatedAt(value.createdAt());
@@ -66,7 +67,7 @@ public class ProcessServicePersistenceAdapter implements ProcessServiceRepositor
     private ProcessServiceDefinition map(ProcessServiceDefinitionJpaEntity e){
         return new ProcessServiceDefinition(
                 e.getId(), e.getServiceKey(), e.getName(), e.getDescription(), e.getVersion(),
-                e.getStatus(), e.getImplementationKey(), e.getInputSchema(), e.getOutputSchema(),
+                e.getStatus(), e.getImplementationKey(), e.getConfiguration(), e.getInputSchema(), e.getOutputSchema(),
                 e.getCreatedAt(), e.getUpdatedAt(), e.getActivatedAt());
     }
 }
