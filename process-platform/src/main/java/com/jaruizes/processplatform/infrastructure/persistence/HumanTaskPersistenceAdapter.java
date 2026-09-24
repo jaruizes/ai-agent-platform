@@ -41,7 +41,7 @@ public class HumanTaskPersistenceAdapter implements HumanTaskRepositoryPort {
 
     @Override @Transactional
     public HumanTask complete(UUID id,String decision,Map<String,Object> result){
-        var e=repository.findById(id).orElseThrow(() -> new NoSuchElementException("Human task not found: "+id));
+        var e=repository.findLockedById(id).orElseThrow(() -> new NoSuchElementException("Human task not found: "+id));
         if(e.getStatus()!=HumanTaskStatus.PENDING) return map(e);
         e.setDecision(decision); e.setResult(new LinkedHashMap<>(result==null?Map.of():result));
         e.setStatus(HumanTaskStatus.COMPLETED); e.setCompletedAt(Instant.now());
