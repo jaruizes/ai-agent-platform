@@ -8,6 +8,7 @@ public record HumanTask(
         UUID id,
         UUID processInstanceId,
         String stepKey,
+        int iteration,
         String title,
         String description,
         Map<String,Object> payload,
