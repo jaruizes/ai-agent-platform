@@ -5219,3 +5219,90 @@ The Process Control Plane may navigate to Agent Platform execution diagnostics
 using the public delegated execution id persisted by Process Platform.
 
 It must not infer or depend on Agent Platform internal planner/agent/tool state.
+
+
+---
+
+## M9.6 — Controlled Human Review Loops
+
+M9.6 introduces a restricted backward transition owned by a HUMAN review step.
+The ProcessDefinition dependency graph itself remains acyclic.
+
+### Runtime transition
+
+```text
+producer COMPLETED
+review WAITING
+       |
+       | REQUEST_CHANGES
+       v
+producer READY
+review PENDING
+       |
+       v
+producer runs again
+```
+
+The transition is atomic with review feedback persistence.
+
+### Review context
+
+REQUEST_CHANGES appends to:
+
+```text
+ProcessContext._reviewHistory[reviewStepKey]
+```
+
+Each entry contains review iteration, structured feedback and a snapshot of the
+producer's previous output.
+
+This gives the next AGENTIC_EXECUTION attempt deterministic access to human
+feedback without introducing a separate conversational-memory mechanism.
+
+### ADR-090 — Review iteration is not a general graph cycle
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+ProcessDefinition remains a DAG. A HUMAN review may repeat exactly one direct
+SERVICE or AGENTIC_EXECUTION producer under explicit bounded policy.
+
+Arbitrary back edges and cyclic dependencies remain invalid.
+
+### ADR-091 — A repeatable producer has a single review consumer
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+A producer referenced by HUMAN.review must feed only that review step. This
+prevents repeating the producer after sibling branches have already consumed an
+older result.
+
+### ADR-092 — Human review iterations are durable audit records
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+Every review iteration creates a distinct HumanTask keyed by process instance,
+step key and iteration. Previous tasks remain completed and auditable.
+
+### ADR-093 — Review feedback is ProcessContext, not Agent memory
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+Human feedback controlling a business process is authoritative process state.
+It is persisted in ProcessContext and explicitly supplied to subsequent producer
+attempts. It is not delegated to Agent Platform persistent-memory semantics.
+
+### ADR-094 — Google Drive corpus discovery is a Process SERVICE
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+The deterministic process may establish which Drive folder/files belong to an
+opportunity using the `google-drive-folder` SERVICE adapter.
+
+Document interpretation remains agentic. Agent Platform may retrieve actual
+content through its own Google Drive Tool/MCP. Process Platform never invokes
+Agent Platform MCP directly.
