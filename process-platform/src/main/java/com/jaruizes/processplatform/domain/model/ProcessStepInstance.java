@@ -15,6 +15,9 @@ public record ProcessStepInstance(
         Map<String,Object> output,
         Map<String,Object> error,
         UUID delegatedExecutionId,
+        int attemptCount,
+        Instant availableAt,
+        Instant deadlineAt,
         Instant startedAt,
         Instant completedAt,
         Instant updatedAt) {}
