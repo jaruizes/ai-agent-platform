@@ -3,6 +3,7 @@ package com.jaruizes.processplatform.business;
 import com.jaruizes.processplatform.domain.model.ProcessDefinition;
 import com.jaruizes.processplatform.domain.model.ProcessDefinitionStatus;
 import com.jaruizes.processplatform.domain.model.ProcessStepDefinition;
+import com.jaruizes.processplatform.domain.model.ProcessServiceDefinition;
 import com.jaruizes.processplatform.domain.ports.ProcessDefinitionRepositoryPort;
 import org.springframework.stereotype.Service;
 
@@ -290,7 +291,19 @@ public class ProcessDefinitionService {
                             .formatted(step.stepKey()));
         }
         Integer requestedVersion = integerValue(configuration.get("serviceVersion"));
-        var service = services.resolveActive(serviceKey, requestedVersion);
+        ProcessServiceDefinition service;
+        try {
+            service = services.resolveActive(serviceKey, requestedVersion);
+        } catch (NoSuchElementException missingService) {
+            throw new IllegalArgumentException(
+                    "SERVICE step '%s' references unavailable process service '%s'%s"
+                            .formatted(
+                                    step.stepKey(),
+                                    serviceKey,
+                                    requestedVersion == null ? ""
+                                            : " version " + requestedVersion),
+                    missingService);
+        }
         configuration.remove("handler");
         configuration.put("serviceKey", service.serviceKey());
         configuration.put("serviceVersion", service.version());
