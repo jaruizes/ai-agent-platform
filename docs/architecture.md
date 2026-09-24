@@ -5109,3 +5109,21 @@ effect already performed by an older attempt.
 
 Exactly-once business effects must therefore be implemented through idempotency
 keys or transactional domain boundaries, not assumed from the workflow engine.
+
+
+### ADR-085 — External HTTP calls are Process SERVICE capabilities
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Process Platform provides a generic `http` ProcessServiceHandlerPort adapter.
+The endpoint URL/method/headers belong to the versioned Process Service catalog;
+ProcessDefinitions reference only the public service key/version.
+
+This keeps deterministic external integration distinct from Agent Platform
+Tools/MCP even when both eventually call the same backend.
+
+HTTP adapter configuration is validated when the Process Service is activated.
+The M9.4 request body for body-capable methods is the standard process-step input
+envelope. Fine-grained mapping expressions are deferred so the runtime does not
+invent a second workflow language before the visual designer.
