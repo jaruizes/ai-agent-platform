@@ -5,11 +5,25 @@ BASE_URL="${PROCESS_PLATFORM_URL:-http://localhost:8090}"
 POLL_SECONDS="${POLL_SECONDS:-2}"
 MAX_POLLS="${MAX_POLLS:-120}"
 KEY="m9-agentic-$(date +%s)"
+SERVICE_KEY="$KEY.echo"
 
 command -v curl >/dev/null
 command -v jq >/dev/null
 
 echo "== M9.3 hybrid Process Platform / Agent Platform smoke test =="
+
+SERVICE=$(curl -fsS -X POST "$BASE_URL/v1/process-services" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"serviceKey\":\"$SERVICE_KEY\",
+    \"name\":\"Smoke echo service\",
+    \"version\":1,
+    \"implementationKey\":\"echo\",
+    \"inputSchema\":{\"type\":\"object\"},
+    \"outputSchema\":{\"type\":\"object\"}
+  }")
+SERVICE_ID=$(jq -r '.id' <<<"$SERVICE")
+curl -fsS -X POST "$BASE_URL/v1/process-services/$SERVICE_ID/activate" >/dev/null
 
 DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions"   -H 'Content-Type: application/json'   -d "{
     \"definitionKey\":\"$KEY\",
@@ -18,9 +32,9 @@ DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions"   -H 'Content-Type: a
     \"inputSchema\":{\"type\":\"object\"},
     \"outputSchema\":{\"type\":\"object\",\"required\":[\"prepare\",\"analyse\",\"finish\"]},
     \"steps\":[
-      {\"stepKey\":\"prepare\",\"name\":\"Prepare\",\"type\":\"SERVICE\",\"dependsOn\":[],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"handler\":\"echo\"}},
+      {\"stepKey\":\"prepare\",\"name\":\"Prepare\",\"type\":\"SERVICE\",\"dependsOn\":[],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"serviceKey\":\"$SERVICE_KEY\"}},
       {\"stepKey\":\"analyse\",\"name\":\"Agentic analysis\",\"type\":\"AGENTIC_EXECUTION\",\"dependsOn\":[\"prepare\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"intent\":\"Return a very short confirmation that this delegated process step was resolved by the Agent Platform.\",\"instructions\":[\"Be concise.\"]}},
-      {\"stepKey\":\"finish\",\"name\":\"Finish\",\"type\":\"SERVICE\",\"dependsOn\":[\"analyse\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"handler\":\"echo\"}}
+      {\"stepKey\":\"finish\",\"name\":\"Finish\",\"type\":\"SERVICE\",\"dependsOn\":[\"analyse\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"serviceKey\":\"$SERVICE_KEY\"}}
     ]
   }")
 DEF_ID=$(jq -r '.id' <<<"$DEF")
