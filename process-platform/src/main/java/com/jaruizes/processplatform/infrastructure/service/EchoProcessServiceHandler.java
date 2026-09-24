@@ -21,7 +21,8 @@ public class EchoProcessServiceHandler implements ProcessServiceHandlerPort {
     @Override
     public Map<String,Object> execute(
             Map<String,Object> input,
-            Map<String,Object> configuration) {
+            Map<String,Object> serviceConfiguration,
+            Map<String,Object> stepConfiguration) {
         return new LinkedHashMap<>(input);
     }
 }
