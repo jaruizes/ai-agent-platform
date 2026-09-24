@@ -11,5 +11,6 @@ public record CreateProcessServiceRequest(
         String description,
         @Min(1) int version,
         @NotBlank String implementationKey,
+        Map<String,Object> configuration,
         Map<String,Object> inputSchema,
         Map<String,Object> outputSchema) {}
