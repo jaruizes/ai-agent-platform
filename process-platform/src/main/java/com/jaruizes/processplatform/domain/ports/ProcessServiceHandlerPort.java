@@ -4,5 +4,9 @@ import java.util.Map;
 
 public interface ProcessServiceHandlerPort {
     String key();
-    Map<String,Object> execute(Map<String,Object> input, Map<String,Object> configuration);
+
+    Map<String,Object> execute(
+            Map<String,Object> input,
+            Map<String,Object> serviceConfiguration,
+            Map<String,Object> stepConfiguration);
 }
