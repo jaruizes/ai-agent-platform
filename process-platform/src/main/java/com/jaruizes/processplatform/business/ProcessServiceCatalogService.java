@@ -80,7 +80,8 @@ public class ProcessServiceCatalogService {
         if(current.status()==ProcessServiceStatus.ACTIVE) return current;
         if(current.status()!=ProcessServiceStatus.DRAFT)
             throw new IllegalStateException("Only DRAFT process services can be activated");
-        handlers.require(current.implementationKey());
+        var handler = handlers.require(current.implementationKey());
+        handler.validateConfiguration(current.configuration());
         return repository.save(copy(current,ProcessServiceStatus.ACTIVE,Instant.now()));
     }
 
