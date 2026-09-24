@@ -64,6 +64,12 @@ public class ProcessServiceCatalogService {
 
     public List<ProcessServiceDefinition> list(){return repository.findAll();}
 
+    public List<ProcessServiceDefinition> listActive(){
+        return repository.findAll().stream()
+                .filter(value -> value.status()==ProcessServiceStatus.ACTIVE)
+                .toList();
+    }
+
     public ProcessServiceDefinition resolveActive(String key,Integer version){
         if(key==null||key.isBlank()) throw new IllegalArgumentException("SERVICE requires configuration.serviceKey");
         return version==null
