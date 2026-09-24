@@ -14,6 +14,7 @@ public record ProcessServiceDefinition(
         int version,
         ProcessServiceStatus status,
         String implementationKey,
+        Map<String,Object> configuration,
         Map<String,Object> inputSchema,
         Map<String,Object> outputSchema,
         Instant createdAt,
@@ -21,6 +22,8 @@ public record ProcessServiceDefinition(
         Instant activatedAt) {
 
     public ProcessServiceDefinition {
+        configuration = configuration == null ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(configuration));
         inputSchema = inputSchema == null ? Map.of()
                 : Collections.unmodifiableMap(new LinkedHashMap<>(inputSchema));
         outputSchema = outputSchema == null ? Map.of()
