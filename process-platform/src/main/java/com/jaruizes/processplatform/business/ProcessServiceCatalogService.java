@@ -73,8 +73,16 @@ public class ProcessServiceCatalogService {
                     .orElseThrow(() -> new NoSuchElementException("ACTIVE process service '%s' version %d not found".formatted(key,version)));
     }
 
+    public ProcessServiceDefinition resolvePinned(String key,int version){
+        return repository.findByKeyAndVersion(key,version)
+                .filter(v -> v.status()!=ProcessServiceStatus.DRAFT)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Published process service '%s' version %d not found"
+                                .formatted(key,version)));
+    }
+
     public ProcessServiceHandlerPortBinding resolveHandler(String key,int version){
-        var service=resolveActive(key,version);
+        var service=resolvePinned(key,version);
         return new ProcessServiceHandlerPortBinding(service,handlers.require(service.implementationKey()));
     }
 
