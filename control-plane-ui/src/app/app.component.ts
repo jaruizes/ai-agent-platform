@@ -72,6 +72,18 @@ export class AppComponent implements OnInit,OnDestroy {
   filteredExecutions(){const q=this.search.toLowerCase();return this.executions().filter(x=>(!q||[x.executionId,x.commandName,x.intent,x.objective].some(v=>(v||'').toLowerCase().includes(q)))&&(!this.executionStatus||x.status===this.executionStatus));}
   async filterExecutions(){this.executions.set(await this.api.executions(this.executionStatus));}
   async openExecution(id:string,show=true){try{const [d,o,s,c]=await Promise.all([this.api.execution(id),this.api.orchestration(id),this.api.contextSnapshots(id),this.api.executionContext(id)]);this.selectedExecution.set(d);this.orchestration.set(o);this.contextSnapshots.set(s);this.executionContext.set(c);if(show)this.modal.set('execution');}catch(e:any){this.error.set(this.message(e));}}
+  cancelModal(){
+    if(this.modal()==='process-step'){
+      this.processStepDraft.set(null);
+      this.modal.set('process-designer');
+      return;
+    }
+    if(this.modal()==='process-designer'){
+      this.processDesigner.set(null);
+      this.processStepDraft.set(null);
+    }
+    this.closeModal();
+  }
   closeModal(){this.modal.set(null);this.draft={};this.approvalComment='';}
   statusClass(s:string){return (s||'').toLowerCase().replaceAll('_','-');}
   tokens(v:any){return new Intl.NumberFormat('es-ES').format(Number(v||0));}
@@ -242,8 +254,6 @@ export class AppComponent implements OnInit,OnDestroy {
       outputSchema:'{"type":"object"}',
       configuration:this.defaultProcessStepConfiguration(type)
     };
-    d.steps=[...(d.steps||[]),step];
-    this.processDesigner.set({...d});
     this.editProcessStep(step);
   }
 
@@ -268,46 +278,50 @@ export class AppComponent implements OnInit,OnDestroy {
   }
 
   saveProcessStep(){
-    const d=this.processDesigner(),s=this.processStepDraft();if(!d||!s)return;
-    const config:any={...(s.configuration||{})};
-    delete config.when;delete config.retry;delete config.timeoutSeconds;
-    if(s.type==='AGENTIC_EXECUTION'){
-      config.intent=s.configuration?.intent||'';
-      config.instructions=(s.instructions||'').split('\n').map((x:string)=>x.trim()).filter(Boolean);
-      config.metadata=JSON.parse(s.metadata||'{}');
-    }
-    if(s.type==='DECISION'){
-      config.value=s.decisionValue===''||s.decisionValue==null?null:JSON.parse(s.decisionValue);
-    }
-    if(s.whenDecisionStep)config.when={decisionStep:s.whenDecisionStep,equals:s.whenEquals};
-    if(Number(s.retryMaxAttempts)>1||Number(s.retryBackoffMs)>0)config.retry={maxAttempts:Number(s.retryMaxAttempts||1),backoffMs:Number(s.retryBackoffMs||0)};
-    if(s.timeoutSeconds)config.timeoutSeconds=Number(s.timeoutSeconds);
+    try{
+      const d=this.processDesigner(),s=this.processStepDraft();if(!d||!s)return;
+      const config:any={...(s.configuration||{})};
+      delete config.when;delete config.retry;delete config.timeoutSeconds;
+      if(s.type==='AGENTIC_EXECUTION'){
+        config.intent=s.configuration?.intent||'';
+        config.instructions=(s.instructions||'').split('\n').map((x:string)=>x.trim()).filter(Boolean);
+        config.metadata=JSON.parse(s.metadata||'{}');
+      }
+      if(s.type==='DECISION'){
+        config.value=s.decisionValue===''||s.decisionValue==null?null:JSON.parse(s.decisionValue);
+      }
+      if(s.whenDecisionStep)config.when={decisionStep:s.whenDecisionStep,equals:s.whenEquals};
+      if(Number(s.retryMaxAttempts)>1||Number(s.retryBackoffMs)>0)config.retry={maxAttempts:Number(s.retryMaxAttempts||1),backoffMs:Number(s.retryBackoffMs||0)};
+      if(s.timeoutSeconds)config.timeoutSeconds=Number(s.timeoutSeconds);
 
-    const normalized={
-      ...s,
-      dependsOn:[...(s.dependsOn||[])],
-      inputSchema:s.inputSchema||'{}',
-      outputSchema:s.outputSchema||'{}',
-      configuration:config
-    };
-    let steps=[...(d.steps||[])];
-    const original=s.originalStepKey||s.stepKey;
-    const existingIndex=steps.findIndex((x:any)=>(x.id&&s.id&&x.id===s.id)||x.stepKey===original);
-    if(existingIndex>=0)steps[existingIndex]=normalized;else steps.push(normalized);
-    if(original!==s.stepKey){
-      steps=steps.map((x:any)=>{
-        if(x.stepKey===s.stepKey)return x;
-        const configuration={...(x.configuration||{})};
-        if(configuration.when?.decisionStep===original){
-          configuration.when={...configuration.when,decisionStep:s.stepKey};
-        }
-        return {...x,dependsOn:(x.dependsOn||[]).map((k:string)=>k===original?s.stepKey:k),configuration};
-      });
+      const normalized={
+        ...s,
+        dependsOn:[...(s.dependsOn||[])],
+        inputSchema:s.inputSchema||'{}',
+        outputSchema:s.outputSchema||'{}',
+        configuration:config
+      };
+      let steps=[...(d.steps||[])];
+      const original=s.originalStepKey||s.stepKey;
+      const existingIndex=steps.findIndex((x:any)=>(x.id&&s.id&&x.id===s.id)||x.stepKey===original);
+      if(existingIndex>=0)steps[existingIndex]=normalized;else steps.push(normalized);
+      if(original!==s.stepKey){
+        steps=steps.map((x:any)=>{
+          if(x.stepKey===s.stepKey)return x;
+          const configuration={...(x.configuration||{})};
+          if(configuration.when?.decisionStep===original){
+            configuration.when={...configuration.when,decisionStep:s.stepKey};
+          }
+          return {...x,dependsOn:(x.dependsOn||[]).map((k:string)=>k===original?s.stepKey:k),configuration};
+        });
+      }
+      d.steps=steps;
+      this.processDesigner.set({...d});
+      this.processStepDraft.set(null);
+      this.modal.set('process-designer');
+    }catch(e:any){
+      this.error.set(this.message(e));
     }
-    d.steps=steps;
-    this.processDesigner.set({...d});
-    this.processStepDraft.set(null);
-    this.modal.set('process-designer');
   }
 
   removeProcessStep(step:any){
