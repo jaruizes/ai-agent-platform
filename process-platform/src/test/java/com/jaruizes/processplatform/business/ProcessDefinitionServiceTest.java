@@ -7,12 +7,14 @@ import org.junit.jupiter.api.Test;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class ProcessDefinitionServiceTest {
 
     @Test
     void rejectsUnknownDependenciesAndCycles() {
-        var service = new ProcessDefinitionService(new InMemoryDefinitions());
+        var service = definitionService(new InMemoryDefinitions());
 
         assertThatThrownBy(() -> service.create(
                 "proposal",
@@ -43,7 +45,7 @@ class ProcessDefinitionServiceTest {
     @Test
     void activatedDefinitionIsImmutableAndNextVersionIsDraft() {
         var repository = new InMemoryDefinitions();
-        var service = new ProcessDefinitionService(repository);
+        var service = definitionService(repository);
 
         var draft = service.create(
                 "proposal",
@@ -90,8 +92,29 @@ class ProcessDefinitionServiceTest {
                 dependencies,
                 Map.of(),
                 Map.of(),
-                Map.of()
+                Map.of("serviceKey", "test.echo")
         );
+    }
+
+    private static ProcessDefinitionService definitionService(
+            ProcessDefinitionRepositoryPort repository) {
+        var catalog = mock(ProcessServiceCatalogService.class);
+        var now = java.time.Instant.now();
+        when(catalog.resolveActive(eq("test.echo"), nullable(Integer.class)))
+                .thenReturn(new ProcessServiceDefinition(
+                        UUID.randomUUID(),
+                        "test.echo",
+                        "Test echo",
+                        "",
+                        1,
+                        ProcessServiceStatus.ACTIVE,
+                        "echo",
+                        Map.of(),
+                        Map.of(),
+                        now,
+                        now,
+                        now));
+        return new ProcessDefinitionService(repository, catalog);
     }
 
     private static final class InMemoryDefinitions
