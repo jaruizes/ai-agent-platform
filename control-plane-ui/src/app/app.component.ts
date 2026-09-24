@@ -257,6 +257,7 @@ export class AppComponent implements OnInit,OnDestroy {
       outputSchema:typeof step.outputSchema==='string'?step.outputSchema:this.json(step.outputSchema),
       instructions:Array.isArray(step.configuration?.instructions)?step.configuration.instructions.join('\n'):'',
       metadata:this.json(step.configuration?.metadata||{}),
+      decisionValue:this.json(step.configuration?.value),
       whenDecisionStep:step.configuration?.when?.decisionStep||'',
       whenEquals:step.configuration?.when?.equals??'',
       retryMaxAttempts:step.configuration?.retry?.maxAttempts||1,
@@ -275,6 +276,9 @@ export class AppComponent implements OnInit,OnDestroy {
       config.instructions=(s.instructions||'').split('\n').map((x:string)=>x.trim()).filter(Boolean);
       config.metadata=JSON.parse(s.metadata||'{}');
     }
+    if(s.type==='DECISION'){
+      config.value=s.decisionValue===''||s.decisionValue==null?null:JSON.parse(s.decisionValue);
+    }
     if(s.whenDecisionStep)config.when={decisionStep:s.whenDecisionStep,equals:s.whenEquals};
     if(Number(s.retryMaxAttempts)>1||Number(s.retryBackoffMs)>0)config.retry={maxAttempts:Number(s.retryMaxAttempts||1),backoffMs:Number(s.retryBackoffMs||0)};
     if(s.timeoutSeconds)config.timeoutSeconds=Number(s.timeoutSeconds);
@@ -286,10 +290,20 @@ export class AppComponent implements OnInit,OnDestroy {
       outputSchema:s.outputSchema||'{}',
       configuration:config
     };
-    const steps=[...(d.steps||[])];
-    const i=steps.findIndex((x:any)=>x===s||x.id&&s.id&&x.id===s.id||x.stepKey===s.originalStepKey);
-    const existingIndex=i>=0?i:steps.findIndex((x:any)=>x.stepKey===s.stepKey);
+    let steps=[...(d.steps||[])];
+    const original=s.originalStepKey||s.stepKey;
+    const existingIndex=steps.findIndex((x:any)=>(x.id&&s.id&&x.id===s.id)||x.stepKey===original);
     if(existingIndex>=0)steps[existingIndex]=normalized;else steps.push(normalized);
+    if(original!==s.stepKey){
+      steps=steps.map((x:any)=>{
+        if(x.stepKey===s.stepKey)return x;
+        const configuration={...(x.configuration||{})};
+        if(configuration.when?.decisionStep===original){
+          configuration.when={...configuration.when,decisionStep:s.stepKey};
+        }
+        return {...x,dependsOn:(x.dependsOn||[]).map((k:string)=>k===original?s.stepKey:k),configuration};
+      });
+    }
     d.steps=steps;
     this.processDesigner.set({...d});
     this.processStepDraft.set(null);
@@ -415,7 +429,10 @@ export class AppComponent implements OnInit,OnDestroy {
   }
 
   defaultProcessStepConfiguration(type:ProcessStepType){
-    if(type==='SERVICE')return {serviceKey:this.processServices().find(s=>s.status==='ACTIVE')?.serviceKey||''};
+    if(type==='SERVICE'){
+      const svc=this.processServices().filter(s=>s.status==='ACTIVE').sort((a,b)=>b.version-a.version)[0];
+      return {serviceKey:svc?.serviceKey||'',serviceVersion:svc?.version||null};
+    }
     if(type==='AGENTIC_EXECUTION')return {intent:'',instructions:[],metadata:{}};
     if(type==='DECISION')return {path:'processInput.value',operator:'EQ',value:true,onTrue:'TRUE',onFalse:'FALSE'};
     if(type==='HUMAN')return {title:'Human approval',description:''};
@@ -428,6 +445,21 @@ export class AppComponent implements OnInit,OnDestroy {
   processProgress(x:ProcessInstance){return x.steps.filter(s=>s.status==='COMPLETED'||s.status==='SKIPPED').length;}
   processCompletedSteps(x:ProcessInstance){return x.steps.filter(s=>s.status==='COMPLETED').length;}
   processWaitingSteps(x:ProcessInstance){return x.steps.filter(s=>s.status==='WAITING').length;}
+
+  processServiceSelection(step:any){
+    const key=step.configuration?.serviceKey,version=step.configuration?.serviceVersion;
+    return key&&version?`${key}::${version}`:'';
+  }
+  selectProcessService(step:any,value:string){
+    const [key,version]=String(value||'').split('::');
+    step.configuration.serviceKey=key||'';
+    step.configuration.serviceVersion=version?Number(version):null;
+  }
+  activeProcessServiceVersions(){
+    return this.processServices()
+      .filter(s=>s.status==='ACTIVE')
+      .sort((a,b)=>a.serviceKey.localeCompare(b.serviceKey)||b.version-a.version);
+  }
 
   processServiceName(step:any){
     if(step.type!=='SERVICE')return '';
