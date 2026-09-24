@@ -1,6 +1,6 @@
 <div class="app-shell">
   <aside class="sidebar">
-    <div class="brand"><span class="brand-mark">A</span><span>Agent <b>Platform</b></span></div>
+    <div class="brand"><span class="brand-mark">A</span><span>AI <b>Platform</b></span></div>
     <nav>
       <button class="nav-item" [class.active]="view()==='dashboard'" (click)="setView('dashboard')">◫ <span>Dashboard</span></button>
       <button class="nav-item" [class.active]="view()==='executions'" (click)="setView('executions')">▶ <span>Executions</span></button>
@@ -28,7 +28,7 @@
 
   <main class="main-content">
     <div class="topbar">
-      <div><span class="eyebrow">AI AGENT PLATFORM · CONTROL PLANE</span><h1>{{view()==='dashboard'?'Platform overview':view()|titlecase}}</h1></div>
+      <div><span class="eyebrow">AI PLATFORM · CONTROL PLANE</span><h1>{{view()==='dashboard'?'Platform overview':view()|titlecase}}</h1></div>
       <div class="top-actions"><span class="environment">● Runtime connected</span><button class="ghost" (click)="refreshAll()">↻ Refresh</button></div>
     </div>
     <div class="error-banner" *ngIf="error()">{{error()}} <button (click)="error.set('')">×</button></div>
