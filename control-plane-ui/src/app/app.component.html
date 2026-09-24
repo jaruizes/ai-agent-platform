@@ -385,7 +385,7 @@
 
 
     <ng-container *ngIf="modal()==='process-service'">
-      <div class="form-grid two"><label>Service key<input [(ngModel)]="draft.serviceKey" [disabled]="!!draft.id"></label><label>Version<input type="number" min="1" [(ngModel)]="draft.version" [disabled]="!!draft.id"></label><label>Name<input [(ngModel)]="draft.name"></label><label>Implementation<select [(ngModel)]="draft.implementationKey"><option value="http">HTTP</option><option value="echo">Echo / test</option></select></label></div>
+      <div class="form-grid two"><label>Service key<input [(ngModel)]="draft.serviceKey" [disabled]="!!draft.id"></label><label>Version<input type="number" min="1" [(ngModel)]="draft.version" [disabled]="!!draft.id"></label><label>Name<input [(ngModel)]="draft.name"></label><label>Implementation<select [(ngModel)]="draft.implementationKey"><option value="http">HTTP</option><option value="google-drive-folder">Google Drive folder</option><option value="echo">Echo / test</option></select></label></div>
       <label>Description<input [(ngModel)]="draft.description"></label>
       <label>Adapter configuration JSON<textarea rows="7" class="mono" [(ngModel)]="draft.configuration"></textarea></label>
       <div class="form-grid two"><label>Input schema<textarea rows="7" class="mono" [(ngModel)]="draft.inputSchema"></textarea></label><label>Output schema<textarea rows="7" class="mono" [(ngModel)]="draft.outputSchema"></textarea></label></div>
