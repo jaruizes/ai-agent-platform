@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     bootstrap_mcp_servers_dir: str = "/app/bootstrap/mcp-servers"
     mcp_timeout_seconds: float = 60.0
     mcp_max_message_bytes: int = 16777216
+    mcp_workspace_root: str = "/opt/workspace"
     max_tool_result_chars_for_model: int = 500000
 
     knowledge_embedding_provider: str = "hash"
