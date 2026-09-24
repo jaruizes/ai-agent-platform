@@ -5,11 +5,25 @@ BASE_URL="${PROCESS_PLATFORM_URL:-http://localhost:8090}"
 POLL_SECONDS="${POLL_SECONDS:-1}"
 MAX_POLLS="${MAX_POLLS:-60}"
 KEY="m9-runtime-$(date +%s)"
+SERVICE_KEY="$KEY.echo"
 
 command -v curl >/dev/null
 command -v jq >/dev/null
 
 echo "== M9.3 deterministic runtime smoke test =="
+
+SERVICE=$(curl -fsS -X POST "$BASE_URL/v1/process-services" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"serviceKey\":\"$SERVICE_KEY\",
+    \"name\":\"Smoke echo service\",
+    \"version\":1,
+    \"implementationKey\":\"echo\",
+    \"inputSchema\":{\"type\":\"object\"},
+    \"outputSchema\":{\"type\":\"object\"}
+  }")
+SERVICE_ID=$(jq -r '.id' <<<"$SERVICE")
+curl -fsS -X POST "$BASE_URL/v1/process-services/$SERVICE_ID/activate" >/dev/null
 
 DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions"   -H 'Content-Type: application/json'   -d "{
     \"definitionKey\":\"$KEY\",
@@ -18,10 +32,10 @@ DEF=$(curl -fsS -X POST "$BASE_URL/v1/process-definitions"   -H 'Content-Type: a
     \"inputSchema\":{\"type\":\"object\",\"required\":[\"id\"]},
     \"outputSchema\":{\"type\":\"object\",\"required\":[\"validate\",\"security\",\"cost\",\"compose\"]},
     \"steps\":[
-      {\"stepKey\":\"validate\",\"name\":\"Validate\",\"type\":\"SERVICE\",\"dependsOn\":[],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"handler\":\"echo\"}},
-      {\"stepKey\":\"security\",\"name\":\"Security\",\"type\":\"SERVICE\",\"dependsOn\":[\"validate\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"handler\":\"echo\"}},
-      {\"stepKey\":\"cost\",\"name\":\"Cost\",\"type\":\"SERVICE\",\"dependsOn\":[\"validate\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"handler\":\"echo\"}},
-      {\"stepKey\":\"compose\",\"name\":\"Compose\",\"type\":\"SERVICE\",\"dependsOn\":[\"security\",\"cost\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"handler\":\"echo\"}}
+      {\"stepKey\":\"validate\",\"name\":\"Validate\",\"type\":\"SERVICE\",\"dependsOn\":[],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"serviceKey\":\"$SERVICE_KEY\"}},
+      {\"stepKey\":\"security\",\"name\":\"Security\",\"type\":\"SERVICE\",\"dependsOn\":[\"validate\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"serviceKey\":\"$SERVICE_KEY\"}},
+      {\"stepKey\":\"cost\",\"name\":\"Cost\",\"type\":\"SERVICE\",\"dependsOn\":[\"validate\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"serviceKey\":\"$SERVICE_KEY\"}},
+      {\"stepKey\":\"compose\",\"name\":\"Compose\",\"type\":\"SERVICE\",\"dependsOn\":[\"security\",\"cost\"],\"inputSchema\":{\"type\":\"object\"},\"outputSchema\":{\"type\":\"object\"},\"configuration\":{\"serviceKey\":\"$SERVICE_KEY\"}}
     ]
   }")
 DEF_ID=$(jq -r '.id' <<<"$DEF")
