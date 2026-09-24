@@ -52,6 +52,15 @@ public class ProcessStepInstanceJpaEntity {
     @Column(name = "delegated_execution_id")
     private UUID delegatedExecutionId;
 
+    @Column(name = "attempt_count", nullable = false)
+    private int attemptCount;
+
+    @Column(name = "available_at")
+    private Instant availableAt;
+
+    @Column(name = "deadline_at")
+    private Instant deadlineAt;
+
     @Column(name = "started_at")
     private Instant startedAt;
 
@@ -83,6 +92,12 @@ public class ProcessStepInstanceJpaEntity {
     public void setError(Map<String,Object> error) { this.error = error; }
     public UUID getDelegatedExecutionId() { return delegatedExecutionId; }
     public void setDelegatedExecutionId(UUID delegatedExecutionId) { this.delegatedExecutionId = delegatedExecutionId; }
+    public int getAttemptCount() { return attemptCount; }
+    public void setAttemptCount(int attemptCount) { this.attemptCount = attemptCount; }
+    public Instant getAvailableAt() { return availableAt; }
+    public void setAvailableAt(Instant availableAt) { this.availableAt = availableAt; }
+    public Instant getDeadlineAt() { return deadlineAt; }
+    public void setDeadlineAt(Instant deadlineAt) { this.deadlineAt = deadlineAt; }
     public Instant getStartedAt() { return startedAt; }
     public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
     public Instant getCompletedAt() { return completedAt; }
