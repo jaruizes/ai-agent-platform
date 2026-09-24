@@ -8,6 +8,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -18,8 +19,11 @@ public class ProcessRuntimeService {
     private final ProcessRuntimeRepositoryPort runtime;
     private final ProcessDefinitionRepositoryPort definitions;
     private final ProcessContractValidator contracts;
-    private final ProcessServiceHandlerRegistry serviceHandlers;
+    private final ProcessServiceCatalogService services;
+    private final ProcessDecisionEvaluator decisions;
     private final AgentPlatformIntegrationService agentPlatform;
+    private final HumanTaskRepositoryPort humanTasks;
+    private final ProcessEventWaitRepositoryPort eventWaits;
     private final long staleStepSeconds;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -27,39 +31,120 @@ public class ProcessRuntimeService {
             ProcessRuntimeRepositoryPort runtime,
             ProcessDefinitionRepositoryPort definitions,
             ProcessContractValidator contracts,
-            ProcessServiceHandlerRegistry serviceHandlers,
+            ProcessServiceCatalogService services,
+            ProcessDecisionEvaluator decisions,
             AgentPlatformIntegrationService agentPlatform,
-            @Value("${process.runtime.step-stale-seconds:60}")
-            long staleStepSeconds) {
+            HumanTaskRepositoryPort humanTasks,
+            ProcessEventWaitRepositoryPort eventWaits,
+            @Value("${process.runtime.step-stale-seconds:60}") long staleStepSeconds) {
         this.runtime = runtime;
         this.definitions = definitions;
         this.contracts = contracts;
-        this.serviceHandlers = serviceHandlers;
+        this.services = services;
+        this.decisions = decisions;
         this.agentPlatform = agentPlatform;
+        this.humanTasks = humanTasks;
+        this.eventWaits = eventWaits;
         this.staleStepSeconds = Math.max(1, staleStepSeconds);
     }
 
     public ProcessInstance start(UUID instanceId) {
         var instance = requireInstance(instanceId);
-        if (instance.status() == ProcessInstanceStatus.COMPLETED
-                || instance.status() == ProcessInstanceStatus.FAILED
-                || instance.status() == ProcessInstanceStatus.CANCELLED) {
-            throw new IllegalStateException(
-                    "Process instance is terminal: " + instance.status());
+        if (instance.status() == ProcessInstanceStatus.PAUSED) {
+            throw new IllegalStateException("Use resume for a PAUSED process instance");
+        }
+        if (isTerminal(instance.status())) {
+            throw new IllegalStateException("Process instance is terminal: " + instance.status());
         }
 
         var definition = requireDefinition(instance.definitionId());
         contracts.validate("process.input", definition.inputSchema(), instance.input());
 
-        var running = runtime.updateInstanceStatus(
-                instanceId,
-                ProcessInstanceStatus.RUNNING);
+        var running = runtime.updateInstanceStatus(instanceId, ProcessInstanceStatus.RUNNING);
         scheduleAdvance(instanceId);
         return running;
     }
 
+    public ProcessInstance pause(UUID instanceId) {
+        var instance = requireInstance(instanceId);
+        if (instance.status() != ProcessInstanceStatus.RUNNING
+                && instance.status() != ProcessInstanceStatus.WAITING) {
+            throw new IllegalStateException(
+                    "Only RUNNING or WAITING process instances can be paused");
+        }
+        return runtime.updateInstanceStatus(instanceId, ProcessInstanceStatus.PAUSED);
+    }
+
+    public ProcessInstance resume(UUID instanceId) {
+        var instance = requireInstance(instanceId);
+        if (instance.status() != ProcessInstanceStatus.PAUSED) {
+            throw new IllegalStateException("Only PAUSED process instances can be resumed");
+        }
+        var resumed = runtime.updateInstanceStatus(instanceId, ProcessInstanceStatus.RUNNING);
+        scheduleAdvance(instanceId);
+        return resumed;
+    }
+
+    public ProcessInstance cancel(UUID instanceId) {
+        var instance = requireInstance(instanceId);
+        if (instance.status() == ProcessInstanceStatus.CANCELLED) return instance;
+        if (instance.status() == ProcessInstanceStatus.COMPLETED
+                || instance.status() == ProcessInstanceStatus.FAILED) {
+            throw new IllegalStateException("Process instance is terminal: " + instance.status());
+        }
+        humanTasks.cancelPendingForInstance(instanceId);
+        eventWaits.cancelWaitingForInstance(instanceId);
+        return runtime.cancelInstance(instanceId);
+    }
+
     public ProcessInstance get(UUID instanceId) {
         return requireInstance(instanceId);
+    }
+
+    public List<HumanTask> humanTasks(boolean pendingOnly) {
+        return pendingOnly ? humanTasks.findPending() : humanTasks.findAll();
+    }
+
+    public HumanTask completeHumanTask(
+            UUID taskId,
+            String decision,
+            Map<String,Object> result) {
+        if (decision == null || decision.isBlank()) {
+            throw new IllegalArgumentException("decision is required");
+        }
+        var task = humanTasks.findById(taskId)
+                .orElseThrow(() -> new NoSuchElementException("Human task not found: " + taskId));
+        if (task.status() != HumanTaskStatus.PENDING) return task;
+
+        var completed = humanTasks.complete(taskId, decision, safeMap(result));
+        var output = new LinkedHashMap<String,Object>();
+        output.put("decision", decision);
+        output.put("result", safeMap(result));
+        completeWaitingStep(task.processInstanceId(), task.stepKey(), output);
+        return completed;
+    }
+
+    public int signalEvent(
+            String eventType,
+            String correlationId,
+            Map<String,Object> payload) {
+        if (eventType == null || eventType.isBlank()) {
+            throw new IllegalArgumentException("eventType is required");
+        }
+        if (correlationId == null || correlationId.isBlank()) {
+            throw new IllegalArgumentException("correlationId is required");
+        }
+
+        var waits = eventWaits.findWaiting(eventType, correlationId);
+        for (var wait : waits) {
+            eventWaits.consume(wait.id(), safeMap(payload));
+            var output = new LinkedHashMap<String,Object>();
+            output.put("eventType", eventType);
+            output.put("correlationId", correlationId);
+            output.put("payload", safeMap(payload));
+            completeWaitingStep(wait.processInstanceId(), wait.stepKey(), output);
+        }
+        return waits.size();
     }
 
     @EventListener
@@ -72,21 +157,54 @@ public class ProcessRuntimeService {
         }
 
         runtime.findByDelegatedExecutionId(event.execution().executionId())
+                .filter(instance -> !isTerminal(instance.status()))
                 .ifPresent(instance -> executor.submit(
                         () -> handleTerminalAgentEvent(instance, event)));
     }
 
     @Scheduled(fixedDelayString = "${process.runtime.recovery-delay-ms:2000}")
     public void recoverRunnableInstances() {
-        var cutoff = java.time.Instant.now().minusSeconds(staleStepSeconds);
+        var now = Instant.now();
+        var staleCutoff = now.minusSeconds(staleStepSeconds);
+
         for (var instance : runtime.findRunnableInstances()) {
+            var definition = requireDefinition(instance.definitionId());
+            var defs = byKey(definition.steps());
+
             for (var step : instance.steps()) {
-                if ((step.type() == ProcessStepType.SERVICE
-                        || step.type() == ProcessStepType.AGENTIC_EXECUTION)
-                        && step.status() == ProcessStepStatus.RUNNING
-                        && step.startedAt() != null
-                        && step.startedAt().isBefore(cutoff)) {
-                    runtime.resetRunningStep(instance.id(), step.stepKey());
+                var stepDefinition = defs.get(step.stepKey());
+                if (stepDefinition == null) continue;
+
+                if (step.status() == ProcessStepStatus.WAITING
+                        && step.deadlineAt() != null
+                        && !step.deadlineAt().isAfter(now)) {
+                    handleStepFailure(
+                            instance.id(),
+                            stepDefinition,
+                            "STEP_TIMEOUT",
+                            "Step timed out while waiting");
+                    continue;
+                }
+
+                if (step.status() == ProcessStepStatus.RUNNING) {
+                    var configuredTimeoutExpired = step.deadlineAt() != null
+                            && !step.deadlineAt().isAfter(now);
+                    var staleWithoutDeadline = step.deadlineAt() == null
+                            && step.startedAt() != null
+                            && step.startedAt().isBefore(staleCutoff);
+
+                    if (configuredTimeoutExpired) {
+                        handleStepFailure(
+                                instance.id(),
+                                stepDefinition,
+                                "STEP_TIMEOUT",
+                                "Step execution exceeded its timeout");
+                    } else if (staleWithoutDeadline
+                            && (step.type() == ProcessStepType.SERVICE
+                                || step.type() == ProcessStepType.AGENTIC_EXECUTION
+                                || step.type() == ProcessStepType.DECISION)) {
+                        runtime.resetRunningStep(instance.id(), step.stepKey());
+                    }
                 }
             }
             scheduleAdvance(instance.id());
@@ -95,18 +213,14 @@ public class ProcessRuntimeService {
 
     private void advance(UUID instanceId) {
         var instance = requireInstance(instanceId);
-        if (instance.status() == ProcessInstanceStatus.COMPLETED
-                || instance.status() == ProcessInstanceStatus.FAILED
-                || instance.status() == ProcessInstanceStatus.CANCELLED) {
+        if (instance.status() == ProcessInstanceStatus.PAUSED || isTerminal(instance.status())) {
             return;
         }
 
         var definition = requireDefinition(instance.definitionId());
-        var stepDefinitions = byKey(definition.steps());
         var stepInstances = instance.steps().stream()
                 .collect(java.util.stream.Collectors.toMap(
-                        ProcessStepInstance::stepKey,
-                        step -> step));
+                        ProcessStepInstance::stepKey, step -> step));
 
         if (stepInstances.values().stream()
                 .anyMatch(step -> step.status() == ProcessStepStatus.FAILED)) {
@@ -119,10 +233,7 @@ public class ProcessRuntimeService {
                 .allMatch(step -> step.status() == ProcessStepStatus.COMPLETED
                         || step.status() == ProcessStepStatus.SKIPPED)) {
             try {
-                contracts.validate(
-                        "process.output",
-                        definition.outputSchema(),
-                        instance.context());
+                contracts.validate("process.output", definition.outputSchema(), instance.context());
                 runtime.completeInstance(instanceId);
             } catch (Exception outputContractError) {
                 runtime.failInstance(instanceId);
@@ -130,32 +241,63 @@ public class ProcessRuntimeService {
             return;
         }
 
-        var ready = new ArrayList<String>();
+        var ready = new LinkedHashSet<String>();
+        var now = Instant.now();
+
         stepInstances.values().stream()
                 .filter(step -> step.status() == ProcessStepStatus.READY)
+                .filter(step -> step.availableAt() == null || !step.availableAt().isAfter(now))
                 .map(ProcessStepInstance::stepKey)
                 .forEach(ready::add);
+
+        boolean skippedAny = false;
         for (var stepDefinition : definition.steps()) {
             var step = stepInstances.get(stepDefinition.stepKey());
-            if (step == null || step.status() != ProcessStepStatus.PENDING) {
+            if (step == null || step.status() != ProcessStepStatus.PENDING) continue;
+
+            var dependencyStates = stepDefinition.dependsOn().stream()
+                    .map(stepInstances::get)
+                    .filter(Objects::nonNull)
+                    .map(ProcessStepInstance::status)
+                    .toList();
+
+            var dependenciesTerminal = dependencyStates.size() == stepDefinition.dependsOn().size()
+                    && dependencyStates.stream().allMatch(status ->
+                        status == ProcessStepStatus.COMPLETED
+                                || status == ProcessStepStatus.SKIPPED);
+            if (!dependenciesTerminal) continue;
+
+            if (!dependencyStates.isEmpty()
+                    && dependencyStates.stream().allMatch(
+                        status -> status == ProcessStepStatus.SKIPPED)) {
+                runtime.skipStep(
+                        instanceId,
+                        stepDefinition.stepKey(),
+                        Map.of("reason", "all-dependencies-skipped"));
+                skippedAny = true;
                 continue;
             }
 
-            var dependenciesCompleted = stepDefinition.dependsOn().stream()
-                    .allMatch(dep -> {
-                        var dependency = stepInstances.get(dep);
-                        return dependency != null
-                                && (dependency.status() == ProcessStepStatus.COMPLETED
-                                    || dependency.status() == ProcessStepStatus.SKIPPED);
-                    });
-            if (dependenciesCompleted
-                    && runtime.markReady(instanceId, stepDefinition.stepKey())) {
+            if (!conditionMatches(instance.context(), stepDefinition.configuration())) {
+                runtime.skipStep(
+                        instanceId,
+                        stepDefinition.stepKey(),
+                        Map.of("reason", "condition-not-matched"));
+                skippedAny = true;
+                continue;
+            }
+
+            if (runtime.markReady(instanceId, stepDefinition.stepKey())) {
                 ready.add(stepDefinition.stepKey());
             }
         }
 
         for (var stepKey : ready) {
             executor.submit(() -> executeReadyStep(instanceId, stepKey));
+        }
+
+        if (skippedAny) {
+            scheduleAdvance(instanceId);
         }
 
         var refreshed = requireInstance(instanceId);
@@ -166,13 +308,16 @@ public class ProcessRuntimeService {
                 step.status() == ProcessStepStatus.WAITING);
 
         if (!hasActive && hasWaiting
-                && refreshed.status() != ProcessInstanceStatus.WAITING) {
+                && refreshed.status() != ProcessInstanceStatus.WAITING
+                && refreshed.status() != ProcessInstanceStatus.PAUSED) {
             runtime.updateInstanceStatus(instanceId, ProcessInstanceStatus.WAITING);
         }
     }
 
     private void executeReadyStep(UUID instanceId, String stepKey) {
         var instance = requireInstance(instanceId);
+        if (instance.status() == ProcessInstanceStatus.PAUSED || isTerminal(instance.status())) return;
+
         var definition = requireDefinition(instance.definitionId());
         var stepDefinition = byKey(definition.steps()).get(stepKey);
         if (stepDefinition == null) {
@@ -188,31 +333,35 @@ public class ProcessRuntimeService {
                     stepDefinition.inputSchema(),
                     input);
         } catch (Exception validationError) {
-            failStep(instanceId, stepKey, "INPUT_CONTRACT_VIOLATION",
-                    validationError.getMessage());
+            failStep(instanceId, stepKey, "INPUT_CONTRACT_VIOLATION", validationError.getMessage());
             return;
         }
 
-        if (!runtime.claimReady(instanceId, stepKey, input)) {
+        if (!runtime.claimReady(
+                instanceId,
+                stepKey,
+                input,
+                longValue(stepDefinition.configuration().get("timeoutSeconds")))) {
             return;
         }
 
         try {
             switch (stepDefinition.type()) {
                 case SERVICE -> executeService(instanceId, stepDefinition, input);
-                case AGENTIC_EXECUTION ->
-                        executeAgentic(instanceId, stepDefinition, input);
-                default -> failStep(
+                case AGENTIC_EXECUTION -> executeAgentic(instanceId, stepDefinition, input);
+                case DECISION -> executeDecision(instanceId, stepDefinition, input);
+                case HUMAN -> executeHuman(instanceId, stepDefinition, input);
+                case WAIT_EVENT -> executeWaitEvent(instanceId, stepDefinition, input);
+                case SUBPROCESS -> failStep(
                         instanceId,
                         stepKey,
                         "UNSUPPORTED_STEP_TYPE",
-                        "M9.3 does not execute step type "
-                                + stepDefinition.type());
+                        "SUBPROCESS execution is deferred beyond M9.4");
             }
         } catch (Exception exception) {
-            failStep(
+            handleStepFailure(
                     instanceId,
-                    stepKey,
+                    stepDefinition,
                     "STEP_EXECUTION_ERROR",
                     exception.getMessage());
         }
@@ -222,10 +371,27 @@ public class ProcessRuntimeService {
             UUID instanceId,
             ProcessStepDefinition step,
             Map<String,Object> input) {
-        var handlerKey = stringValue(step.configuration().get("handler"));
-        var handler = serviceHandlers.require(handlerKey);
-        var output = handler.execute(input, step.configuration());
-        completeStep(instanceId, step, output == null ? Map.of() : output);
+        var key = stringValue(step.configuration().get("serviceKey"));
+        var version = integerValue(step.configuration().get("serviceVersion"));
+        if (version == null) {
+            throw new IllegalArgumentException(
+                    "Pinned SERVICE step requires configuration.serviceVersion");
+        }
+
+        var binding = services.resolveHandler(key, version);
+        contracts.validate(
+                "service.%s.v%d.input".formatted(key, version),
+                binding.service().inputSchema(),
+                input);
+
+        var output = binding.handler().execute(input, step.configuration());
+        var safeOutput = output == null ? Map.<String,Object>of() : output;
+
+        contracts.validate(
+                "service.%s.v%d.output".formatted(key, version),
+                binding.service().outputSchema(),
+                safeOutput);
+        completeStep(instanceId, step, safeOutput);
     }
 
     @SuppressWarnings("unchecked")
@@ -265,29 +431,81 @@ public class ProcessRuntimeService {
                 stringValue(configuration.get("tenantId"))
         ));
 
-        runtime.delegateAgent(
-                instanceId,
-                step.stepKey(),
-                prepared.command());
+        runtime.delegateAgent(instanceId, step.stepKey(), prepared.command());
     }
 
-    private void handleTerminalAgentEvent(
-            ProcessInstance instance,
-            ExecutionEvent event) {
+    private void executeDecision(
+            UUID instanceId,
+            ProcessStepDefinition step,
+            Map<String,Object> input) {
+        completeStep(instanceId, step, decisions.evaluate(input, step.configuration()));
+    }
+
+    private void executeHuman(
+            UUID instanceId,
+            ProcessStepDefinition step,
+            Map<String,Object> input) {
+        var config = step.configuration();
+        humanTasks.createIfAbsent(new HumanTask(
+                UUID.randomUUID(),
+                instanceId,
+                step.stepKey(),
+                stringValue(config.getOrDefault("title", step.name())),
+                stringValue(config.getOrDefault("description", step.description())),
+                input,
+                HumanTaskStatus.PENDING,
+                null,
+                Map.of(),
+                Instant.now(),
+                null));
+        runtime.waitStep(instanceId, step.stepKey());
+    }
+
+    private void executeWaitEvent(
+            UUID instanceId,
+            ProcessStepDefinition step,
+            Map<String,Object> input) {
+        var instance = requireInstance(instanceId);
+        var eventType = stringValue(step.configuration().get("eventType"));
+        if (eventType == null || eventType.isBlank()) {
+            throw new IllegalArgumentException("WAIT_EVENT requires configuration.eventType");
+        }
+        var configuredCorrelation = stringValue(step.configuration().get("correlationId"));
+        var correlationId = configuredCorrelation == null || configuredCorrelation.isBlank()
+                ? instance.correlationId()
+                : configuredCorrelation;
+
+        eventWaits.createIfAbsent(new ProcessEventWait(
+                UUID.randomUUID(),
+                instanceId,
+                step.stepKey(),
+                eventType,
+                correlationId,
+                ProcessEventWaitStatus.WAITING,
+                Map.of(),
+                Instant.now(),
+                null));
+        runtime.waitStep(instanceId, step.stepKey());
+    }
+
+    private void handleTerminalAgentEvent(ProcessInstance instance, ExecutionEvent event) {
+        if (instance.status() == ProcessInstanceStatus.CANCELLED) return;
+
         var step = instance.steps().stream()
                 .filter(candidate -> event.execution().executionId()
                         .equals(candidate.delegatedExecutionId()))
                 .findFirst()
                 .orElse(null);
-        if (step == null || step.status() != ProcessStepStatus.WAITING) {
-            return;
-        }
+        if (step == null || step.status() != ProcessStepStatus.WAITING) return;
+
+        var definition = requireDefinition(instance.definitionId());
+        var stepDefinition = byKey(definition.steps()).get(step.stepKey());
 
         if (!event.isCompleted()) {
             var error = event.execution().error();
-            failStep(
+            handleStepFailure(
                     instance.id(),
-                    step.stepKey(),
+                    stepDefinition,
                     "AGENT_EXECUTION_FAILED",
                     error == null
                             ? "Delegated Agent Platform execution ended with status "
@@ -298,13 +516,26 @@ public class ProcessRuntimeService {
             return;
         }
 
-        var definition = requireDefinition(instance.definitionId());
-        var stepDefinition = byKey(definition.steps()).get(step.stepKey());
         var result = event.execution().result() == null
                 ? Map.<String,Object>of()
                 : new LinkedHashMap<>(event.execution().result());
-
         completeStep(instance.id(), stepDefinition, result);
+    }
+
+    private void completeWaitingStep(
+            UUID instanceId,
+            String stepKey,
+            Map<String,Object> output) {
+        var instance = requireInstance(instanceId);
+        if (instance.status() == ProcessInstanceStatus.CANCELLED) return;
+        var definition = requireDefinition(instance.definitionId());
+        var stepDefinition = byKey(definition.steps()).get(stepKey);
+        var step = instance.steps().stream()
+                .filter(value -> value.stepKey().equals(stepKey))
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException("Process step not found: " + stepKey));
+        if (step.status() != ProcessStepStatus.WAITING) return;
+        completeStep(instanceId, stepDefinition, output);
     }
 
     private void completeStep(
@@ -316,11 +547,7 @@ public class ProcessRuntimeService {
                     "step.%s.output".formatted(step.stepKey()),
                     step.outputSchema(),
                     output);
-
-            runtime.completeStep(
-                    instanceId,
-                    step.stepKey(),
-                    output);
+            runtime.completeStep(instanceId, step.stepKey(), output);
             scheduleAdvance(instanceId);
         } catch (Exception validationError) {
             failStep(
@@ -331,14 +558,39 @@ public class ProcessRuntimeService {
         }
     }
 
+    private void handleStepFailure(
+            UUID instanceId,
+            ProcessStepDefinition step,
+            String code,
+            String message) {
+        var instance = requireInstance(instanceId);
+        if (instance.status() == ProcessInstanceStatus.CANCELLED) return;
+
+        var current = instance.steps().stream()
+                .filter(value -> value.stepKey().equals(step.stepKey()))
+                .findFirst()
+                .orElse(null);
+        if (current == null) return;
+
+        var retry = retryPolicy(step.configuration());
+        var error = error(code, message);
+        if (current.attemptCount() < retry.maxAttempts()) {
+            var multiplier = Math.max(1, current.attemptCount());
+            var availableAt = Instant.now().plusMillis(retry.backoffMs() * multiplier);
+            runtime.retryStep(instanceId, step.stepKey(), error, availableAt);
+            scheduleAdvance(instanceId);
+        } else {
+            runtime.failStep(instanceId, step.stepKey(), error);
+        }
+    }
+
     private Map<String,Object> buildStepInput(
             ProcessInstance instance,
             ProcessStepDefinition step) {
         var dependencies = new LinkedHashMap<String,Object>();
         var byKey = instance.steps().stream()
                 .collect(java.util.stream.Collectors.toMap(
-                        ProcessStepInstance::stepKey,
-                        value -> value));
+                        ProcessStepInstance::stepKey, value -> value));
         for (var dependencyKey : step.dependsOn()) {
             var dependency = byKey.get(dependencyKey);
             dependencies.put(
@@ -355,15 +607,36 @@ public class ProcessRuntimeService {
         return input;
     }
 
-    private void failStep(
-            UUID instanceId,
-            String stepKey,
-            String code,
-            String message) {
+    @SuppressWarnings("unchecked")
+    private boolean conditionMatches(
+            Map<String,Object> context,
+            Map<String,Object> configuration) {
+        var when = configuration.get("when");
+        if (!(when instanceof Map<?,?> values)) return true;
+        return decisions.conditionMatches(
+                context,
+                new LinkedHashMap<>((Map<String,Object>) values));
+    }
+
+    private RetryPolicy retryPolicy(Map<String,Object> configuration) {
+        var value = configuration.get("retry");
+        if (!(value instanceof Map<?,?> map)) return new RetryPolicy(1, 0);
+        var maxAttempts = integerValue(map.get("maxAttempts"));
+        var backoffMs = longValue(map.get("backoffMs"));
+        return new RetryPolicy(
+                Math.max(1, maxAttempts == null ? 1 : maxAttempts),
+                Math.max(0, backoffMs == null ? 0 : backoffMs));
+    }
+
+    private void failStep(UUID instanceId, String stepKey, String code, String message) {
+        runtime.failStep(instanceId, stepKey, error(code, message));
+    }
+
+    private static Map<String,Object> error(String code,String message) {
         var error = new LinkedHashMap<String,Object>();
         error.put("code", code);
         error.put("message", message == null ? code : message);
-        runtime.failStep(instanceId, stepKey, error);
+        return error;
     }
 
     private ProcessInstance requireInstance(UUID id) {
@@ -378,8 +651,7 @@ public class ProcessRuntimeService {
                         "Process definition not found: " + id));
     }
 
-    private static Map<String,ProcessStepDefinition> byKey(
-            List<ProcessStepDefinition> steps) {
+    private static Map<String,ProcessStepDefinition> byKey(List<ProcessStepDefinition> steps) {
         return steps.stream().collect(
                 java.util.stream.Collectors.toMap(
                         ProcessStepDefinition::stepKey,
@@ -388,8 +660,30 @@ public class ProcessRuntimeService {
                         LinkedHashMap::new));
     }
 
+    private static boolean isTerminal(ProcessInstanceStatus status) {
+        return status == ProcessInstanceStatus.COMPLETED
+                || status == ProcessInstanceStatus.FAILED
+                || status == ProcessInstanceStatus.CANCELLED;
+    }
+
     private static String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private static Integer integerValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return number.intValue();
+        return Integer.valueOf(String.valueOf(value));
+    }
+
+    private static Long longValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return number.longValue();
+        return Long.valueOf(String.valueOf(value));
+    }
+
+    private static Map<String,Object> safeMap(Map<String,Object> value) {
+        return value == null ? Map.of() : new LinkedHashMap<>(value);
     }
 
     private void scheduleAdvance(UUID instanceId) {
@@ -397,7 +691,7 @@ public class ProcessRuntimeService {
             try {
                 advance(instanceId);
             } catch (Exception ignored) {
-                // Durable state remains authoritative; the recovery loop will retry progression.
+                // Durable state remains authoritative; recovery will retry progression.
             }
         });
     }
@@ -406,4 +700,6 @@ public class ProcessRuntimeService {
     void shutdown() {
         executor.shutdownNow();
     }
+
+    private record RetryPolicy(int maxAttempts,long backoffMs) {}
 }
