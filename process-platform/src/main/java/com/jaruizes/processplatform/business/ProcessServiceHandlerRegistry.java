@@ -24,7 +24,7 @@ public class ProcessServiceHandlerRegistry {
     public ProcessServiceHandlerPort require(String key) {
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException(
-                    "SERVICE step requires configuration.handler");
+                    "Process service implementation key is required");
         }
         var handler = handlers.get(key);
         if (handler == null) {
