@@ -4894,3 +4894,207 @@ This keeps the bounded contexts and vocabulary unambiguous:
 Process Platform  -> SERVICE | AGENTIC_EXECUTION
 Agent Platform    -> Agents | Tools | MCP
 ```
+
+
+---
+
+## M9.4 — Process Capabilities & Long-running Workflow
+
+M9.4 completes the backend process language required by the future visual
+designer.
+
+### Service Registry
+
+A ProcessDefinition no longer references a technical handler.
+
+```text
+ProcessDefinition
+      |
+      | SERVICE
+      | serviceKey + pinned serviceVersion
+      v
+Process Service Registry
+      |
+      | implementationKey
+      v
+ProcessServiceHandlerPort
+      |
+      v
+deterministic adapter / external service
+```
+
+ProcessServiceDefinition uses the same publication discipline as processes:
+
+```text
+DRAFT -> ACTIVE -> RETIRED
+          |
+          +-> next version
+```
+
+Process activation resolves an ACTIVE service version and writes that exact
+version into the immutable ProcessDefinition. Runtime can continue resolving
+that pinned version after the service is RETIRED, but a new ProcessDefinition
+cannot newly select a retired service.
+
+### Deterministic decisions
+
+`DECISION` evaluates persisted data with a restricted operator set:
+
+```text
+EQ NE GT GTE LT LTE EXISTS IN
+```
+
+It produces an explicit `outcome`. Conditional steps reference the decision
+step and expected outcome.
+
+No LLM, Agent Platform or scripting engine participates in deterministic
+branching.
+
+### Branch skip semantics
+
+A non-selected branch becomes `SKIPPED`.
+
+If all dependencies of a step are skipped, that step is recursively skipped.
+A join is runnable when its dependencies are terminal and at least one
+dependency completed.
+
+This supports deterministic fan-out/fan-in without BPMN gateway nodes.
+
+### Durable human work
+
+`HUMAN` creates a persisted HumanTask and transitions the step to WAITING.
+
+```text
+ProcessStep WAITING
+      |
+      +-- HumanTask PENDING
+              |
+              | complete(decision, result)
+              v
+         HumanTask COMPLETED
+              |
+              v
+        ProcessStep COMPLETED
+```
+
+Human completion is locked and idempotent with respect to process progression.
+
+### Durable external events
+
+`WAIT_EVENT` persists:
+
+```text
+eventType
+correlationId
+processInstanceId
+stepKey
+status
+```
+
+No worker/thread waits for the external event.
+
+An inbound Process Event matches the durable subscription, consumes it under a
+pessimistic lock and resumes the step.
+
+The ProcessInstance correlation id is the default wait correlation.
+
+### Runtime controls
+
+M9.4 adds:
+
+```text
+PAUSE
+RESUME
+CANCEL
+```
+
+PAUSE stops new DAG progression but does not attempt to interrupt already
+in-flight external side effects.
+
+A result arriving while PAUSED is persisted; downstream steps wait until RESUME.
+
+CANCEL terminates all non-terminal process steps and cancels pending Human Tasks
+and Event Waits.
+
+Agent Platform cancellation is intentionally not performed through an internal
+API. A future public execution-control contract is required to propagate cancel
+across the bounded-context boundary.
+
+### Durable retries and deadlines
+
+Each ProcessStepInstance now persists:
+
+```text
+attemptCount
+availableAt
+deadlineAt
+```
+
+Automated steps may configure max attempts and backoff. Retry scheduling is
+therefore restart-safe.
+
+When an AGENTIC_EXECUTION is retried, the previous delegatedExecutionId is
+cleared before the new execution is created. Late events from the previous
+attempt cannot correlate with the new attempt.
+
+HUMAN and WAIT_EVENT deadlines fail the waiting step instead of automatically
+creating repeated human/event waits.
+
+### ADR-079 — Process services are catalog capabilities, not handler names
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+The public ProcessDefinition references `serviceKey` and `serviceVersion`.
+`implementationKey` and `ProcessServiceHandlerPort` are internal Process
+Platform implementation details.
+
+### ADR-080 — Service versions are pinned at ProcessDefinition activation
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Activation resolves an ACTIVE service version and freezes it in the published
+process definition. Runtime never follows "latest" dynamically.
+
+Retirement prevents new selection but does not invalidate already-pinned
+ProcessDefinitions.
+
+### ADR-081 — DECISION is deterministic and LLM-free
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Known business branching is evaluated from process data with a restricted
+deterministic expression model. Open-ended judgment belongs in
+AGENTIC_EXECUTION, not DECISION.
+
+### ADR-082 — HUMAN and WAIT_EVENT are durable waits
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Long-running waits are rows in PostgreSQL, never blocked threads. Human actions
+and external events complete those persisted waits and trigger normal DAG
+progression.
+
+### ADR-083 — Pause freezes progression, not external side effects
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+An already-running SERVICE or delegated agent execution may finish while the
+process is paused. The result is persisted, but no downstream work starts until
+resume.
+
+### ADR-084 — Step retries have at-least-once semantics
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Retry state is durable and can repeat side-effecting work after failures or
+timeouts. SERVICE implementations must be idempotent. Agentic retries create a
+new execution and ignore late events from older attempts.
+
+Exactly-once business effects must be implemented through idempotency keys or
+transactional domain boundaries, not assumed from the workflow engine.
