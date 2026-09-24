@@ -456,6 +456,7 @@ export class AppComponent implements OnInit,OnDestroy {
       await this.api.completeProcessHumanTask(x.id,decision,JSON.parse(this.processHumanResult||'{}'));
       this.processHumanTasks.set(await this.api.processHumanTasks());
       this.processInstances.set(await this.api.processInstances());
+      this.processHumanResult='{}';
     });
   }
 
