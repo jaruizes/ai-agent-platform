@@ -13,7 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface SpringHumanTaskRepository extends JpaRepository<HumanTaskJpaEntity, UUID> {
-    Optional<HumanTaskJpaEntity> findByProcessInstanceIdAndStepKey(UUID processInstanceId, String stepKey);
+    Optional<HumanTaskJpaEntity> findByProcessInstanceIdAndStepKeyAndIteration(UUID processInstanceId, String stepKey, int iteration);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select h from HumanTaskJpaEntity h where h.id = :id")
