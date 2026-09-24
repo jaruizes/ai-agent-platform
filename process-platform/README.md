@@ -300,13 +300,15 @@ Step types prepared for later milestones:
 
 ```text
 SERVICE
-TOOL
 AGENTIC_EXECUTION
 DECISION
 HUMAN
 WAIT_EVENT
 SUBPROCESS
 ```
+
+`TOOL` is intentionally not a Process Platform step type. Tool/MCP vocabulary
+belongs exclusively to Agent Platform.
 
 M9.2 does not execute these step types yet. M9.3 will provide deterministic scheduling and execution semantics.
 
@@ -559,7 +561,6 @@ The following remain modeled but intentionally fail with
 `UNSUPPORTED_STEP_TYPE` if executed before their later milestone:
 
 ```text
-TOOL
 DECISION
 HUMAN
 WAIT_EVENT
@@ -568,20 +569,34 @@ SUBPROCESS
 
 ### SERVICE
 
-A deterministic service step resolves:
+A SERVICE step represents an explicit deterministic capability selected by the
+process definition.
 
 ```text
-configuration.handler
-        |
-        v
+ProcessDefinition
+      |
+      | type = SERVICE
+      | configuration.handler
+      v
 ProcessServiceHandlerPort
+      |
+      +--> local deterministic logic
+      |
+      +--> HTTP / gRPC / database / external service adapter
 ```
+
+The important boundary is ownership: Process Platform explicitly knows that this
+service/capability must be called. A SERVICE handler may internally call an external
+system, but it is still deterministic process orchestration.
 
 Handlers are Spring adapters/plugins and must be idempotent because durable
 recovery provides at-least-once execution semantics.
 
 M9.3 includes only the generic `echo` handler used by smoke/integration tests.
 Business-specific deterministic handlers must implement the same port.
+
+`TOOL` is not part of this model. If an AGENTIC_EXECUTION needs a Tool, Agent
+Platform decides and invokes it through its own Tool/MCP subsystem.
 
 ### AGENTIC_EXECUTION
 
@@ -791,3 +806,46 @@ SERVICE
    |
 COMPLETED
 ```
+
+
+## Terminology boundary: SERVICE vs Agent Platform Tool
+
+Process Platform deliberately exposes only two execution mechanisms for ordinary
+automated work:
+
+```text
+SERVICE
+  -> deterministic invocation chosen by the process designer
+
+AGENTIC_EXECUTION
+  -> open-ended objective delegated to Agent Platform
+```
+
+A Process Platform SERVICE may call the same external backend that an Agent
+Platform Tool eventually calls, but the paths are intentionally different:
+
+```text
+Process Platform
+  SERVICE
+     |
+     v
+external service
+
+
+Process Platform
+  AGENTIC_EXECUTION
+     |
+     v
+Agent Platform
+     |
+     v
+Agent
+     |
+     v
+MCP / Tool
+     |
+     v
+external service
+```
+
+Process Platform never selects, lists or invokes Agent Platform Tools directly.
