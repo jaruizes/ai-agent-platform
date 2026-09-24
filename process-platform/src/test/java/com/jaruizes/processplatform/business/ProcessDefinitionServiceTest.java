@@ -111,6 +111,7 @@ class ProcessDefinitionServiceTest {
                         "echo",
                         Map.of(),
                         Map.of(),
+                        Map.of(),
                         now,
                         now,
                         now));
