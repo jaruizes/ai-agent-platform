@@ -271,6 +271,95 @@ public class ProcessRuntimePersistenceAdapter
 
     @Override
     @Transactional
+    @SuppressWarnings("unchecked")
+    public ProcessInstance repeatReviewedStep(
+            UUID instanceId,
+            String producerStepKey,
+            String reviewStepKey,
+            int reviewAttempt,
+            Map<String,Object> feedback) {
+
+        var instance = instances.findLockedById(instanceId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Process instance not found: " + instanceId));
+        var producer = requireStep(instanceId, producerStepKey);
+        var review = requireStep(instanceId, reviewStepKey);
+
+        if (review.getStatus() != ProcessStepStatus.WAITING
+                || review.getAttemptCount() != reviewAttempt) {
+            throw new IllegalStateException(
+                    "Review step '%s' is no longer waiting on attempt %d"
+                            .formatted(reviewStepKey, reviewAttempt));
+        }
+        if (producer.getStatus() != ProcessStepStatus.COMPLETED) {
+            throw new IllegalStateException(
+                    "Reviewed producer step '%s' must be COMPLETED before it can repeat"
+                            .formatted(producerStepKey));
+        }
+
+        var history = new LinkedHashMap<String,Object>();
+        var existingHistory = instance.getContext().get("_reviewHistory");
+        if (existingHistory instanceof Map<?,?> values) {
+            values.forEach((key,value) -> history.put(String.valueOf(key), value));
+        }
+
+        var reviewEntries = new ArrayList<Map<String,Object>>();
+        var existingEntries = history.get(reviewStepKey);
+        if (existingEntries instanceof Collection<?> values) {
+            for (var value : values) {
+                if (value instanceof Map<?,?> map) {
+                    var copy = new LinkedHashMap<String,Object>();
+                    map.forEach((key,item) -> copy.put(String.valueOf(key), item));
+                    reviewEntries.add(copy);
+                }
+            }
+        }
+
+        var entry = new LinkedHashMap<String,Object>();
+        entry.put("iteration", reviewAttempt);
+        entry.put("feedback", new LinkedHashMap<>(feedback == null ? Map.of() : feedback));
+        entry.put("previousOutput", new LinkedHashMap<>(producer.getOutput()));
+        entry.put("createdAt", Instant.now().toString());
+        reviewEntries.add(entry);
+        history.put(reviewStepKey, reviewEntries);
+
+        var mergedContext = new LinkedHashMap<>(instance.getContext());
+        mergedContext.put("_reviewHistory", history);
+        instance.setContext(mergedContext);
+        if (instance.getStatus() != ProcessInstanceStatus.PAUSED) {
+            instance.setStatus(ProcessInstanceStatus.RUNNING);
+        }
+        instance.setUpdatedAt(Instant.now());
+
+        producer.setStatus(ProcessStepStatus.READY);
+        producer.setInput(new LinkedHashMap<>());
+        producer.setOutput(new LinkedHashMap<>());
+        producer.setError(new LinkedHashMap<>());
+        producer.setDelegatedExecutionId(null);
+        producer.setAvailableAt(null);
+        producer.setDeadlineAt(null);
+        producer.setStartedAt(null);
+        producer.setCompletedAt(null);
+        producer.setUpdatedAt(Instant.now());
+
+        review.setStatus(ProcessStepStatus.PENDING);
+        review.setInput(new LinkedHashMap<>());
+        review.setOutput(new LinkedHashMap<>());
+        review.setError(new LinkedHashMap<>());
+        review.setDelegatedExecutionId(null);
+        review.setAvailableAt(null);
+        review.setDeadlineAt(null);
+        review.setStartedAt(null);
+        review.setCompletedAt(null);
+        review.setUpdatedAt(Instant.now());
+
+        steps.save(producer);
+        steps.save(review);
+        return toDomain(instances.saveAndFlush(instance));
+    }
+
+    @Override
+    @Transactional
     public ProcessInstance failStep(
             UUID instanceId,
             String stepKey,
