@@ -99,7 +99,7 @@ DEF_BODY=$(cat <<JSON
       "outputSchema":{"type":"object"},
       "configuration":{
         "name":"presales-business-analysis",
-        "intent":"Act as a senior business analyst / presales consultant. Analyse the customer proposal documents and produce a structured understanding and qualification report. Determine what the customer wants, why they want it, desired timeline, business drivers, constraints, assumptions, missing information, what we can contribute, execution risks and mitigations. If dependencies.load-input-documents contains Google Drive document ids, use the available Google Drive MCP/tool to read the actual document contents. If this is a mock run, analyse processInput.documents. IMPORTANT: inspect context._reviewHistory.business-analysis-review. If previous human feedback exists, revise the previous report accordingly instead of starting from scratch. Return a concise but complete structured result suitable for the next human review.",
+        "intent":"Act as a senior business analyst / presales consultant. Analyse the customer proposal documents and produce a structured understanding and qualification report. Determine what the customer wants, why they want it, desired timeline, business drivers, constraints, assumptions, missing information, what we can contribute, execution risks and mitigations. If dependencies.load-input-documents contains Google Drive document ids, use google-drive-read-file for each relevant file ID to read the actual document contents. If only a Drive folder ID is available, use google-drive-list-folder first. If this is a mock run, analyse processInput.documents. IMPORTANT: inspect context._reviewHistory.business-analysis-review. If previous human feedback exists, revise the previous report accordingly instead of starting from scratch. Return a concise but complete structured result suitable for the next human review.",
         "instructions":[
           "Ground the report in the supplied customer material.",
           "Separate facts, assumptions, risks and open questions.",
@@ -250,5 +250,7 @@ echo "For a real Drive run:"
 echo "  export PROPOSAL_SOURCE_MODE=drive"
 echo "  export GOOGLE_DRIVE_FOLDER_ID=<folder-id>"
 echo "  export GOOGLE_DRIVE_ACCESS_TOKEN=<oauth-token-with-drive-read-scope>"
+echo "  # Agent Platform also requires .secrets/google-oauth-credentials.json and .secrets/google-token.json"
+echo "  # Validate Agent Platform Drive access first: bash scripts/google-workspace-mcp-smoke.sh"
 echo "  docker compose up -d --force-recreate process-platform"
 echo "  bash scripts/m96-create-presales-reference-process.sh"
