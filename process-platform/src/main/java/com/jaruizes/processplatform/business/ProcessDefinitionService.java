@@ -363,15 +363,15 @@ public class ProcessDefinitionService {
                                     .formatted(repeatStep, step.stepKey()));
                 }
 
-                var repeatDecision = stringValue(review.getOrDefault("repeatDecision", "REQUEST_CHANGES"));
-                var approveDecision = stringValue(review.getOrDefault("approveDecision", "APPROVE"));
+                var repeatDecision = stringValue(review.containsKey("repeatDecision") ? review.get("repeatDecision") : "REQUEST_CHANGES");
+                var approveDecision = stringValue(review.containsKey("approveDecision") ? review.get("approveDecision") : "APPROVE");
                 if (repeatDecision == null || approveDecision == null
                         || repeatDecision.equalsIgnoreCase(approveDecision)) {
                     throw new IllegalArgumentException(
                             "HUMAN review step '%s' requires distinct approve/repeat decisions"
                                     .formatted(step.stepKey()));
                 }
-                var maxIterations = integerValue(review.getOrDefault("maxIterations", 5));
+                var maxIterations = integerValue(review.containsKey("maxIterations") ? review.get("maxIterations") : 5);
                 if (maxIterations == null || maxIterations < 1) {
                     throw new IllegalArgumentException(
                             "HUMAN review step '%s' review.maxIterations must be >= 1"
