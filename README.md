@@ -209,3 +209,58 @@ bash scripts/m96-review-loop-smoke.sh
 An optional `google-drive-folder` Process SERVICE discovers proposal files from
 Google Drive. Agents still read/analyse document content through Agent Platform
 Tools/MCP.
+
+
+### Google Workspace MCP / Drive Reader
+
+Agent Platform includes a Google Workspace MCP plus bootstrap Tools for Drive,
+Docs, Sheets and Slides.
+
+For document reasoning the preferred Tool is:
+
+```text
+google-drive-read-file
+```
+
+It accepts a Drive `fileId` and automatically returns semantic text from:
+
+```text
+Google Docs
+Google Sheets
+Google Slides
+PDF
+DOCX / DOC
+PPTX / PPT
+XLSX / XLS
+CSV / TXT / MD / JSON
+ODT / ODP / ODS
+```
+
+Google-native files use native Workspace APIs. Binary/legacy files are
+downloaded to scratch storage and parsed with Agent Platform's existing
+`DocumentParser`.
+
+Setup OAuth:
+
+```bash
+npm --prefix mcp/google-workspace install
+npm --prefix mcp/google-workspace run auth
+```
+
+Then rebuild and validate:
+
+```bash
+docker compose up -d --build agent-platform
+
+bash scripts/google-workspace-mcp-smoke.sh
+```
+
+Optionally test a real file end to end:
+
+```bash
+GOOGLE_DRIVE_TEST_FILE_ID=<file-id> \
+  bash scripts/google-workspace-mcp-smoke.sh
+```
+
+The proposal reference process uses this Tool from its AGENTIC_EXECUTION steps;
+Process Platform never invokes the MCP directly.
