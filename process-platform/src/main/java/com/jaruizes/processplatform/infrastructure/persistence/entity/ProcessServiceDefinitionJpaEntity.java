@@ -29,6 +29,9 @@ public class ProcessServiceDefinitionJpaEntity {
     @Column(name="implementation_key", nullable=false, length=200)
     private String implementationKey;
     @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable=false, columnDefinition="jsonb")
+    private Map<String,Object> configuration = new LinkedHashMap<>();
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name="input_schema", nullable=false, columnDefinition="jsonb")
     private Map<String,Object> inputSchema = new LinkedHashMap<>();
     @JdbcTypeCode(SqlTypes.JSON)
@@ -49,6 +52,7 @@ public class ProcessServiceDefinitionJpaEntity {
     public int getVersion(){return version;} public void setVersion(int v){version=v;}
     public ProcessServiceStatus getStatus(){return status;} public void setStatus(ProcessServiceStatus v){status=v;}
     public String getImplementationKey(){return implementationKey;} public void setImplementationKey(String v){implementationKey=v;}
+    public Map<String,Object> getConfiguration(){return configuration;} public void setConfiguration(Map<String,Object> v){configuration=v;}
     public Map<String,Object> getInputSchema(){return inputSchema;} public void setInputSchema(Map<String,Object> v){inputSchema=v;}
     public Map<String,Object> getOutputSchema(){return outputSchema;} public void setOutputSchema(Map<String,Object> v){outputSchema=v;}
     public Instant getCreatedAt(){return createdAt;} public void setCreatedAt(Instant v){createdAt=v;}
