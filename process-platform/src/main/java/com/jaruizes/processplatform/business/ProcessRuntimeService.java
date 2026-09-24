@@ -116,10 +116,59 @@ public class ProcessRuntimeService {
                 .orElseThrow(() -> new NoSuchElementException("Human task not found: " + taskId));
         if (task.status() != HumanTaskStatus.PENDING) return task;
 
+        var instance = requireInstance(task.processInstanceId());
+        if (instance.status() == ProcessInstanceStatus.CANCELLED) {
+            throw new IllegalStateException("Process instance is cancelled");
+        }
+        var definition = requireDefinition(instance.definitionId());
+        var stepDefinition = byKey(definition.steps()).get(task.stepKey());
+        if (stepDefinition == null) {
+            throw new IllegalStateException("Human task step definition not found: " + task.stepKey());
+        }
+        var stepInstance = instance.steps().stream()
+                .filter(step -> step.stepKey().equals(task.stepKey()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Human task step instance not found: " + task.stepKey()));
+
+        var review = reviewPolicy(stepDefinition.configuration());
+        if (review != null) {
+            if (decision.equalsIgnoreCase(review.repeatDecision())) {
+                if (task.iteration() >= review.maxIterations()) {
+                    throw new IllegalStateException(
+                            "Review iteration limit reached (%d). Approve or cancel the process."
+                                    .formatted(review.maxIterations()));
+                }
+
+                var completed = humanTasks.complete(taskId, decision, safeMap(result));
+                var feedback = new LinkedHashMap<String,Object>();
+                feedback.put("decision", decision);
+                feedback.put("result", safeMap(result));
+                feedback.put("humanTaskId", taskId.toString());
+                feedback.put("iteration", task.iteration());
+
+                runtime.repeatReviewedStep(
+                        task.processInstanceId(),
+                        review.repeatStep(),
+                        task.stepKey(),
+                        stepInstance.attemptCount(),
+                        feedback);
+                scheduleAdvance(task.processInstanceId());
+                return completed;
+            }
+
+            if (!decision.equalsIgnoreCase(review.approveDecision())) {
+                throw new IllegalArgumentException(
+                        "Review decision must be '%s' or '%s'"
+                                .formatted(review.approveDecision(), review.repeatDecision()));
+            }
+        }
+
         var completed = humanTasks.complete(taskId, decision, safeMap(result));
         var output = new LinkedHashMap<String,Object>();
         output.put("decision", decision);
         output.put("result", safeMap(result));
+        output.put("iteration", task.iteration());
         completeWaitingStep(task.processInstanceId(), task.stepKey(), output);
         return completed;
     }
@@ -465,6 +514,7 @@ public class ProcessRuntimeService {
                 UUID.randomUUID(),
                 instanceId,
                 step.stepKey(),
+                attempt,
                 stringValue(config.getOrDefault("title", step.name())),
                 stringValue(config.getOrDefault("description", step.description())),
                 input,
@@ -658,6 +708,31 @@ public class ProcessRuntimeService {
                 new LinkedHashMap<>((Map<String,Object>) values));
     }
 
+    private ReviewPolicy reviewPolicy(Map<String,Object> configuration) {
+        var value = configuration.get("review");
+        if (!(value instanceof Map<?,?> review)) return null;
+
+        var repeatStep = stringValue(review.get("repeatStep"));
+        var repeatDecision = stringValue(
+                review.containsKey("repeatDecision")
+                        ? review.get("repeatDecision")
+                        : "REQUEST_CHANGES");
+        var approveDecision = stringValue(
+                review.containsKey("approveDecision")
+                        ? review.get("approveDecision")
+                        : "APPROVE");
+        var maxIterations = integerValue(
+                review.containsKey("maxIterations")
+                        ? review.get("maxIterations")
+                        : 5);
+
+        return new ReviewPolicy(
+                repeatStep,
+                approveDecision,
+                repeatDecision,
+                Math.max(1, maxIterations == null ? 5 : maxIterations));
+    }
+
     private RetryPolicy retryPolicy(Map<String,Object> configuration) {
         var value = configuration.get("retry");
         if (!(value instanceof Map<?,?> map)) return new RetryPolicy(1, 0);
@@ -744,4 +819,9 @@ public class ProcessRuntimeService {
     }
 
     private record RetryPolicy(int maxAttempts,long backoffMs) {}
+    private record ReviewPolicy(
+            String repeatStep,
+            String approveDecision,
+            String repeatDecision,
+            int maxIterations) {}
 }
