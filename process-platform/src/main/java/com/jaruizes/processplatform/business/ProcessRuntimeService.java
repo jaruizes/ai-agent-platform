@@ -574,12 +574,17 @@ public class ProcessRuntimeService {
 
         var retry = retryPolicy(step.configuration());
         var error = error(code, message);
-        if (current.attemptCount() < retry.maxAttempts()) {
+        var retryableType = step.type() == ProcessStepType.SERVICE
+                || step.type() == ProcessStepType.AGENTIC_EXECUTION
+                || step.type() == ProcessStepType.DECISION;
+        if (retryableType && current.attemptCount() < retry.maxAttempts()) {
             var multiplier = Math.max(1, current.attemptCount());
             var availableAt = Instant.now().plusMillis(retry.backoffMs() * multiplier);
             runtime.retryStep(instanceId, step.stepKey(), error, availableAt);
             scheduleAdvance(instanceId);
         } else {
+            humanTasks.cancelPendingForInstance(instanceId);
+            eventWaits.cancelWaitingForInstance(instanceId);
             runtime.failStep(instanceId, step.stepKey(), error);
         }
     }
