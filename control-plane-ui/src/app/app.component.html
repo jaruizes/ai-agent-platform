@@ -178,11 +178,11 @@
         <div class="panel-head"><div><h2>Human Task Inbox</h2><p>Durable business approvals and reviews emitted by HUMAN process steps.</p></div></div>
         <div class="approval-grid">
           <article class="approval-detail" *ngFor="let t of processHumanTasks()">
-            <div class="approval-top"><span class="status-pill" [ngClass]="statusClass(t.status)">{{t.status}}</span><small>{{date(t.createdAt)}}</small></div>
+            <div class="approval-top"><span class="status-pill" [ngClass]="statusClass(t.status)">{{t.status}}</span><small>iteration {{t.iteration}} · {{date(t.createdAt)}}</small></div>
             <h3>{{t.title}}</h3><p>{{t.description||'Human action required by process.'}}</p>
             <dl><div><dt>Process</dt><dd class="mono">{{t.processInstanceId}}</dd></div><div><dt>Step</dt><dd>{{t.stepKey}}</dd></div><div *ngIf="t.decision"><dt>Decision</dt><dd>{{t.decision}}</dd></div></dl>
             <ng-container *ngIf="t.status==='PENDING'">
-              <label>Decision<select [(ngModel)]="processHumanDecision"><option>APPROVED</option><option>REJECTED</option><option>REVIEWED</option></select></label>
+              <label>Decision<select [(ngModel)]="processHumanDecision"><ng-container *ngIf="humanTaskReviewPolicy(t) as review;else genericHumanDecisions"><option [value]="review.approveDecision||'APPROVE'">{{review.approveDecision||'APPROVE'}}</option><option [value]="review.repeatDecision||'REQUEST_CHANGES'">{{review.repeatDecision||'REQUEST_CHANGES'}}</option></ng-container><ng-template #genericHumanDecisions><option>APPROVED</option><option>REJECTED</option><option>REVIEWED</option></ng-template></select></label>
               <textarea class="mono" rows="3" [(ngModel)]="processHumanResult" placeholder='{"comment":"..."}'></textarea>
               <div class="actions"><button class="primary" (click)="completeHumanTask(t)">Complete task</button><button class="ghost" (click)="openProcessInstance(t.processInstanceId)">Inspect process</button></div>
             </ng-container>
@@ -447,7 +447,18 @@
         <div class="form-grid two"><label>Path<input [(ngModel)]="s.configuration.path" placeholder="processInput.score"></label><label>Operator<select [(ngModel)]="s.configuration.operator"><option *ngFor="let op of ['EQ','NE','GT','GTE','LT','LTE','EXISTS','IN']">{{op}}</option></select></label><label>Value JSON<input class="mono" [(ngModel)]="s.decisionValue" placeholder='true, 80, "HIGH", ["A","B"]'></label><label>True outcome<input [(ngModel)]="s.configuration.onTrue"></label><label>False outcome<input [(ngModel)]="s.configuration.onFalse"></label></div>
       </ng-container>
       <ng-container *ngIf="s.type==='HUMAN'">
-        <label>Task title<input [(ngModel)]="s.configuration.title"></label><label>Task description<textarea rows="4" [(ngModel)]="s.configuration.description"></textarea></label>
+        <label>Task title<input [(ngModel)]="s.configuration.title"></label>
+        <label>Task description<textarea rows="4" [(ngModel)]="s.configuration.description"></textarea></label>
+        <label class="check"><input type="checkbox" [(ngModel)]="s.reviewEnabled"> Review loop: allow this human task to request changes from a producer step</label>
+        <div class="review-config" *ngIf="s.reviewEnabled">
+          <div class="form-grid two">
+            <label>Repeat producer<select [(ngModel)]="s.reviewRepeatStep"><option value="">Select producer</option><option *ngFor="let producer of reviewableProducerSteps(s.stepKey)" [value]="producer.stepKey">{{producer.stepKey}} · {{producer.type}}</option></select></label>
+            <label>Maximum iterations<input type="number" min="1" [(ngModel)]="s.reviewMaxIterations"></label>
+            <label>Approve decision<input [(ngModel)]="s.reviewApproveDecision"></label>
+            <label>Repeat decision<input [(ngModel)]="s.reviewRepeatDecision"></label>
+          </div>
+          <p class="muted">The review step must directly depend on the selected producer. REQUEST_CHANGES re-runs that producer with the previous output and review feedback available in process context.</p>
+        </div>
       </ng-container>
       <ng-container *ngIf="s.type==='WAIT_EVENT'">
         <div class="form-grid two"><label>Event type<input [(ngModel)]="s.configuration.eventType" placeholder="contract.signed"></label><label>Correlation override<input [(ngModel)]="s.configuration.correlationId" placeholder="empty = ProcessInstance correlation"></label></div>
