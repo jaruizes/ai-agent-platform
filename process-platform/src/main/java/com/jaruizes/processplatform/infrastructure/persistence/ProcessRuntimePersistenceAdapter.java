@@ -82,13 +82,19 @@ public class ProcessRuntimePersistenceAdapter
     public boolean claimReady(
             UUID instanceId,
             String stepKey,
-            Map<String,Object> input) {
+            Map<String,Object> input,
+            Long timeoutSeconds) {
         var step = requireStep(instanceId, stepKey);
         if (step.getStatus() != ProcessStepStatus.READY) return false;
+        var now = Instant.now();
         step.setStatus(ProcessStepStatus.RUNNING);
         step.setInput(new LinkedHashMap<>(input));
-        step.setStartedAt(step.getStartedAt() == null ? Instant.now() : step.getStartedAt());
-        step.setUpdatedAt(Instant.now());
+        step.setAttemptCount(step.getAttemptCount() + 1);
+        step.setAvailableAt(null);
+        step.setStartedAt(now);
+        step.setDeadlineAt(timeoutSeconds == null || timeoutSeconds <= 0
+                ? null : now.plusSeconds(timeoutSeconds));
+        step.setUpdatedAt(now);
         steps.saveAndFlush(step);
         return true;
     }
@@ -100,9 +106,69 @@ public class ProcessRuntimePersistenceAdapter
         if (step.getStatus() != ProcessStepStatus.RUNNING) return false;
         step.setStatus(ProcessStepStatus.READY);
         step.setStartedAt(null);
+        step.setDeadlineAt(null);
         step.setUpdatedAt(Instant.now());
         steps.saveAndFlush(step);
         return true;
+    }
+
+    @Override
+    @Transactional
+    public ProcessInstance retryStep(
+            UUID instanceId,
+            String stepKey,
+            Map<String,Object> error,
+            Instant availableAt) {
+        var step = requireStep(instanceId, stepKey);
+        step.setStatus(ProcessStepStatus.READY);
+        step.setError(new LinkedHashMap<>(error));
+        step.setAvailableAt(availableAt);
+        step.setDeadlineAt(null);
+        step.setStartedAt(null);
+        step.setUpdatedAt(Instant.now());
+        steps.save(step);
+
+        var instance = requireInstance(instanceId);
+        if (instance.getStatus() != ProcessInstanceStatus.PAUSED) {
+            instance.setStatus(ProcessInstanceStatus.RUNNING);
+        }
+        instance.setUpdatedAt(Instant.now());
+        return toDomain(instances.saveAndFlush(instance));
+    }
+
+    @Override
+    @Transactional
+    public ProcessInstance waitStep(UUID instanceId, String stepKey) {
+        var step = requireStep(instanceId, stepKey);
+        step.setStatus(ProcessStepStatus.WAITING);
+        step.setUpdatedAt(Instant.now());
+        steps.save(step);
+
+        var instance = requireInstance(instanceId);
+        if (instance.getStatus() != ProcessInstanceStatus.PAUSED) {
+            instance.setStatus(ProcessInstanceStatus.WAITING);
+        }
+        instance.setUpdatedAt(Instant.now());
+        return toDomain(instances.saveAndFlush(instance));
+    }
+
+    @Override
+    @Transactional
+    public ProcessInstance skipStep(
+            UUID instanceId,
+            String stepKey,
+            Map<String,Object> output) {
+        var step = requireStep(instanceId, stepKey);
+        if (step.getStatus() == ProcessStepStatus.SKIPPED
+                || step.getStatus() == ProcessStepStatus.COMPLETED) {
+            return toDomain(requireInstance(instanceId));
+        }
+        step.setStatus(ProcessStepStatus.SKIPPED);
+        step.setOutput(new LinkedHashMap<>(output == null ? Map.of() : output));
+        step.setCompletedAt(Instant.now());
+        step.setUpdatedAt(Instant.now());
+        steps.saveAndFlush(step);
+        return toDomain(requireInstance(instanceId));
     }
 
     @Override
@@ -153,7 +219,10 @@ public class ProcessRuntimePersistenceAdapter
         var mergedContext = new LinkedHashMap<>(instance.getContext());
         mergedContext.put(stepKey, new LinkedHashMap<>(output));
         instance.setContext(mergedContext);
-        instance.setStatus(ProcessInstanceStatus.RUNNING);
+        if (instance.getStatus() != ProcessInstanceStatus.PAUSED
+                && instance.getStatus() != ProcessInstanceStatus.CANCELLED) {
+            instance.setStatus(ProcessInstanceStatus.RUNNING);
+        }
         instance.setUpdatedAt(Instant.now());
         return toDomain(instances.saveAndFlush(instance));
     }
@@ -195,6 +264,29 @@ public class ProcessRuntimePersistenceAdapter
         instance.setStatus(ProcessInstanceStatus.FAILED);
         instance.setCompletedAt(Instant.now());
         instance.setUpdatedAt(Instant.now());
+        return toDomain(instances.saveAndFlush(instance));
+    }
+
+    @Override
+    @Transactional
+    public ProcessInstance cancelInstance(UUID instanceId) {
+        var instance = instances.findLockedById(instanceId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Process instance not found: " + instanceId));
+        var now = Instant.now();
+        for (var step : instance.getSteps()) {
+            if (step.getStatus() == ProcessStepStatus.PENDING
+                    || step.getStatus() == ProcessStepStatus.READY
+                    || step.getStatus() == ProcessStepStatus.RUNNING
+                    || step.getStatus() == ProcessStepStatus.WAITING) {
+                step.setStatus(ProcessStepStatus.CANCELLED);
+                step.setCompletedAt(now);
+                step.setUpdatedAt(now);
+            }
+        }
+        instance.setStatus(ProcessInstanceStatus.CANCELLED);
+        instance.setCompletedAt(now);
+        instance.setUpdatedAt(now);
         return toDomain(instances.saveAndFlush(instance));
     }
 
