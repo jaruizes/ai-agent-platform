@@ -272,7 +272,12 @@ export class AppComponent implements OnInit,OnDestroy {
       whenEquals:step.configuration?.when?.equals??'',
       retryMaxAttempts:step.configuration?.retry?.maxAttempts||1,
       retryBackoffMs:step.configuration?.retry?.backoffMs||0,
-      timeoutSeconds:step.configuration?.timeoutSeconds||null
+      timeoutSeconds:step.configuration?.timeoutSeconds||null,
+      reviewEnabled:!!step.configuration?.review,
+      reviewRepeatStep:step.configuration?.review?.repeatStep||'',
+      reviewApproveDecision:step.configuration?.review?.approveDecision||'APPROVE',
+      reviewRepeatDecision:step.configuration?.review?.repeatDecision||'REQUEST_CHANGES',
+      reviewMaxIterations:step.configuration?.review?.maxIterations||5
     });
     this.modal.set('process-step');
   }
@@ -289,6 +294,17 @@ export class AppComponent implements OnInit,OnDestroy {
       }
       if(s.type==='DECISION'){
         config.value=s.decisionValue===''||s.decisionValue==null?null:JSON.parse(s.decisionValue);
+      }
+      if(s.type==='HUMAN'){
+        delete config.review;
+        if(s.reviewEnabled){
+          config.review={
+            repeatStep:s.reviewRepeatStep,
+            approveDecision:s.reviewApproveDecision||'APPROVE',
+            repeatDecision:s.reviewRepeatDecision||'REQUEST_CHANGES',
+            maxIterations:Number(s.reviewMaxIterations||5)
+          };
+        }
       }
       if(s.whenDecisionStep)config.when={decisionStep:s.whenDecisionStep,equals:s.whenEquals};
       if(Number(s.retryMaxAttempts)>1||Number(s.retryBackoffMs)>0)config.retry={maxAttempts:Number(s.retryMaxAttempts||1),backoffMs:Number(s.retryBackoffMs||0)};
@@ -476,6 +492,19 @@ export class AppComponent implements OnInit,OnDestroy {
     if(type==='HUMAN')return {title:'Human approval',description:''};
     if(type==='WAIT_EVENT')return {eventType:'event.received'};
     return {};
+  }
+
+
+  reviewableProducerSteps(currentStepKey:string){
+    return (this.processDesigner()?.steps||[]).filter((s:any)=>
+      s.stepKey!==currentStepKey
+      && (s.type==='SERVICE'||s.type==='AGENTIC_EXECUTION'));
+  }
+
+  humanTaskReviewPolicy(task:ProcessHumanTask){
+    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
+    const definition=this.processDefinitions().find(d=>d.id===instance?.definitionId);
+    return definition?.steps.find(s=>s.stepKey===task.stepKey)?.configuration?.review||null;
   }
 
   pendingProcessHumanTasks(){return this.processHumanTasks().filter(x=>x.status==='PENDING').length;}
