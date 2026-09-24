@@ -6,7 +6,7 @@
       <button class="nav-item" [class.active]="view()==='executions'" (click)="setView('executions')">▶ <span>Executions</span></button>
       <button class="nav-item" [class.active]="view()==='approvals'" (click)="setView('approvals')">✓ <span>Approvals</span><i *ngIf="approvals().length">{{approvals().length}}</i></button>
       <div class="nav-section">PROCESS ORCHESTRATION</div>
-      <button class="nav-item" [class.active]="view()==='processes'" (click)="setView('processes')">⌘ <span>Processes</span><i *ngIf="processHumanTasks().filter(x=>x.status==='PENDING').length">{{processHumanTasks().filter(x=>x.status==='PENDING').length}}</i></button>
+      <button class="nav-item" [class.active]="view()==='processes'" (click)="setView('processes')">⌘ <span>Processes</span><i *ngIf="pendingProcessHumanTasks()">{{pendingProcessHumanTasks()}}</i></button>
       <div class="nav-section">CONTEXT & MEMORY</div>
       <button class="nav-item" [class.active]="view()==='sessions'" (click)="setView('sessions')">◉ <span>Sessions</span></button>
       <button class="nav-item" [class.active]="view()==='memory'" (click)="setView('memory')">◈ <span>Memory</span></button>
@@ -90,8 +90,8 @@
         <div class="process-kpis">
           <span><b>{{processDefinitions().length}}</b> definitions</span>
           <span><b>{{processInstances().length}}</b> instances</span>
-          <span><b>{{processServices().filter(s=>s.status==='ACTIVE').length}}</b> active services</span>
-          <span><b>{{processHumanTasks().filter(t=>t.status==='PENDING').length}}</b> human tasks</span>
+          <span><b>{{activeProcessServices()}}</b> active services</span>
+          <span><b>{{pendingProcessHumanTasks()}}</b> human tasks</span>
         </div>
       </section>
 
@@ -99,7 +99,7 @@
         <button [class.active]="processTab()==='definitions'" (click)="setProcessTab('definitions')">Definitions</button>
         <button [class.active]="processTab()==='instances'" (click)="setProcessTab('instances')">Instances</button>
         <button [class.active]="processTab()==='services'" (click)="setProcessTab('services')">Services</button>
-        <button [class.active]="processTab()==='human'" (click)="setProcessTab('human')">Human tasks <span *ngIf="processHumanTasks().filter(t=>t.status==='PENDING').length">· {{processHumanTasks().filter(t=>t.status==='PENDING').length}}</span></button>
+        <button [class.active]="processTab()==='human'" (click)="setProcessTab('human')">Human tasks <span *ngIf="pendingProcessHumanTasks()">· {{pendingProcessHumanTasks()}}</span></button>
       </div>
 
       <section class="panel" *ngIf="processTab()==='definitions'">
@@ -146,7 +146,7 @@
             <td><span class="status-pill" [ngClass]="statusClass(x.status)">{{x.status}}</span></td>
             <td><strong>{{x.definitionKey}} · v{{x.definitionVersion}}</strong><small class="block mono">{{x.id}}</small></td>
             <td class="mono">{{short(x.correlationId,28)}}</td>
-            <td>{{x.steps.filter(s=>s.status==='COMPLETED'||s.status==='SKIPPED').length}} / {{x.steps.length}}</td>
+            <td>{{processProgress(x)}} / {{x.steps.length}}</td>
             <td>{{date(x.updatedAt)}}</td><td>›</td>
           </tr>
         </tbody></table></div>
@@ -489,7 +489,7 @@
           <button class="ghost" (click)="openSignalProcessEvent(x)">Signal event</button>
         </div>
       </div>
-      <div class="detail-grid"><article><span>Correlation</span><strong class="small-text">{{x.correlationId}}</strong></article><article><span>Completed</span><strong>{{x.steps.filter(s=>s.status==='COMPLETED').length}} / {{x.steps.length}}</strong></article><article><span>Waiting</span><strong>{{x.steps.filter(s=>s.status==='WAITING').length}}</strong></article><article><span>Updated</span><strong>{{date(x.updatedAt)}}</strong></article></div>
+      <div class="detail-grid"><article><span>Correlation</span><strong class="small-text">{{x.correlationId}}</strong></article><article><span>Completed</span><strong>{{processCompletedSteps(x)}} / {{x.steps.length}}</strong></article><article><span>Waiting</span><strong>{{processWaitingSteps(x)}}</strong></article><article><span>Updated</span><strong>{{date(x.updatedAt)}}</strong></article></div>
       <div class="process-canvas instance-canvas">
         <div class="process-canvas-level" *ngFor="let level of processInstanceLevels(x);let li=index">
           <article class="process-node runtime-node" *ngFor="let s of level" [attr.data-type]="s.type" [ngClass]="statusClass(s.status)">
