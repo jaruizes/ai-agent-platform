@@ -155,3 +155,31 @@ Validate locally with:
 ```bash
 bash scripts/m9-process-long-running-smoke.sh
 ```
+
+
+### M9.5 — Process Control Plane
+
+The Angular Control Plane now manages both bounded contexts without merging
+their APIs.
+
+Process Platform UI includes:
+
+```text
+Visual ProcessDefinition designer
+Process Service catalog/version lifecycle
+Process Instance runtime explorer
+Human Task inbox
+External event signaling
+Agentic execution drill-down
+```
+
+Nginx routes `/api/*` to Agent Platform and `/process-api/*` to Process
+Platform.
+
+Validate:
+
+```bash
+cd control-plane-ui && npm run build
+docker compose up -d --build
+bash scripts/m95-process-control-plane-smoke.sh
+```
