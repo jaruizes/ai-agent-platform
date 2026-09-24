@@ -420,7 +420,7 @@
             <p *ngIf="s.type==='HUMAN'">{{s.configuration?.title}}</p>
             <p *ngIf="s.type==='WAIT_EVENT'">{{s.configuration?.eventType}}</p>
             <div class="node-deps" *ngIf="s.dependsOn?.length">after {{s.dependsOn.join(', ')}}</div>
-            <div class="actions"><button class="ghost small" (click)="editProcessStep(s)">Configure</button><button class="icon-danger" *ngIf="p.status==='DRAFT'" (click)="removeProcessStep(s)">×</button></div>
+            <div class="actions"><button class="ghost small" *ngIf="p.status==='DRAFT'" (click)="editProcessStep(s)">Configure</button><button class="icon-danger" *ngIf="p.status==='DRAFT'" (click)="removeProcessStep(s)">×</button></div>
           </article>
           <div class="canvas-arrow" *ngIf="li<processDefinitionLevels(p).length-1">↓</div>
         </div>
@@ -435,8 +435,8 @@
       <div class="step-editor-type"><span>{{processStepIcon(s.type)}}</span><strong>{{s.type}}</strong></div>
 
       <ng-container *ngIf="s.type==='SERVICE'">
-        <label>Service<select [(ngModel)]="s.configuration.serviceKey"><option value="">Select a service</option><option *ngFor="let svc of processServices()" [value]="svc.serviceKey" [disabled]="svc.status!=='ACTIVE'">{{svc.name}} · {{svc.serviceKey}} · v{{svc.version}} · {{svc.status}}</option></select></label>
-        <p class="muted">The exact ACTIVE service version is pinned when the ProcessDefinition is activated.</p>
+        <label>Service version<select [ngModel]="processServiceSelection(s)" (ngModelChange)="selectProcessService(s,$event)"><option value="">Select an ACTIVE service</option><option *ngFor="let svc of activeProcessServiceVersions()" [value]="svc.serviceKey+'::'+svc.version">{{svc.name}} · {{svc.serviceKey}} · v{{svc.version}}</option></select></label>
+        <p class="muted">The selected ACTIVE service version is persisted in the ProcessDefinition when it is activated.</p>
       </ng-container>
       <ng-container *ngIf="s.type==='AGENTIC_EXECUTION'">
         <label>Intent<textarea rows="5" [(ngModel)]="s.configuration.intent" placeholder="What objective should Agent Platform solve?"></textarea></label>
@@ -444,7 +444,7 @@
         <label>Metadata JSON<textarea rows="4" class="mono" [(ngModel)]="s.metadata"></textarea></label>
       </ng-container>
       <ng-container *ngIf="s.type==='DECISION'">
-        <div class="form-grid two"><label>Path<input [(ngModel)]="s.configuration.path" placeholder="processInput.score"></label><label>Operator<select [(ngModel)]="s.configuration.operator"><option *ngFor="let op of ['EQ','NE','GT','GTE','LT','LTE','EXISTS','IN']">{{op}}</option></select></label><label>Value<input [(ngModel)]="s.configuration.value"></label><label>True outcome<input [(ngModel)]="s.configuration.onTrue"></label><label>False outcome<input [(ngModel)]="s.configuration.onFalse"></label></div>
+        <div class="form-grid two"><label>Path<input [(ngModel)]="s.configuration.path" placeholder="processInput.score"></label><label>Operator<select [(ngModel)]="s.configuration.operator"><option *ngFor="let op of ['EQ','NE','GT','GTE','LT','LTE','EXISTS','IN']">{{op}}</option></select></label><label>Value JSON<input class="mono" [(ngModel)]="s.decisionValue" placeholder='true, 80, "HIGH", ["A","B"]'></label><label>True outcome<input [(ngModel)]="s.configuration.onTrue"></label><label>False outcome<input [(ngModel)]="s.configuration.onFalse"></label></div>
       </ng-container>
       <ng-container *ngIf="s.type==='HUMAN'">
         <label>Task title<input [(ngModel)]="s.configuration.title"></label><label>Task description<textarea rows="4" [(ngModel)]="s.configuration.description"></textarea></label>
@@ -460,7 +460,7 @@
       <div class="form-grid two"><label>Decision step<select [(ngModel)]="s.whenDecisionStep"><option value="">Always execute</option><option *ngFor="let d of processDesigner()?.steps||[]" [value]="d.stepKey" [disabled]="d.type!=='DECISION'">{{d.stepKey}}</option></select></label><label>Expected outcome<input [(ngModel)]="s.whenEquals" [disabled]="!s.whenDecisionStep"></label></div>
 
       <h3>Runtime policy</h3>
-      <div class="form-grid two"><label>Max attempts<input type="number" min="1" [(ngModel)]="s.retryMaxAttempts"></label><label>Backoff ms<input type="number" min="0" [(ngModel)]="s.retryBackoffMs"></label><label>Timeout seconds<input type="number" min="1" [(ngModel)]="s.timeoutSeconds"></label></div>
+      <div class="form-grid two"><ng-container *ngIf="s.type==='SERVICE'||s.type==='AGENTIC_EXECUTION'||s.type==='DECISION'"><label>Max attempts<input type="number" min="1" [(ngModel)]="s.retryMaxAttempts"></label><label>Backoff ms<input type="number" min="0" [(ngModel)]="s.retryBackoffMs"></label></ng-container><label>Timeout seconds<input type="number" min="1" [(ngModel)]="s.timeoutSeconds"></label></div>
 
       <details class="json-details"><summary>Step I/O contracts</summary><div class="form-grid two"><label>Input schema<textarea rows="7" class="mono" [(ngModel)]="s.inputSchema"></textarea></label><label>Output schema<textarea rows="7" class="mono" [(ngModel)]="s.outputSchema"></textarea></label></div></details>
     </ng-container>
