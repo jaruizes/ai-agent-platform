@@ -25,7 +25,10 @@ public class ProcessServiceController {
 
     @PostMapping @ResponseStatus(HttpStatus.CREATED)
     public ProcessServiceDefinition create(@Valid @RequestBody CreateProcessServiceRequest r){
-        return services.create(r.serviceKey(),r.name(),r.description(),r.version(),r.implementationKey(),r.inputSchema(),r.outputSchema());
+        return services.create(
+                r.serviceKey(), r.name(), r.description(), r.version(),
+                r.implementationKey(), r.configuration(),
+                r.inputSchema(), r.outputSchema());
     }
 
     @PutMapping("/{id}")
@@ -34,7 +37,7 @@ public class ProcessServiceController {
             @Valid @RequestBody com.jaruizes.processplatform.infrastructure.api.rest.dto.UpdateProcessServiceRequest r) {
         return services.updateDraft(
                 id, r.name(), r.description(), r.implementationKey(),
-                r.inputSchema(), r.outputSchema());
+                r.configuration(), r.inputSchema(), r.outputSchema());
     }
 
     @PostMapping("/{id}/next-version")
