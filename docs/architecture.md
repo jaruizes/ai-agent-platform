@@ -4486,13 +4486,16 @@ The domain reserves the following deterministic process step kinds:
 
 ```text
 SERVICE
-TOOL
 AGENTIC_EXECUTION
 DECISION
 HUMAN
 WAIT_EVENT
 SUBPROCESS
 ```
+
+`TOOL` is intentionally excluded from Process Platform terminology. Tools are
+owned by Agent Platform and are invoked only by agents through the Agent
+Platform Tool/MCP subsystem.
 
 Agentic delegation is represented only as:
 
@@ -4661,13 +4664,13 @@ SERVICE
 AGENTIC_EXECUTION
 ```
 
-TOOL, DECISION, HUMAN, WAIT_EVENT and SUBPROCESS remain part of the domain model
+DECISION, HUMAN, WAIT_EVENT and SUBPROCESS remain part of the domain model
 but are deferred to later runtime milestones.
 
 ### SERVICE adapter model
 
-A SERVICE step resolves `configuration.handler` through
-`ProcessServiceHandlerPort`.
+A SERVICE step is the Process Platform primitive for an explicit deterministic
+capability selected by the process designer.
 
 ```text
 Process Runtime
@@ -4677,10 +4680,18 @@ ProcessServiceHandlerRegistry
      |
      v
 ProcessServiceHandlerPort
+     |
+     +--> local deterministic logic
+     |
+     +--> external HTTP/gRPC/database/service adapter
 ```
 
 The runtime contains no business-specific switch/case. Deterministic capabilities
 are adapters/plugins.
+
+This is deliberately different from an Agent Platform Tool. A SERVICE may call
+the same external system that an agent eventually reaches through MCP, but Process
+Platform never invokes Agent Platform Tools directly.
 
 SERVICE execution is at-least-once under crash recovery; handlers must therefore
 be idempotent.
@@ -4860,3 +4871,26 @@ branch may replace ProcessContext based on a stale in-memory snapshot.
 
 Process Platform exposes only AGENTIC_EXECUTION. It delegates an objective with a
 canonical ExecutionCommand and cannot select concrete Agent Platform agents.
+
+
+### ADR-078 — Tool is not a Process Platform concept
+
+**Estado:** Accepted  
+**Contexto:** M9 terminology hardening
+
+Process Platform exposes deterministic `SERVICE` steps and delegated
+`AGENTIC_EXECUTION` steps. It does not expose a `TOOL` step type.
+
+A SERVICE is an explicit deterministic capability selected by the process
+definition and may call an external service through an adapter.
+
+An AGENTIC_EXECUTION delegates an objective to Agent Platform. If tools are
+needed, Agent Platform selects and invokes them through its own Tool/MCP
+subsystem.
+
+This keeps the bounded contexts and vocabulary unambiguous:
+
+```text
+Process Platform  -> SERVICE | AGENTIC_EXECUTION
+Agent Platform    -> Agents | Tools | MCP
+```
