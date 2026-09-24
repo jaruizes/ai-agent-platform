@@ -58,6 +58,9 @@ public class ProcessInstancePersistenceAdapter
             result.setOutput(new LinkedHashMap<>(safe(step.output())));
             result.setError(new LinkedHashMap<>(safe(step.error())));
             result.setDelegatedExecutionId(step.delegatedExecutionId());
+            result.setAttemptCount(step.attemptCount());
+            result.setAvailableAt(step.availableAt());
+            result.setDeadlineAt(step.deadlineAt());
             result.setStartedAt(step.startedAt());
             result.setCompletedAt(step.completedAt());
             result.setUpdatedAt(step.updatedAt());
@@ -115,6 +118,9 @@ public class ProcessInstancePersistenceAdapter
                                 step.getOutput(),
                                 step.getError(),
                                 step.getDelegatedExecutionId(),
+                                step.getAttemptCount(),
+                                step.getAvailableAt(),
+                                step.getDeadlineAt(),
                                 step.getStartedAt(),
                                 step.getCompletedAt(),
                                 step.getUpdatedAt()
