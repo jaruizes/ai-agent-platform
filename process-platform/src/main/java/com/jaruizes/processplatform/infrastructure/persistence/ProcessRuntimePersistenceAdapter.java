@@ -233,6 +233,9 @@ public class ProcessRuntimePersistenceAdapter
                                 step.getOutput(),
                                 step.getError(),
                                 step.getDelegatedExecutionId(),
+                                step.getAttemptCount(),
+                                step.getAvailableAt(),
+                                step.getDeadlineAt(),
                                 step.getStartedAt(),
                                 step.getCompletedAt(),
                                 step.getUpdatedAt()
