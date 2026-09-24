@@ -315,6 +315,13 @@ public class ProcessDefinitionService {
     private static void validateStepSemantics(List<ProcessStepDefinition> steps) {
         var byKey = new HashMap<String,ProcessStepDefinition>();
         steps.forEach(step -> byKey.put(step.stepKey(), step));
+        var consumers = new HashMap<String,List<String>>();
+        for (var candidate : steps) {
+            for (var dependency : candidate.dependsOn()) {
+                consumers.computeIfAbsent(dependency, ignored -> new ArrayList<>())
+                        .add(candidate.stepKey());
+            }
+        }
 
         for (var step : steps) {
             if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.AGENTIC_EXECUTION
@@ -328,6 +335,48 @@ public class ProcessDefinitionService {
                 throw new IllegalArgumentException(
                         "HUMAN step '%s' requires configuration.title"
                                 .formatted(step.stepKey()));
+            }
+            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.HUMAN
+                    && step.configuration().get("review") instanceof Map<?,?> review) {
+                var repeatStep = stringValue(review.get("repeatStep"));
+                if (repeatStep == null || !byKey.containsKey(repeatStep)) {
+                    throw new IllegalArgumentException(
+                            "HUMAN review step '%s' requires a valid review.repeatStep"
+                                    .formatted(step.stepKey()));
+                }
+                var producer = byKey.get(repeatStep);
+                if (producer.type() != com.jaruizes.processplatform.domain.model.ProcessStepType.SERVICE
+                        && producer.type() != com.jaruizes.processplatform.domain.model.ProcessStepType.AGENTIC_EXECUTION) {
+                    throw new IllegalArgumentException(
+                            "HUMAN review step '%s' can only repeat SERVICE or AGENTIC_EXECUTION, not %s"
+                                    .formatted(step.stepKey(), producer.type()));
+                }
+                if (!step.dependsOn().contains(repeatStep)) {
+                    throw new IllegalArgumentException(
+                            "HUMAN review step '%s' must directly depend on review.repeatStep '%s'"
+                                    .formatted(step.stepKey(), repeatStep));
+                }
+                var producerConsumers = consumers.getOrDefault(repeatStep, List.of());
+                if (producerConsumers.size() != 1 || !producerConsumers.contains(step.stepKey())) {
+                    throw new IllegalArgumentException(
+                            "Reviewed producer step '%s' must feed only HUMAN review step '%s'"
+                                    .formatted(repeatStep, step.stepKey()));
+                }
+
+                var repeatDecision = stringValue(review.getOrDefault("repeatDecision", "REQUEST_CHANGES"));
+                var approveDecision = stringValue(review.getOrDefault("approveDecision", "APPROVE"));
+                if (repeatDecision == null || approveDecision == null
+                        || repeatDecision.equalsIgnoreCase(approveDecision)) {
+                    throw new IllegalArgumentException(
+                            "HUMAN review step '%s' requires distinct approve/repeat decisions"
+                                    .formatted(step.stepKey()));
+                }
+                var maxIterations = integerValue(review.getOrDefault("maxIterations", 5));
+                if (maxIterations == null || maxIterations < 1) {
+                    throw new IllegalArgumentException(
+                            "HUMAN review step '%s' review.maxIterations must be >= 1"
+                                    .formatted(step.stepKey()));
+                }
             }
             if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.WAIT_EVENT
                     && !hasText(step.configuration().get("eventType"))) {
