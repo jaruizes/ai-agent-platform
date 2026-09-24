@@ -28,6 +28,21 @@ public class ProcessServiceController {
         return services.create(r.serviceKey(),r.name(),r.description(),r.version(),r.implementationKey(),r.inputSchema(),r.outputSchema());
     }
 
+    @PutMapping("/{id}")
+    public ProcessServiceDefinition update(
+            @PathVariable UUID id,
+            @Valid @RequestBody com.jaruizes.processplatform.infrastructure.api.rest.dto.UpdateProcessServiceRequest r) {
+        return services.updateDraft(
+                id, r.name(), r.description(), r.implementationKey(),
+                r.inputSchema(), r.outputSchema());
+    }
+
+    @PostMapping("/{id}/next-version")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ProcessServiceDefinition nextVersion(@PathVariable UUID id) {
+        return services.createNextVersion(id);
+    }
+
     @PostMapping("/{id}/activate")
     public ProcessServiceDefinition activate(@PathVariable UUID id){return services.activate(id);}
 
