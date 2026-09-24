@@ -1274,3 +1274,239 @@ Secret references/credential providers are a later hardening concern.
 Fine-grained input/output mapping expressions are intentionally not introduced
 in M9.4; the future designer can add them without changing SERVICE ownership or
 the Service Registry model.
+
+
+---
+
+# M9.5 — Process Control Plane
+
+M9.5 exposes Process Platform through the existing Angular Control Plane while
+preserving Agent Platform and Process Platform as separate bounded contexts.
+
+The browser talks to both backends through Nginx:
+
+```text
+Browser
+   |
+   +-- /api/* ---------> Agent Platform :8080
+   |
+   +-- /process-api/* -> Process Platform :8090
+```
+
+There is no Spring/Python BFF translating Process Platform contracts.
+
+## Processes navigation
+
+The Control Plane now includes:
+
+```text
+Processes
+  ├── Definitions
+  ├── Instances
+  ├── Services
+  └── Human tasks
+```
+
+## Visual ProcessDefinition designer
+
+The designer edits the real ProcessDefinition model:
+
+```text
+ProcessDefinition
+   |
+   +-- steps[]
+   |     - stepKey
+   |     - type
+   |     - dependsOn
+   |     - configuration
+   |     - inputSchema
+   |     - outputSchema
+   |
+   +-- inputSchema
+   +-- outputSchema
+```
+
+The visual DAG is derived from `dependsOn`; no separate graph persistence model
+exists.
+
+Available designer nodes:
+
+```text
+SERVICE
+AGENTIC_EXECUTION
+DECISION
+HUMAN
+WAIT_EVENT
+```
+
+SUBPROCESS remains intentionally unavailable because the M9.4 runtime rejects it.
+
+The editor supports:
+
+- adding/removing nodes;
+- editing step key/name/description;
+- dependency selection;
+- deterministic branch conditions;
+- retry/backoff/timeout configuration;
+- process and step JSON contracts;
+- service version selection;
+- agentic intent/instructions/metadata;
+- human task configuration;
+- external event configuration.
+
+Renaming a step updates downstream `dependsOn` and DECISION branch references in
+the draft before save.
+
+## SERVICE selection
+
+The designer never asks for an implementation handler.
+
+It selects an exact ACTIVE Process Service version:
+
+```text
+Customer lookup · customer.lookup · v3
+```
+
+The ProcessDefinition remains coupled only to the public catalog capability.
+
+The Services tab manages:
+
+```text
+DRAFT -> ACTIVE -> RETIRED
+          |
+          +-> next version
+```
+
+and exposes HTTP adapter configuration, schemas and catalog metadata.
+
+## Process Instances
+
+Users can create and optionally start ProcessInstances from the UI.
+
+The instance explorer shows the durable DAG and live statuses:
+
+```text
+PENDING
+READY
+RUNNING
+WAITING
+COMPLETED
+FAILED
+CANCELLED
+SKIPPED
+```
+
+Runtime controls:
+
+```text
+START
+PAUSE
+RESUME
+CANCEL
+```
+
+The inspector displays attempt number, deadlines, I/O and errors.
+
+For AGENTIC_EXECUTION a persisted `delegatedExecutionId` is rendered as a
+drill-down action into the Agent Platform Execution Explorer:
+
+```text
+Process Instance
+      |
+      v
+AGENTIC_EXECUTION step
+      |
+      | delegatedExecutionId
+      v
+Agent Platform execution
+      |
+      v
+Logical Plan / Agents / Tools / MCP / Context / Tokens
+```
+
+## Human Task Inbox
+
+HUMAN steps are surfaced in a dedicated Process Platform inbox.
+
+Operators can:
+
+- inspect the originating ProcessInstance;
+- select a decision;
+- submit structured result JSON;
+- inspect completed/cancelled task state.
+
+This inbox is distinct from Agent Platform tool/governance approvals. The two
+concepts intentionally remain separate in the UI.
+
+## External event signaling
+
+The instance explorer can open an event signal form with the ProcessInstance
+correlation id prefilled.
+
+The Control Plane sends the standard Process Platform contract:
+
+```json
+{
+  "eventType": "contract.signed",
+  "correlationId": "CASE-123",
+  "payload": {}
+}
+```
+
+## Unified shell, separate ownership
+
+The navigation brand is now `AI Platform Control Plane` because the same shell
+operates both bounded contexts.
+
+This does not merge the runtimes:
+
+```text
+Process Platform                    Agent Platform
+----------------                    --------------
+ProcessDefinitions                  Agents
+ProcessInstances                    Tools
+Process Services                    MCP
+Human Tasks                         Knowledge
+Decisions                           Memory
+Wait Events                         Governance
+                                     Evals
+```
+
+An AGENTIC_EXECUTION is still the only Process Platform primitive that crosses
+into Agent Platform execution.
+
+## M9.5 validation
+
+Build the Angular UI:
+
+```bash
+cd control-plane-ui
+npm install
+npm run build
+```
+
+Run the full stack:
+
+```bash
+docker compose up -d --build
+```
+
+Check both bounded contexts through the Control Plane proxy:
+
+```bash
+bash scripts/m95-process-control-plane-smoke.sh
+```
+
+Expected:
+
+```text
+M9.5 Process Control Plane smoke test PASSED.
+```
+
+Then open:
+
+```text
+http://localhost:8081
+```
+
+and select `Processes`.
