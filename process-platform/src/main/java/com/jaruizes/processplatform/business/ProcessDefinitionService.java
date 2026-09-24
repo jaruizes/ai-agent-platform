@@ -13,9 +13,13 @@ import java.util.*;
 public class ProcessDefinitionService {
 
     private final ProcessDefinitionRepositoryPort repository;
+    private final ProcessServiceCatalogService services;
 
-    public ProcessDefinitionService(ProcessDefinitionRepositoryPort repository) {
+    public ProcessDefinitionService(
+            ProcessDefinitionRepositoryPort repository,
+            ProcessServiceCatalogService services) {
         this.repository = repository;
+        this.services = services;
     }
 
     public ProcessDefinition create(
@@ -109,6 +113,12 @@ public class ProcessDefinitionService {
             throw new IllegalStateException("A process definition must contain at least one step");
         }
 
+        var resolvedSteps = current.steps().stream()
+                .map(this::resolveStepReferences)
+                .toList();
+
+        validateStepSemantics(resolvedSteps);
+
         return repository.save(new ProcessDefinition(
                 current.id(),
                 current.definitionKey(),
@@ -118,7 +128,7 @@ public class ProcessDefinitionService {
                 ProcessDefinitionStatus.ACTIVE,
                 current.inputSchema(),
                 current.outputSchema(),
-                current.steps(),
+                resolvedSteps,
                 current.createdAt(),
                 Instant.now(),
                 Instant.now()
@@ -265,6 +275,92 @@ public class ProcessDefinitionService {
         }
         visiting.remove(key);
         visited.add(key);
+    }
+
+
+    private ProcessStepDefinition resolveStepReferences(ProcessStepDefinition step) {
+        if (step.type() != com.jaruizes.processplatform.domain.model.ProcessStepType.SERVICE) {
+            return step;
+        }
+        var configuration = new LinkedHashMap<>(step.configuration());
+        var serviceKey = stringValue(configuration.get("serviceKey"));
+        if (serviceKey == null || serviceKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "SERVICE step '%s' requires configuration.serviceKey"
+                            .formatted(step.stepKey()));
+        }
+        Integer requestedVersion = integerValue(configuration.get("serviceVersion"));
+        var service = services.resolveActive(serviceKey, requestedVersion);
+        configuration.remove("handler");
+        configuration.put("serviceKey", service.serviceKey());
+        configuration.put("serviceVersion", service.version());
+        return new ProcessStepDefinition(
+                step.id(), step.stepKey(), step.name(), step.description(), step.type(),
+                step.dependsOn(), step.inputSchema(), step.outputSchema(), configuration);
+    }
+
+    private static void validateStepSemantics(List<ProcessStepDefinition> steps) {
+        var byKey = new HashMap<String,ProcessStepDefinition>();
+        steps.forEach(step -> byKey.put(step.stepKey(), step));
+
+        for (var step : steps) {
+            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.AGENTIC_EXECUTION
+                    && !hasText(step.configuration().get("intent"))) {
+                throw new IllegalArgumentException(
+                        "AGENTIC_EXECUTION step '%s' requires configuration.intent"
+                                .formatted(step.stepKey()));
+            }
+            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.HUMAN
+                    && !hasText(step.configuration().get("title"))) {
+                throw new IllegalArgumentException(
+                        "HUMAN step '%s' requires configuration.title"
+                                .formatted(step.stepKey()));
+            }
+            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.WAIT_EVENT
+                    && !hasText(step.configuration().get("eventType"))) {
+                throw new IllegalArgumentException(
+                        "WAIT_EVENT step '%s' requires configuration.eventType"
+                                .formatted(step.stepKey()));
+            }
+            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.DECISION
+                    && (!hasText(step.configuration().get("path"))
+                        || !hasText(step.configuration().get("operator")))) {
+                throw new IllegalArgumentException(
+                        "DECISION step '%s' requires configuration.path and configuration.operator"
+                                .formatted(step.stepKey()));
+            }
+
+            var when = step.configuration().get("when");
+            if (when instanceof Map<?,?> condition) {
+                var decisionKey = stringValue(condition.get("decisionStep"));
+                if (decisionKey == null || !byKey.containsKey(decisionKey)
+                        || byKey.get(decisionKey).type()
+                            != com.jaruizes.processplatform.domain.model.ProcessStepType.DECISION) {
+                    throw new IllegalArgumentException(
+                            "Step '%s' has invalid configuration.when.decisionStep"
+                                    .formatted(step.stepKey()));
+                }
+                if (!step.dependsOn().contains(decisionKey)) {
+                    throw new IllegalArgumentException(
+                            "Conditional step '%s' must depend on decision step '%s'"
+                                    .formatted(step.stepKey(), decisionKey));
+                }
+            }
+        }
+    }
+
+    private static boolean hasText(Object value) {
+        return value != null && !String.valueOf(value).isBlank();
+    }
+
+    private static String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private static Integer integerValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return number.intValue();
+        return Integer.valueOf(String.valueOf(value));
     }
 
     private static Map<String,Object> safeMap(Map<String,Object> value) {
