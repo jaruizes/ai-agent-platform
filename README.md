@@ -264,3 +264,153 @@ GOOGLE_DRIVE_TEST_FILE_ID=<file-id> \
 
 The proposal reference process uses this Tool from its AGENTIC_EXECUTION steps;
 Process Platform never invokes the MCP directly.
+
+
+### Presales / RFP complex-use-case bootstrap
+
+Agent Platform now starts with a complete reusable presales catalog.
+
+#### Agents
+
+```text
+business-analyst
+solution-architect
+security-architect
+cloud-architect
+data-architect
+integration-architect
+technology-specialist
+rfp-response-writer
+```
+
+Agent keys remain technical English identifiers. Descriptions and operating
+instructions are written in Spanish.
+
+Agents describe stable roles and working principles. Concrete procedures live
+in Skills.
+
+#### Skills
+
+```text
+proposal-understanding
+proposal-qualification
+proposal-risk-analysis
+solution-architecture
+security-assessment
+cloud-architecture
+data-architecture
+integration-architecture
+technology-assessment
+specialist-consultation
+rfp-response-authoring
+technical-writing
+```
+
+This allows the planner to compose different agents and skills depending on the
+opportunity instead of hard-coding specialists in Process Platform.
+
+#### Default Knowledge Bases
+
+Two persistent TENANT Knowledge Bases are bootstrapped as code:
+
+```text
+presales-corporate
+  ├── standard-rfp-response-template.md
+  ├── proposal-qualification-checklist.md
+  ├── proposal-writing-guidelines.md
+  └── company-capabilities-PLACEHOLDER.md
+
+architecture-standards
+  ├── architecture-principles.md
+  └── solution-review-checklist.md
+```
+
+Bootstrap documents are checksum-versioned. Restarting does not duplicate them;
+changing a Markdown source replaces/reindexes the existing bootstrap document.
+
+The company-capabilities document is deliberately a placeholder and explicitly
+forbids agents from inventing company capabilities, references, certifications
+or differentiators. Replace it with validated company content before relying on
+those sections in real proposals.
+
+Knowledge assignments are also bootstrapped:
+
+```text
+business-analyst      -> presales-corporate
+rfp-response-writer   -> presales-corporate
+
+solution-architect    -> architecture-standards + presales-corporate
+security-architect    -> architecture-standards
+cloud-architect       -> architecture-standards
+data-architect        -> architecture-standards
+integration-architect -> architecture-standards
+technology-specialist -> architecture-standards
+```
+
+Existing user-added Knowledge assignments are preserved and merged with required
+bootstrap assignments.
+
+#### Google Workspace read/write Tools
+
+Read:
+
+```text
+google-drive-list-folder
+google-drive-get-file
+google-drive-read-file
+google-docs-get-text
+google-sheets-get-text
+google-slides-get-text
+```
+
+Governed write:
+
+```text
+google-docs-create-with-text
+google-docs-create-document
+google-docs-batch-update
+google-drive-create-folder
+google-drive-move-file
+google-drive-copy-file
+```
+
+All write Tools use:
+
+```text
+sideEffect     = WRITE
+approvalPolicy = REQUIRED
+```
+
+The preferred way to materialize a generated proposal/report is
+`google-docs-create-with-text`. It can create the document, write the generated
+content and place it in an opportunity Drive folder in one governed operation.
+
+#### Validation
+
+After rebuilding Agent Platform:
+
+```bash
+docker compose up -d --build agent-platform
+
+bash scripts/presales-bootstrap-smoke.sh
+bash scripts/google-workspace-mcp-smoke.sh
+```
+
+Then open the Control Plane and inspect Agents, Skills, Tools and Knowledge.
+
+The full reference workflow is:
+
+```bash
+bash scripts/m96-create-presales-reference-process.sh
+```
+
+For a real Drive opportunity:
+
+```bash
+export PROPOSAL_SOURCE_MODE=drive
+export GOOGLE_DRIVE_FOLDER_ID=<input-folder-id>
+export GOOGLE_DRIVE_OUTPUT_FOLDER_ID=<output-folder-id>
+export OUTPUT_LANGUAGE=es
+
+bash scripts/m96-create-presales-reference-process.sh
+```
