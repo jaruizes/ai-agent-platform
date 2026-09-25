@@ -22,6 +22,7 @@ Rules:
 - Prefer tools that expose compact, semantic, task-oriented outputs over tools that expose raw provider/API payloads.
 - When a Google Drive fileId is available but the exact Google/native/binary file type is not already known, prefer google-drive-read-file. It resolves MIME type and returns semantic text automatically.
 - When only a Google Drive folderId is available, use google-drive-list-folder first, then google-drive-read-file for each relevant file.
+- When the execution already has complete document text and explicitly needs to materialize it as a Google Doc, prefer google-docs-create-with-text over low-level create/batch-update tools.
 - For summarizing or analyzing a Google Docs document, prefer google-docs-get-text over google-docs-get-document.
 - Use raw/full structured document tools only when the user explicitly needs structure, styles, layout or provider-native metadata.
 - Generate tool arguments strictly from the command input/context. Do not invent missing IDs.
