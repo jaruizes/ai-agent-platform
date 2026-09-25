@@ -219,11 +219,13 @@ bootstrap_loader = MarkdownCatalogLoader(
     catalog_service,
     prompt_service,
     tool_service,
+    knowledge_service,
     skills_dir=settings.bootstrap_skills_dir,
     agents_dir=settings.bootstrap_agents_dir,
     prompts_dir=settings.bootstrap_prompts_dir,
     tools_dir=settings.bootstrap_tools_dir,
     mcp_servers_dir=settings.bootstrap_mcp_servers_dir,
+    knowledge_dir=settings.bootstrap_knowledge_dir,
 )
 
 
