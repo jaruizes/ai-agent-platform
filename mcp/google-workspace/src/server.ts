@@ -149,6 +149,39 @@ function compactGoogleDoc(document:any){
 server.tool("docs_get_document","Read the complete structured Google Docs API representation. Use only when document structure/styles are required.",{documentId:z.string()},async({documentId})=>text((await docs.documents.get({documentId})).data));
 server.tool("docs_get_text","Read compact semantic text from a Google Docs document for summarization and LLM analysis. Read-only.",{documentId:z.string()},async({documentId})=>text(compactGoogleDoc((await docs.documents.get({documentId})).data)));
 server.tool("docs_create_document","Create a new Google Docs document.",{title:z.string()},async({title})=>text((await docs.documents.create({requestBody:{title}})).data));
+server.tool("docs_create_with_text","Create a Google Docs document, insert supplied text and optionally move it to a Drive folder.",{title:z.string(),text:z.string(),destinationFolderId:z.string().optional()},async({title,text:content,destinationFolderId})=>{
+  const created=(await docs.documents.create({requestBody:{title}})).data;
+  const documentId=created.documentId;
+  if(!documentId)throw new Error("Google Docs returned no documentId");
+  if(content.length>0){
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody:{requests:[{insertText:{location:{index:1},text:content}}]}
+    });
+  }
+  if(destinationFolderId){
+    const current=await drive.files.get({fileId:documentId,fields:"parents",supportsAllDrives:true});
+    const previous=current.data.parents?.join(",")??"";
+    await drive.files.update({
+      fileId:documentId,
+      addParents:destinationFolderId,
+      removeParents:previous||undefined,
+      supportsAllDrives:true
+    });
+  }
+  const file=(await drive.files.get({
+    fileId:documentId,
+    supportsAllDrives:true,
+    fields:"id,name,mimeType,parents,webViewLink,createdTime,modifiedTime"
+  })).data;
+  return text({
+    documentId,
+    title,
+    characterCount:content.length,
+    destinationFolderId:destinationFolderId??null,
+    file
+  });
+});
 server.tool("docs_batch_update","Apply Google Docs batchUpdate requests.",{documentId:z.string(),requests:z.array(z.record(z.any())).min(1)},async({documentId,requests})=>text((await docs.documents.batchUpdate({documentId,requestBody:{requests}})).data));
 
 server.tool("sheets_get_spreadsheet","Read spreadsheet metadata and sheet structure.",{spreadsheetId:z.string()},async({spreadsheetId})=>text((await sheets.spreadsheets.get({spreadsheetId,includeGridData:false})).data));
