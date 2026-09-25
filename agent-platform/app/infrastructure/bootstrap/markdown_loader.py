@@ -1,3 +1,4 @@
+import hashlib
 from io import BytesIO
 from pathlib import Path
 
@@ -137,24 +138,43 @@ class MarkdownCatalogLoader:
             )
 
             bootstrap_source = file.name
+            payload = body.encode("utf-8")
+            checksum = hashlib.sha256(payload).hexdigest()
             documents = await self._knowledge_service.list_documents(kb.id)
-            if any(
-                document.metadata.get("bootstrapSource") == bootstrap_source
-                for document in documents
-            ):
-                continue
+            existing_document = next(
+                (
+                    document
+                    for document in documents
+                    if document.metadata.get("bootstrapSource") == bootstrap_source
+                ),
+                None,
+            )
 
             document_name = str(metadata.get("documentName") or file.name)
+            document_metadata = {
+                "source": "BOOTSTRAP",
+                "bootstrapSource": bootstrap_source,
+                "bootstrapChecksum": checksum,
+                "useCase": metadata.get("useCase", "presales"),
+            }
+            if existing_document:
+                if existing_document.metadata.get("bootstrapChecksum") == checksum:
+                    continue
+                await self._knowledge_service.update_uploaded_document(
+                    existing_document.id,
+                    name=document_name,
+                    stream=BytesIO(payload),
+                    mime_type="text/markdown",
+                    metadata=document_metadata,
+                )
+                continue
+
             await self._knowledge_service.create_uploaded_document(
                 kb.id,
                 name=document_name,
-                stream=BytesIO(body.encode("utf-8")),
+                stream=BytesIO(payload),
                 mime_type="text/markdown",
-                metadata={
-                    "source": "BOOTSTRAP",
-                    "bootstrapSource": bootstrap_source,
-                    "useCase": metadata.get("useCase", "presales"),
-                },
+                metadata=document_metadata,
             )
 
     async def _assign_agent_knowledge(
