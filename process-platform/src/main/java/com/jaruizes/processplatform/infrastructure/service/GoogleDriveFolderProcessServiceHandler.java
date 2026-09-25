@@ -1,6 +1,7 @@
 package com.jaruizes.processplatform.infrastructure.service;
 
 import com.jaruizes.processplatform.domain.ports.ProcessServiceHandlerPort;
+import com.jaruizes.processplatform.infrastructure.google.GoogleOAuthAccessTokenProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -12,9 +13,13 @@ import java.util.*;
 public class GoogleDriveFolderProcessServiceHandler implements ProcessServiceHandlerPort {
 
     private final RestClient client;
+    private final GoogleOAuthAccessTokenProvider tokenProvider;
 
-    public GoogleDriveFolderProcessServiceHandler(RestClient.Builder builder) {
+    public GoogleDriveFolderProcessServiceHandler(
+            RestClient.Builder builder,
+            GoogleOAuthAccessTokenProvider tokenProvider) {
         this.client = builder.build();
+        this.tokenProvider = tokenProvider;
     }
 
     @Override
@@ -24,14 +29,6 @@ public class GoogleDriveFolderProcessServiceHandler implements ProcessServiceHan
 
     @Override
     public void validateConfiguration(Map<String,Object> configuration) {
-        var tokenEnv = string(configuration.getOrDefault(
-                "accessTokenEnv",
-                "GOOGLE_DRIVE_ACCESS_TOKEN"));
-        if (tokenEnv == null || tokenEnv.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Google Drive process service requires configuration.accessTokenEnv");
-        }
-
         var folderPath = string(configuration.getOrDefault(
                 "folderIdPath",
                 "processInput.driveFolderId"));
@@ -50,14 +47,7 @@ public class GoogleDriveFolderProcessServiceHandler implements ProcessServiceHan
 
         validateConfiguration(serviceConfiguration);
 
-        var tokenEnv = string(serviceConfiguration.getOrDefault(
-                "accessTokenEnv",
-                "GOOGLE_DRIVE_ACCESS_TOKEN"));
-        var accessToken = System.getenv(tokenEnv);
-        if (accessToken == null || accessToken.isBlank()) {
-            throw new IllegalStateException(
-                    "Google Drive access token environment variable is not set: " + tokenEnv);
-        }
+        var accessToken = tokenProvider.accessToken();
 
         var folderPath = string(serviceConfiguration.getOrDefault(
                 "folderIdPath",
@@ -80,7 +70,9 @@ public class GoogleDriveFolderProcessServiceHandler implements ProcessServiceHan
         do {
             var builder = UriComponentsBuilder
                     .fromUriString(apiBase + "/files")
-                    .queryParam("q", "'" + folderId.replace("'", "\\'") + "' in parents and trashed = false")
+                    .queryParam(
+                            "q",
+                            "'" + folderId.replace("'", "\\'") + "' in parents and trashed = false")
                     .queryParam(
                             "fields",
                             "nextPageToken,files(id,name,mimeType,modifiedTime,size,webViewLink)")
@@ -119,8 +111,9 @@ public class GoogleDriveFolderProcessServiceHandler implements ProcessServiceHan
         result.put("folderId", folderId);
         result.put("documentCount", documents.size());
         result.put("documents", documents);
-        result.put("retrievalHint",
-                "Use the Google Drive MCP/tool in Agent Platform to read document content by id.");
+        result.put(
+                "retrievalHint",
+                "Use google-drive-read-file in Agent Platform to read document content by id.");
         return result;
     }
 
