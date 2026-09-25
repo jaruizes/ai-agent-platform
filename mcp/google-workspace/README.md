@@ -62,6 +62,31 @@ This avoids teaching every planner how to branch on Google MIME types and keeps
 binary parsing in Agent Platform, where the existing document parser already
 supports those formats.
 
+
+## Governed write capabilities
+
+The MCP also exposes write operations used by Agent Platform through governed
+Tools:
+
+- `docs_create_with_text`
+- `docs_create_document`
+- `docs_batch_update`
+- `drive_create_folder`
+- `drive_move_file`
+- `drive_copy_file`
+
+The corresponding Agent Platform bootstrap Tools use `sideEffect: WRITE` and
+`approvalPolicy: REQUIRED`.
+
+For generated reports and proposal documents prefer:
+
+```text
+google-docs-create-with-text
+```
+
+It creates the Google Doc, inserts the supplied text and optionally moves it to
+the requested Drive folder in one governed operation.
+
 ## Scratch-storage safety
 
 `drive_download_file` and `drive_export_file` only write under the
