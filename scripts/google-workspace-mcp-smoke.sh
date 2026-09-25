@@ -40,6 +40,7 @@ expected = {
     "drive_download_file",
     "drive_export_file",
     "docs_get_text",
+    "docs_create_with_text",
     "sheets_get_text",
     "slides_get_text",
 }
