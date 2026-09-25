@@ -5421,3 +5421,88 @@ expiry.
 Sharing the secret source does not merge bounded-context responsibilities:
 Process Platform uses Google Drive only for deterministic SERVICE capabilities;
 Agent Platform uses Google Workspace through Tools/MCP for agentic work.
+
+
+---
+
+## Presales bootstrap architecture
+
+The reference presales use case is shipped as catalog configuration, not
+hard-coded orchestration logic.
+
+```text
+Process Platform
+    |
+    | AGENTIC_EXECUTION intent
+    v
+Agent Platform Planner
+    |
+    +-- Agents
+    +-- Skills
+    +-- Knowledge
+    +-- Tools / MCP
+```
+
+Specialist participation remains a runtime planning decision. Process Platform
+does not contain explicit Security/Cloud/Data specialist steps.
+
+### ADR-098 — Agents define roles; Skills define reusable procedures
+
+**Estado:** Accepted
+
+Agent bootstrap instructions describe stable persona, responsibility, judgement
+and working principles.
+
+Task-specific checklists and procedures belong to Skills. This avoids turning an
+Agent into a single-use workflow step and allows the same agent to perform
+different tasks.
+
+### ADR-099 — Presales corporate knowledge is bootstrap-as-code
+
+**Estado:** Accepted
+
+Default corporate guidance and templates live under
+`agent-platform/bootstrap/knowledge`.
+
+The bootstrap loader creates Knowledge Bases/documents idempotently, tracks a
+source checksum and updates/reindexes a document when its Git source changes.
+
+Agent-to-Knowledge assignments are declarative in Agent front matter and are
+merged with existing user assignments.
+
+### ADR-100 — Default corporate capability data must not fabricate company facts
+
+**Estado:** Accepted
+
+The shipped capabilities document is a placeholder. It explicitly tells agents
+not to invent references, certifications, partnerships, customers or
+differentiators.
+
+Real deployments should replace it with validated corporate content.
+
+### ADR-101 — Proposal document writes are governed Agent Platform Tools
+
+**Estado:** Accepted
+
+Creating or modifying a Google document is an external side effect owned by
+Agent Platform Tools/MCP, not Process Platform.
+
+Write Tools declare:
+
+```text
+sideEffect=WRITE
+approvalPolicy=REQUIRED
+```
+
+The process may therefore wait for Agent Platform governance approval while an
+AGENTIC_EXECUTION is materializing a customer-facing deliverable.
+
+### ADR-102 — The final RFP response chooses customer structure before corporate structure
+
+**Estado:** Accepted
+
+The response-writing skill must first inspect customer documentation for an
+explicit response template, questionnaire, numbering or section structure.
+
+Customer-required structure wins. The `presales-corporate` default template is
+retrieved only when no customer structure is specified.
