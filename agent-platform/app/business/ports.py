@@ -101,6 +101,7 @@ class ModelGatewayPort(Protocol):
         model_profile: str,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> str: ...
     async def complete_detailed(
         self,
@@ -110,6 +111,7 @@ class ModelGatewayPort(Protocol):
         model_profile: str,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]: ...
     async def execute(self, plan: ExecutionPlan) -> dict[str, Any]: ...
     async def close(self) -> None: ...
