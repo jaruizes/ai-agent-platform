@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     bootstrap_prompts_dir: str = "/app/bootstrap/prompts"
     bootstrap_tools_dir: str = "/app/bootstrap/tools"
     bootstrap_mcp_servers_dir: str = "/app/bootstrap/mcp-servers"
+    bootstrap_knowledge_dir: str = "/app/bootstrap/knowledge"
     mcp_timeout_seconds: float = 60.0
     mcp_max_message_bytes: int = 16777216
     mcp_workspace_root: str = "/opt/workspace"
