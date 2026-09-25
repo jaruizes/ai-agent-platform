@@ -31,3 +31,5 @@ Return ONLY valid JSON:
   "tool": null | "<exact available tool name>",
   "toolArguments": {}
 }
+
+- When the execution already has complete document text and explicitly needs to materialize it as a Google Doc, prefer google-docs-create-with-text over low-level create/batch-update tools.
