@@ -501,6 +501,7 @@ class StepExecutor:
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
+            timeout_seconds=step.timeout_seconds,
         )
         return {
             "summary": detail["content"],
@@ -607,6 +608,7 @@ class StepExecutor:
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.0,
+            timeout_seconds=step.timeout_seconds,
         )
         return {
             "summary": detail["content"],
