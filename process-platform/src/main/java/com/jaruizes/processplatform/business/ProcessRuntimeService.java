@@ -480,6 +480,23 @@ public class ProcessRuntimeService {
         metadata.put("processDefinitionKey", instance.definitionKey());
         metadata.put("processDefinitionVersion", instance.definitionVersion());
 
+        var retryPolicy = retryPolicy(configuration);
+        var agentPolicy = configuration.get("agentPolicy") instanceof Map<?,?> values
+                ? new LinkedHashMap<String,Object>((Map<String,Object>) values)
+                : new LinkedHashMap<String,Object>();
+        var delegatedPolicy = new LinkedHashMap<String,Object>();
+        delegatedPolicy.put(
+                "maxStepAttempts",
+                integerValue(agentPolicy.getOrDefault(
+                        "maxStepAttempts",
+                        retryPolicy.maxAttempts())));
+        delegatedPolicy.put(
+                "stepTimeoutSeconds",
+                longValue(agentPolicy.getOrDefault(
+                        "stepTimeoutSeconds",
+                        configuration.get("timeoutSeconds"))));
+        metadata.put("executionPolicy", delegatedPolicy);
+
         var prepared = agentPlatform.prepare(new AgentExecutionRequest(
                 stringValue(configuration.getOrDefault("name", step.stepKey())),
                 intent,
