@@ -112,9 +112,15 @@ class PlannerService:
             model_profile=self._planner_model_profile,
             temperature=0.0,
         )
+        execution_policy = (
+            command.metadata.get("executionPolicy")
+            if isinstance(command.metadata.get("executionPolicy"), dict)
+            else {}
+        )
         plan = self._policy_enricher.apply(
             self._parse_plan(detail["content"]),
             tools=tools,
+            execution_policy=execution_policy,
         )
         validation = self._validator.validate(
             plan,
@@ -155,6 +161,7 @@ class PlannerService:
             repaired_plan = self._policy_enricher.apply(
                 self._parse_plan(repair["content"]),
                 tools=tools,
+                execution_policy=execution_policy,
             )
             repaired_validation = self._validator.validate(
                 repaired_plan,
