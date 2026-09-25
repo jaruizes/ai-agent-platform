@@ -5506,3 +5506,39 @@ explicit response template, questionnaire, numbering or section structure.
 
 Customer-required structure wins. The `presales-corporate` default template is
 retrieved only when no customer structure is specified.
+
+
+### ADR-103 — Delegated AGENTIC execution policy is authoritative
+
+**Estado:** Accepted
+
+When Process Platform delegates an `AGENTIC_EXECUTION`, its execution policy is
+propagated in command metadata as `executionPolicy`.
+
+By default:
+
+```text
+Process retry.maxAttempts   -> Agent Platform maxStepAttempts
+Process timeoutSeconds      -> Agent Platform stepTimeoutSeconds
+```
+
+An optional `agentPolicy` may override the delegated internal values without
+changing the Process Platform retry/deadline semantics.
+
+The LLM planner may propose retry/timeout values, but the deterministic
+`PlanPolicyEnricher` overwrites them with the caller policy. This prevents a
+LogicalPlan from silently contradicting the process definition.
+
+Model calls also receive the effective logical-step timeout so the HTTP client
+does not fail earlier because of its generic model timeout default.
+
+This produces two explicit layers:
+
+```text
+Process Platform
+  attempt/deadline for the delegated business step
+
+Agent Platform
+  internal LogicalPlan attempts/timeouts,
+  bounded by the delegated execution policy
+```
