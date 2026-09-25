@@ -7,6 +7,8 @@ SOURCE_MODE="${PROPOSAL_SOURCE_MODE:-mock}"
 DRIVE_FOLDER_ID="${GOOGLE_DRIVE_FOLDER_ID:-mock-drive-folder}"
 OPPORTUNITY_ID="${OPPORTUNITY_ID:-OPP-DEMO-001}"
 CUSTOMER_NAME="${CUSTOMER_NAME:-Acme Demo}"
+OUTPUT_FOLDER_ID="${GOOGLE_DRIVE_OUTPUT_FOLDER_ID:-}"
+OUTPUT_LANGUAGE="${OUTPUT_LANGUAGE:-auto}"
 KEY="presales-reference-$(date +%s)"
 SERVICE_KEY="$KEY.source"
 
@@ -64,8 +66,8 @@ echo "source service ACTIVE: $SERVICE_KEY"
 DEF_BODY=$(cat <<JSON
 {
   "definitionKey":"$KEY",
-  "name":"Presales proposal qualification and solution design",
-  "description":"Reference process: source documents -> business qualification -> human review loop -> solution design -> human review loop.",
+  "name":"Presales qualification, solution design and RFP response",
+  "description":"Reference process: source documents -> business qualification -> human review loop -> solution design with specialists -> human review loop -> final RFP/RFI response.",
   "version":1,
   "inputSchema":{
     "type":"object",
@@ -159,13 +161,36 @@ DEF_BODY=$(cat <<JSON
       "outputSchema":{"type":"object"},
       "configuration":{
         "title":"Validate technical solution",
-        "description":"Review the proposed technical solution. APPROVE to complete or REQUEST_CHANGES with specific architecture feedback.",
+        "description":"Review the proposed technical solution. APPROVE to continue to the final RFP/RFI response or REQUEST_CHANGES with specific architecture feedback.",
         "review":{
           "repeatStep":"solution-design",
           "approveDecision":"APPROVE",
           "repeatDecision":"REQUEST_CHANGES",
           "maxIterations":5
         }
+      }
+    },
+    {
+      "stepKey":"compose-rfp-response",
+      "name":"Compose final RFP/RFI response",
+      "description":"Build the customer-facing response using the original documents, approved qualification, approved solution and corporate presales knowledge.",
+      "type":"AGENTIC_EXECUTION",
+      "dependsOn":["solution-review"],
+      "inputSchema":{"type":"object"},
+      "outputSchema":{"type":"object"},
+      "configuration":{
+        "name":"rfp-response-authoring",
+        "intent":"Act as the final RFP/RFI response owner. Use the original customer documents, the approved business-analysis result and the approved solution-design result as authoritative inputs. Determine first whether the customer explicitly requires a response structure, template, section numbering, questionnaire or compliance matrix. If it does, follow that structure exactly and answer every requested section. If it does not, use the presales-corporate Knowledge Base standard RFP response template. Never invent company capabilities, references, certifications, SLAs, commercial commitments or dates. Use corporate Knowledge only when it contains validated evidence. Produce a complete customer-facing response. If processInput.outputFolderId is non-empty, materialize the final response as a Google Doc using google-docs-create-with-text with a descriptive title and that destination folder. Otherwise return the final response as structured content without creating an external document.",
+        "instructions":[
+          "Prefer the customer-required response structure over the corporate template.",
+          "Use only approved qualification and approved technical solution content.",
+          "Use presales-corporate Knowledge for the default template and validated corporate guidance.",
+          "Keep assumptions, dependencies and open questions explicit.",
+          "If outputFolderId is present, use google-docs-create-with-text; this write action requires platform approval.",
+          "Write in processInput.outputLanguage when explicitly set, otherwise use the main language of the customer documents."
+        ],
+        "retry":{"maxAttempts":2,"backoffMs":2000},
+        "timeoutSeconds":240
       }
     }
   ]
@@ -188,6 +213,8 @@ if [[ "$SOURCE_MODE" == "mock" ]]; then
   "opportunityId":"$OPPORTUNITY_ID",
   "customerName":"$CUSTOMER_NAME",
   "driveFolderId":"$DRIVE_FOLDER_ID",
+  "outputFolderId":"$OUTPUT_FOLDER_ID",
+  "outputLanguage":"$OUTPUT_LANGUAGE",
   "documents":[
     {
       "name":"RFP.md",
@@ -206,7 +233,9 @@ else
 {
   "opportunityId":"$OPPORTUNITY_ID",
   "customerName":"$CUSTOMER_NAME",
-  "driveFolderId":"$DRIVE_FOLDER_ID"
+  "driveFolderId":"$DRIVE_FOLDER_ID",
+  "outputFolderId":"$OUTPUT_FOLDER_ID",
+  "outputLanguage":"$OUTPUT_LANGUAGE"
 }
 JSON
 )
@@ -244,10 +273,14 @@ echo "  - context._reviewHistory.business-analysis-review"
 echo
 echo "Then APPROVE it to continue to solution-design."
 echo "Repeat the same REQUEST_CHANGES -> APPROVE cycle for solution-review."
+echo "After solution approval, compose-rfp-response will build the final customer response."
+echo "If GOOGLE_DRIVE_OUTPUT_FOLDER_ID is set, the agent will request approval to create the final Google Doc."
 echo
 echo "For a real Drive run:"
 echo "  export PROPOSAL_SOURCE_MODE=drive"
 echo "  export GOOGLE_DRIVE_FOLDER_ID=<folder-id>"
+echo "  export GOOGLE_DRIVE_OUTPUT_FOLDER_ID=<output-folder-id>   # optional"
+echo "  export OUTPUT_LANGUAGE=es                                  # optional"
 echo "  # Both platforms reuse .secrets/google-token.json generated by:"
 echo "  # npm --prefix mcp/google-workspace run auth"
 echo "  # Validate Agent Platform Drive access first: bash scripts/google-workspace-mcp-smoke.sh"
