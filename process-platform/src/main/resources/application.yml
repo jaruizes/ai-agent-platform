@@ -51,3 +51,9 @@ process:
     recovery-delay-ms: ${PROCESS_RUNTIME_RECOVERY_DELAY_MS:2000}
     outbox-poll-ms: ${PROCESS_RUNTIME_OUTBOX_POLL_MS:250}
     step-stale-seconds: ${PROCESS_RUNTIME_STEP_STALE_SECONDS:60}
+
+
+google:
+  oauth:
+    token-path: ${GOOGLE_OAUTH_TOKEN:/run/secrets/google/google-token.json}
+    token-endpoint: ${GOOGLE_OAUTH_TOKEN_ENDPOINT:https://oauth2.googleapis.com/token}
