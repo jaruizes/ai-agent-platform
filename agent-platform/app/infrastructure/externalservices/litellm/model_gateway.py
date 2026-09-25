@@ -30,6 +30,7 @@ class LiteLLMModelGateway:
         model_profile: str,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> str:
         detail = await self.complete_detailed(
             system_prompt=system_prompt,
@@ -37,6 +38,7 @@ class LiteLLMModelGateway:
             model_profile=model_profile,
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
         )
         return detail["content"]
 
@@ -48,6 +50,7 @@ class LiteLLMModelGateway:
         model_profile: str,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         body = await self._chat(
             system_prompt=system_prompt,
@@ -55,6 +58,7 @@ class LiteLLMModelGateway:
             model_profile=model_profile,
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
         )
         return {
             "content": body["choices"][0]["message"]["content"],
@@ -92,6 +96,7 @@ class LiteLLMModelGateway:
         model_profile: str,
         temperature: float,
         max_tokens: int | None,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         with tracer.start_as_current_span("model_gateway.chat_completion") as span:
             span.set_attribute("gen_ai.system", "litellm")
@@ -99,6 +104,11 @@ class LiteLLMModelGateway:
 
             response = await self._client.post(
                 "/v1/chat/completions",
+                timeout=(
+                    timeout_seconds
+                    if timeout_seconds is not None
+                    else self._settings.model_timeout_seconds
+                ),
                 json={
                     "model": model_profile,
                     "messages": [
