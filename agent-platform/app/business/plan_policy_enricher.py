@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 from app.domain.orchestration import LogicalPlan, PlanStep
 from app.domain.tool import Tool
@@ -14,11 +15,25 @@ class PlanPolicyEnricher:
         plan: LogicalPlan,
         *,
         tools: list[Tool],
+        execution_policy: dict[str, Any] | None = None,
     ) -> LogicalPlan:
         tools_by_name = {tool.name: tool for tool in tools}
+        policy = execution_policy or {}
+        max_step_attempts = self._positive_int(policy.get("maxStepAttempts"))
+        step_timeout_seconds = self._positive_float(
+            policy.get("stepTimeoutSeconds")
+        )
         enriched_steps: list[PlanStep] = []
 
-        for step in plan.steps:
+        for original in plan.steps:
+            step = original
+            if max_step_attempts is not None:
+                retry_policy = dict(step.retry_policy or {})
+                retry_policy["maxAttempts"] = max_step_attempts
+                step = replace(step, retry_policy=retry_policy)
+            if step_timeout_seconds is not None:
+                step = replace(step, timeout_seconds=step_timeout_seconds)
+
             if step.type != "TOOL" or not step.tool_name:
                 enriched_steps.append(
                     replace(
@@ -35,10 +50,10 @@ class PlanPolicyEnricher:
                 enriched_steps.append(step)
                 continue
 
-            policy = tool.approval_policy.upper()
+            policy_name = tool.approval_policy.upper()
             planner_requested = step.requires_approval
 
-            if policy == "REQUIRED":
+            if policy_name == "REQUIRED":
                 enriched_steps.append(
                     replace(
                         step,
@@ -55,7 +70,7 @@ class PlanPolicyEnricher:
                 )
                 continue
 
-            if policy == "NEVER":
+            if policy_name == "NEVER":
                 enriched_steps.append(
                     replace(
                         step,
@@ -84,3 +99,17 @@ class PlanPolicyEnricher:
             steps=enriched_steps,
             final_step_id=plan.final_step_id,
         )
+
+    @staticmethod
+    def _positive_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+
+    @staticmethod
+    def _positive_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        parsed = float(value)
+        return parsed if parsed > 0 else None
