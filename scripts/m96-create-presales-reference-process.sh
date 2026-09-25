@@ -121,10 +121,10 @@ DEF_BODY=$(cat <<JSON
       "outputSchema":{"type":"object"},
       "configuration":{
         "title":"Validate customer understanding and qualification",
-        "description":"Review the generated qualification report. APPROVE to continue or REQUEST_CHANGES with concrete feedback.",
+        "description":"Review the generated qualification report. GO to continue or REQUEST_CHANGES with concrete feedback.",
         "review":{
           "repeatStep":"business-analysis",
-          "approveDecision":"APPROVE",
+          "approveDecision":"GO",
           "repeatDecision":"REQUEST_CHANGES",
           "maxIterations":5
         }
@@ -271,7 +271,7 @@ echo "The business-analysis AGENTIC_EXECUTION will run again with:"
 echo "  - previous output still visible in process context"
 echo "  - context._reviewHistory.business-analysis-review"
 echo
-echo "Then APPROVE it to continue to solution-design."
+echo "Then choose GO to continue to solution-design."
 echo "Repeat the same REQUEST_CHANGES -> APPROVE cycle for solution-review."
 echo "After solution approval, compose-rfp-response will build the final customer response."
 echo "If GOOGLE_DRIVE_OUTPUT_FOLDER_ID is set, the agent will request approval to create the final Google Doc."
