@@ -6,7 +6,10 @@ TEST_FILE_ID="${GOOGLE_DRIVE_TEST_FILE_ID:-}"
 echo "== Google Workspace MCP / Tool smoke test =="
 
 echo "1/3 Google API authentication"
-docker compose exec -T agent-platform \
+docker compose exec -T \
+  -e GOOGLE_OAUTH_CREDENTIALS=/run/secrets/google/google-oauth-credentials.json \
+  -e GOOGLE_OAUTH_TOKEN=/run/secrets/google/google-token.json \
+  agent-platform \
   node /opt/mcp/google-workspace/dist/doctor.js
 
 echo
