@@ -238,6 +238,15 @@ public class ProcessRuntimeService {
                 if (step.status() == ProcessStepStatus.WAITING
                         && step.deadlineAt() != null
                         && !step.deadlineAt().isAfter(now)) {
+                    log.warn(
+                            "Process step timed out while waiting processInstanceId={} stepKey={} attempt={} delegatedExecutionId={} startedAt={} deadlineAt={} now={}",
+                            instance.id(),
+                            step.stepKey(),
+                            step.attemptCount(),
+                            step.delegatedExecutionId(),
+                            step.startedAt(),
+                            step.deadlineAt(),
+                            now);
                     handleStepFailure(
                             instance.id(),
                             stepDefinition,
