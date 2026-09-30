@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
@@ -18,6 +20,8 @@ import java.util.concurrent.Executors;
 
 @Service
 public class ProcessRuntimeService {
+
+    private static final Logger log = LoggerFactory.getLogger(ProcessRuntimeService.class);
 
     private final ProcessRuntimeRepositoryPort runtime;
     private final ProcessDefinitionRepositoryPort definitions;
@@ -28,6 +32,7 @@ public class ProcessRuntimeService {
     private final HumanTaskRepositoryPort humanTasks;
     private final ProcessEventWaitRepositoryPort eventWaits;
     private final long staleStepSeconds;
+    private final long agentCallbackGraceSeconds;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public ProcessRuntimeService(
@@ -39,7 +44,8 @@ public class ProcessRuntimeService {
             AgentPlatformIntegrationService agentPlatform,
             HumanTaskRepositoryPort humanTasks,
             ProcessEventWaitRepositoryPort eventWaits,
-            @Value("${process.runtime.step-stale-seconds:60}") long staleStepSeconds) {
+            @Value("${process.runtime.step-stale-seconds:60}") long staleStepSeconds,
+            @Value("${process.runtime.agent-callback-grace-seconds:30}") long agentCallbackGraceSeconds) {
         this.runtime = runtime;
         this.definitions = definitions;
         this.contracts = contracts;
@@ -49,6 +55,7 @@ public class ProcessRuntimeService {
         this.humanTasks = humanTasks;
         this.eventWaits = eventWaits;
         this.staleStepSeconds = Math.max(1, staleStepSeconds);
+        this.agentCallbackGraceSeconds = Math.max(0, agentCallbackGraceSeconds);
     }
 
     public ProcessInstance start(UUID instanceId) {
@@ -510,7 +517,19 @@ public class ProcessRuntimeService {
                 stringValue(configuration.get("tenantId"))
         ));
 
-        runtime.delegateAgent(instanceId, step.stepKey(), attempt, prepared.command());
+        runtime.delegateAgent(
+                instanceId,
+                step.stepKey(),
+                attempt,
+                prepared.command(),
+                agentCallbackGraceSeconds);
+        log.info(
+                "Delegated agent execution processInstanceId={} stepKey={} attempt={} executionId={} callbackGraceSeconds={}",
+                instanceId,
+                step.stepKey(),
+                attempt,
+                prepared.submission().executionId(),
+                agentCallbackGraceSeconds);
     }
 
     private void executeDecision(
@@ -583,7 +602,27 @@ public class ProcessRuntimeService {
                         .equals(candidate.delegatedExecutionId()))
                 .findFirst()
                 .orElse(null);
-        if (step == null || step.status() != ProcessStepStatus.WAITING) return;
+        if (step == null) return;
+        if (step.status() != ProcessStepStatus.WAITING) {
+            log.warn(
+                    "Ignoring terminal agent event because process step is no longer waiting processInstanceId={} stepKey={} stepStatus={} executionId={} eventTimestamp={} deadlineAt={}",
+                    instance.id(),
+                    step.stepKey(),
+                    step.status(),
+                    event.execution().executionId(),
+                    event.timestamp(),
+                    step.deadlineAt());
+            return;
+        }
+
+        log.info(
+                "Handling terminal agent event processInstanceId={} stepKey={} executionId={} eventStatus={} eventTimestamp={} deadlineAt={}",
+                instance.id(),
+                step.stepKey(),
+                event.execution().executionId(),
+                event.execution().status(),
+                event.timestamp(),
+                step.deadlineAt());
 
         var definition = requireDefinition(instance.definitionId());
         var stepDefinition = byKey(definition.steps()).get(step.stepKey());
