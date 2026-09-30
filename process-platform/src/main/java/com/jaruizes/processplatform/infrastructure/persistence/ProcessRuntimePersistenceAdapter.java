@@ -189,12 +189,16 @@ public class ProcessRuntimePersistenceAdapter
             UUID instanceId,
             String stepKey,
             int expectedAttempt,
-            ExecutionCommand command) {
+            ExecutionCommand command,
+            long callbackGraceSeconds) {
         var step = requireStep(instanceId, stepKey);
         if (step.getStatus() != ProcessStepStatus.RUNNING
                 || step.getAttemptCount() != expectedAttempt) return false;
         step.setStatus(ProcessStepStatus.WAITING);
         step.setDelegatedExecutionId(command.data().execution().executionId());
+        if (step.getDeadlineAt() != null && callbackGraceSeconds > 0) {
+            step.setDeadlineAt(step.getDeadlineAt().plusSeconds(callbackGraceSeconds));
+        }
         step.setUpdatedAt(Instant.now());
         steps.save(step);
 
