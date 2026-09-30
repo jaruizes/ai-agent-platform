@@ -51,6 +51,7 @@ process:
     recovery-delay-ms: ${PROCESS_RUNTIME_RECOVERY_DELAY_MS:2000}
     outbox-poll-ms: ${PROCESS_RUNTIME_OUTBOX_POLL_MS:250}
     step-stale-seconds: ${PROCESS_RUNTIME_STEP_STALE_SECONDS:60}
+    agent-callback-grace-seconds: ${PROCESS_RUNTIME_AGENT_CALLBACK_GRACE_SECONDS:30}
 
 
 google:
