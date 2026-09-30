@@ -20,7 +20,12 @@ public interface ProcessRuntimeRepositoryPort {
     boolean retryStep(UUID instanceId, String stepKey, int expectedAttempt, Map<String,Object> error, Instant availableAt);
     boolean waitStep(UUID instanceId, String stepKey, int expectedAttempt);
     ProcessInstance skipStep(UUID instanceId, String stepKey, Map<String,Object> output);
-    boolean delegateAgent(UUID instanceId, String stepKey, int expectedAttempt, ExecutionCommand command);
+    boolean delegateAgent(
+            UUID instanceId,
+            String stepKey,
+            int expectedAttempt,
+            ExecutionCommand command,
+            long callbackGraceSeconds);
     boolean completeStep(UUID instanceId, String stepKey, int expectedAttempt, Map<String,Object> output);
     boolean failAttempt(UUID instanceId, String stepKey, int expectedAttempt, Map<String,Object> error);
     ProcessInstance repeatReviewedStep(
