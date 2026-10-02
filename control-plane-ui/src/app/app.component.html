@@ -177,17 +177,45 @@
       <section class="panel" *ngIf="processTab()==='human'">
         <div class="panel-head"><div><h2>Human Task Inbox</h2><p>Durable business approvals and reviews emitted by HUMAN process steps.</p></div></div>
         <div class="approval-grid">
-          <article class="approval-detail" *ngFor="let t of processHumanTasks()">
+          <article class="approval-detail" *ngFor="let t of processHumanTasks();trackBy:trackByHumanTaskId">
             <div class="approval-top"><span class="status-pill" [ngClass]="statusClass(t.status)">{{t.status}}</span><small>iteration {{t.iteration}} · {{date(t.createdAt)}}</small></div>
             <h3>{{t.title}}</h3><p>{{t.description||'Human action required by process.'}}</p>
             <dl><div><dt>Process</dt><dd class="mono">{{t.processInstanceId}}</dd></div><div><dt>Step</dt><dd>{{t.stepKey}}</dd></div><div *ngIf="t.decision"><dt>Decision</dt><dd>{{t.decision}}</dd></div></dl>
-            <div class="artifact-review-list" *ngIf="taskArtifactRefs(t).length">
-              <strong>Review artifacts</strong>
-              <article class="artifact-review-item" *ngFor="let a of taskArtifactRefs(t)">
-                <div><span class="status-pill">{{a.type}}</span><b>{{a.title}}</b><small>v{{a.version}} · {{a.schema}}</small><p>{{a.summary}}</p></div>
-                <button class="ghost small" (click)="openArtifact(a)">Open</button>
-              </article>
-            </div>
+            <section class="human-review-panel">
+              <div class="human-review-head">
+                <div><span class="eyebrow">Review material</span><h3>Generated output</h3></div>
+                <small>Producer · {{humanTaskProducerStep(t)||'previous step'}}</small>
+              </div>
+
+              <div class="artifact-review-list" *ngIf="taskReviewArtifacts(t).length">
+                <article class="artifact-review-item" *ngFor="let a of taskReviewArtifacts(t)">
+                  <div><span class="status-pill">{{a.type}}</span><b>{{a.title}}</b><small>v{{a.version}} · {{a.schema}}</small><p>{{a.summary}}</p></div>
+                  <button class="primary small" (click)="openArtifact(a)">Review document</button>
+                </article>
+              </div>
+
+              <ng-container *ngIf="!taskReviewArtifacts(t).length">
+                <div class="legacy-review-note" *ngIf="humanTaskLegacyReviewText(t);else noReviewOutput">
+                  <strong>Legacy output</strong>
+                  <p>This process version did not produce a typed HUMAN_DOCUMENT. The generated agent response is rendered here so this review can still be completed.</p>
+                </div>
+                <div class="artifact-human legacy-human-output" *ngIf="humanTaskLegacyReviewText(t) as legacy">
+                  <ng-container *ngFor="let b of textDisplayBlocks(legacy)">
+                    <h1 *ngIf="b.kind==='h1'">{{b.text}}</h1>
+                    <h2 *ngIf="b.kind==='h2'">{{b.text}}</h2>
+                    <h3 *ngIf="b.kind==='h3'">{{b.text}}</h3>
+                    <p *ngIf="b.kind==='p'">{{b.text}}</p>
+                    <div class="artifact-bullet" *ngIf="b.kind==='li'">• {{b.text}}</div>
+                  </ng-container>
+                </div>
+                <ng-template #noReviewOutput>
+                  <div class="review-warning">
+                    No review-ready artifact was produced by the previous step. Create a new Process Definition version and enable <b>Typed artifact output</b> on {{humanTaskProducerStep(t)||'the producer AGENTIC_EXECUTION'}}.
+                  </div>
+                </ng-template>
+              </ng-container>
+            </section>
+
             <ng-container *ngIf="t.status==='PENDING'">
               <textarea class="mono" rows="3" [(ngModel)]="processHumanResult" placeholder='{"comment":"Add review feedback here"}'></textarea>
               <ng-container *ngIf="humanTaskReviewPolicy(t) as review;else genericHumanActions">
@@ -195,7 +223,12 @@
               </ng-container>
               <ng-template #genericHumanActions><label>Decision<select [(ngModel)]="processHumanDecision"><option>APPROVED</option><option>REJECTED</option><option>REVIEWED</option></select></label><div class="actions"><button class="primary" (click)="completeHumanTask(t)">Complete task</button><button class="ghost" (click)="openProcessInstance(t.processInstanceId)">Inspect process</button></div></ng-template>
             </ng-container>
-            <details class="json-details"><summary>Payload / result</summary><pre>{{json(t.status==='PENDING'?t.payload:t.result)}}</pre></details>
+            <div class="human-technical">
+              <button class="ghost small" (click)="toggleHumanTaskTechnical(t)">
+                {{isHumanTaskTechnicalOpen(t)?'Hide':'Show'}} technical payload / result
+              </button>
+              <pre *ngIf="isHumanTaskTechnicalOpen(t)">{{json(t.status==='PENDING'?t.payload:t.result)}}</pre>
+            </div>
           </article>
           <div class="empty big" *ngIf="!processHumanTasks().length">No human tasks yet.</div>
         </div>
