@@ -142,6 +142,11 @@ class PlannerService:
             tools_by_name={tool.name: tool for tool in tools},
             knowledge_base_names={kb.name for kb in knowledge_bases},
         )
+        validation = self._apply_artifact_policy_validation(
+            validation,
+            plan,
+            command,
+        )
 
         if not validation.valid:
             repair = await self._model_gateway.complete_detailed(
@@ -186,6 +191,11 @@ class PlannerService:
                 tools_by_name={tool.name: tool for tool in tools},
                 knowledge_base_names={kb.name for kb in knowledge_bases},
             )
+            repaired_validation = self._apply_artifact_policy_validation(
+                repaired_validation,
+                repaired_plan,
+                command,
+            )
             detail = {
                 **repair,
                 "usage": self._merge_usage(
@@ -200,6 +210,74 @@ class PlannerService:
             detail["planningAttempts"] = 1
 
         return plan, validation, detail
+
+    @staticmethod
+    def _apply_artifact_policy_validation(
+        validation: PlanValidation,
+        plan: LogicalPlan,
+        command: Command,
+    ) -> PlanValidation:
+        policy = (
+            command.metadata.get("artifactPolicy")
+            if isinstance(command.metadata.get("artifactPolicy"), dict)
+            else {}
+        )
+        if not policy or not bool(policy.get("enabled", False)):
+            return validation
+
+        configured = [
+            str(value).strip()
+            for value in (policy.get("agentNames") or [])
+            if str(value).strip()
+        ]
+        if not configured:
+            return validation
+
+        producer_steps = [
+            step
+            for step in plan.steps
+            if step.type == "AGENT" and step.agent_name in configured
+        ]
+        errors = list(validation.errors)
+
+        if not producer_steps:
+            errors.append(
+                "artifactPolicy requires an authoritative producer AGENT from: "
+                + ", ".join(configured)
+            )
+        else:
+            by_id = {step.id: step for step in plan.steps}
+            final_id = plan.final_step_id
+
+            def reaches_final(step_id: str) -> bool:
+                if step_id == final_id:
+                    return True
+                visited: set[str] = set()
+                frontier = [step_id]
+                while frontier:
+                    current = frontier.pop()
+                    if current in visited:
+                        continue
+                    visited.add(current)
+                    for candidate in plan.steps:
+                        if current not in candidate.depends_on:
+                            continue
+                        if candidate.id == final_id:
+                            return True
+                        frontier.append(candidate.id)
+                return False
+
+            if not any(reaches_final(step.id) for step in producer_steps):
+                errors.append(
+                    "artifactPolicy producer AGENT must contribute to the "
+                    "final result path"
+                )
+
+        return PlanValidation(
+            valid=not errors,
+            errors=errors,
+            warnings=list(validation.warnings),
+        )
 
     @classmethod
     def _parse_plan(cls, raw: str) -> LogicalPlan:
