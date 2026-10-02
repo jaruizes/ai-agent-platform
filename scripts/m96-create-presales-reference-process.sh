@@ -115,7 +115,8 @@ DEF_BODY=$(cat <<JSON
           "humanTitle":"Informe de entendimiento y cualificación",
           "humanArtifactType":"HUMAN_DOCUMENT",
           "agentNames":["business-analyst"],
-          "maxOutputTokens":8000
+          "maxOutputTokens":8000,
+          "allowWriteTools":false
         }
       }
     },
@@ -163,7 +164,8 @@ DEF_BODY=$(cat <<JSON
           "humanTitle":"Documento de solución técnica",
           "humanArtifactType":"HUMAN_DOCUMENT",
           "agentNames":["solution-architect"],
-          "maxOutputTokens":12000
+          "maxOutputTokens":12000,
+          "allowWriteTools":false
         }
       }
     },
@@ -213,7 +215,8 @@ DEF_BODY=$(cat <<JSON
           "humanTitle":"Respuesta final RFP/RFI",
           "humanArtifactType":"FINAL_DELIVERABLE",
           "agentNames":["rfp-response-writer"],
-          "maxOutputTokens":16000
+          "maxOutputTokens":16000,
+          "allowWriteTools":true
         }
       }
     }
