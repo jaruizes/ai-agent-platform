@@ -12,6 +12,7 @@ from app.business.prompt_service import PromptService
 from app.business.tool_service import ToolService
 from app.domain.execution import Command
 from app.domain.orchestration import LogicalPlan, PlanStep, PlanValidation
+from app.domain.tool import Tool
 
 
 class PlannerService:
