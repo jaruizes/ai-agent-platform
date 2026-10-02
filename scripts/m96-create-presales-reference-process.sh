@@ -108,7 +108,14 @@ DEF_BODY=$(cat <<JSON
           "Do not design the technical solution yet."
         ],
         "retry":{"maxAttempts":2,"backoffMs":2000},
-        "timeoutSeconds":180
+        "timeoutSeconds":180,
+        "artifactPolicy":{
+          "enabled":true,
+          "schema":"proposal-qualification/v1",
+          "humanTitle":"Informe de entendimiento y cualificación",
+          "humanArtifactType":"HUMAN_DOCUMENT",
+          "agentNames":["business-analyst"]
+        }
       }
     },
     {
@@ -148,7 +155,14 @@ DEF_BODY=$(cat <<JSON
           "Incorporate all previous human review feedback."
         ],
         "retry":{"maxAttempts":2,"backoffMs":2000},
-        "timeoutSeconds":240
+        "timeoutSeconds":240,
+        "artifactPolicy":{
+          "enabled":true,
+          "schema":"solution-design/v1",
+          "humanTitle":"Documento de solución técnica",
+          "humanArtifactType":"HUMAN_DOCUMENT",
+          "agentNames":["solution-architect"]
+        }
       }
     },
     {
@@ -190,7 +204,14 @@ DEF_BODY=$(cat <<JSON
           "Write in processInput.outputLanguage when explicitly set, otherwise use the main language of the customer documents."
         ],
         "retry":{"maxAttempts":2,"backoffMs":2000},
-        "timeoutSeconds":240
+        "timeoutSeconds":240,
+        "artifactPolicy":{
+          "enabled":true,
+          "schema":"rfp-response/v1",
+          "humanTitle":"Respuesta final RFP/RFI",
+          "humanArtifactType":"FINAL_DELIVERABLE",
+          "agentNames":["rfp-response-writer"]
+        }
       }
     }
   ]
