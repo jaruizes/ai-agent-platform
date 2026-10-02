@@ -414,3 +414,77 @@ export OUTPUT_LANGUAGE=es
 
 bash scripts/m96-create-presales-reference-process.sh
 ```
+
+
+### Typed Artifact & Handoff Layer
+
+Agentic process steps can now publish managed, versioned artifacts rather than
+passing long model text directly through ProcessContext.
+
+Supported artifact types:
+
+```text
+HUMAN_DOCUMENT
+MACHINE_DATA
+AGENT_HANDOFF
+EVIDENCE_SET
+FINAL_DELIVERABLE
+```
+
+A Process AGENTIC_EXECUTION can enable:
+
+```json
+{
+  "artifactPolicy": {
+    "enabled": true,
+    "schema": "proposal-qualification/v1",
+    "humanTitle": "Qualification report",
+    "humanArtifactType": "HUMAN_DOCUMENT",
+    "agentNames": ["business-analyst"],
+    "maxOutputTokens": 8000
+  }
+}
+```
+
+One model call produces the human document, compact machine representation,
+agent handoff and evidence references. Agent Platform persists them separately.
+
+Downstream agents automatically hydrate only:
+
+```text
+AGENT_HANDOFF
+MACHINE_DATA
+EVIDENCE_SET
+```
+
+Human documents and final deliverables are deliberately excluded from automatic
+model context.
+
+Process Platform receives compact artifact refs instead of long document bodies.
+
+Human Tasks surface the HUMAN_DOCUMENT directly in the Process Control Plane,
+so an intermediate report can be reviewed without first writing it to Google
+Drive.
+
+For external materialization use:
+
+```text
+google-docs-create-from-artifact
+```
+
+which accepts the artifact id rather than copying the full document through a
+LogicalPlan tool argument. The Tool is still WRITE + REQUIRED approval.
+
+Reference presales limits:
+
+```text
+qualification        8k max output tokens
+solution design     12k max output tokens
+final RFP response  16k max output tokens
+```
+
+Detailed design, rationale, before/after flows and article-oriented notes:
+
+```text
+docs/artifact-and-handoff-layer.md
+```
