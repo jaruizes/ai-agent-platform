@@ -495,6 +495,11 @@ public class ProcessRuntimeService {
         metadata.put("processStepKey", step.stepKey());
         metadata.put("processDefinitionKey", instance.definitionKey());
         metadata.put("processDefinitionVersion", instance.definitionVersion());
+        if (configuration.get("artifactPolicy") instanceof Map<?,?> artifactPolicy) {
+            metadata.put(
+                    "artifactPolicy",
+                    new LinkedHashMap<String,Object>((Map<String,Object>) artifactPolicy));
+        }
 
         var retryPolicy = retryPolicy(configuration);
         var agentPolicy = configuration.get("agentPolicy") instanceof Map<?,?> values
