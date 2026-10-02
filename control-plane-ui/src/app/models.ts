@@ -122,3 +122,22 @@ export interface ProcessHumanTask {
   createdAt:string;
   completedAt?:string;
 }
+
+
+export interface ExecutionArtifact {
+  id:string;
+  executionId:string;
+  stepId:string;
+  scopeKey:string;
+  type:'HUMAN_DOCUMENT'|'MACHINE_DATA'|'AGENT_HANDOFF'|'EVIDENCE_SET'|'FINAL_DELIVERABLE';
+  schema:string;
+  version:number;
+  title:string;
+  mediaType:string;
+  summary:string;
+  checksum:string;
+  sizeBytes:number;
+  metadata:any;
+  content?:any;
+  createdAt:string;
+}
