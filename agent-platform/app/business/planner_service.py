@@ -146,6 +146,7 @@ class PlannerService:
             validation,
             plan,
             command,
+            tools,
         )
 
         if not validation.valid:
@@ -195,6 +196,7 @@ class PlannerService:
                 repaired_validation,
                 repaired_plan,
                 command,
+                tools,
             )
             detail = {
                 **repair,
@@ -216,6 +218,7 @@ class PlannerService:
         validation: PlanValidation,
         plan: LogicalPlan,
         command: Command,
+        tools: list[Tool],
     ) -> PlanValidation:
         policy = (
             command.metadata.get("artifactPolicy")
@@ -245,6 +248,11 @@ class PlannerService:
                 "artifactPolicy requires an authoritative producer AGENT from: "
                 + ", ".join(configured)
             )
+        elif len(producer_steps) > 1:
+            errors.append(
+                "artifactPolicy requires exactly one authoritative producer AGENT; "
+                "specialist decomposition must use other agents"
+            )
         else:
             by_id = {step.id: step for step in plan.steps}
             final_id = plan.final_step_id
@@ -271,6 +279,21 @@ class PlannerService:
                 errors.append(
                     "artifactPolicy producer AGENT must contribute to the "
                     "final result path"
+                )
+
+        if policy.get("allowWriteTools") is False:
+            tools_by_name = {tool.name: tool for tool in tools}
+            write_steps = [
+                step.id
+                for step in plan.steps
+                if step.type == "TOOL"
+                and step.tool_name in tools_by_name
+                and tools_by_name[step.tool_name].side_effect.upper() == "WRITE"
+            ]
+            if write_steps:
+                errors.append(
+                    "artifactPolicy.allowWriteTools=false forbids WRITE tool steps: "
+                    + ", ".join(write_steps)
                 )
 
         return PlanValidation(
