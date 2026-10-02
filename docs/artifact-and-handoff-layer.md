@@ -1084,3 +1084,100 @@ restarting it.
 
 New process versions should enable typed artifact output on reviewable
 AGENTIC_EXECUTION producers.
+
+
+---
+
+## Reviewable artifacts are not external documents
+
+One of the easiest mistakes in an agentic workflow is to conflate:
+
+```text
+produce something a human can review
+```
+
+with:
+
+```text
+publish that thing to an external system
+```
+
+They are different concerns.
+
+For an intermediate solution design the preferred flow is:
+
+```text
+specialist analysis
+        |
+        v
+solution-architect
+        |
+        v
+typed internal artifact
+        |
+        v
+HUMAN review
+```
+
+Not:
+
+```text
+solution-architect
+        |
+        v
+Google Docs WRITE
+        |
+        v
+Agent Platform approval
+        |
+        v
+HUMAN process review
+```
+
+The second topology introduces an unnecessary human gate, creates external
+documents for rejected iterations and can cause the outer process timeout to
+expire while the inner agent execution waits for approval.
+
+The Artifact Layer therefore supports `allowWriteTools=false` as a deterministic
+execution contract.
+
+## One authoritative synthesis call
+
+Artifact-producing executions also constrain the configured producer to one
+authoritative call.
+
+The objective is not to prevent decomposition. The objective is to decompose by
+**responsibility**, not by repeatedly calling the same expensive synthesizer.
+
+Good:
+
+```text
+security specialist ----┐
+data specialist --------┼--> solution architect --> solution artifact
+cloud specialist -------┘
+```
+
+Expensive and usually redundant:
+
+```text
+solution architect
+     -> solution architect
+          -> solution architect
+```
+
+The latter tends to repeatedly inject the same source context and prior outputs,
+which increases prompt size and latency. In the proposal use case this was
+visible as individual solution-architect steps exceeding 100k input tokens.
+
+The platform therefore guarantees:
+
+```text
+one typed business artifact
+=
+one authoritative producer call
++
+zero or more specialist calls
+```
+
+This turns context optimization into an architectural invariant instead of a
+best-effort prompt instruction.
