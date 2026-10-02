@@ -854,3 +854,140 @@ trazabilidad y evita convertir texto arbitrario del modelo en estado de workflow
 
 La plataforma deja de tratar cada respuesta del LLM como una cadena y empieza a
 tratarla como datos gestionados.
+
+
+---
+
+## 21. Cómo validar la implementación
+
+### Tests de código
+
+Agent Platform incluye tests para:
+
+- creación del bundle HUMAN_DOCUMENT / MACHINE_DATA / AGENT_HANDOFF /
+  EVIDENCE_SET;
+- versionado de artifacts en review loops;
+- exclusión de HUMAN_DOCUMENT del contexto automático;
+- fallback sin segunda llamada al modelo;
+- materialización de un artifact directamente en Google Docs.
+
+Ejecutar:
+
+    cd agent-platform
+    pytest -q
+
+### Construcción de la plataforma
+
+Desde la raíz:
+
+    docker compose up -d --build agent-platform process-platform control-plane-ui
+
+La migración 017 crea execution_artifacts automáticamente durante el arranque de
+Agent Platform.
+
+### Configuración desde Process Designer
+
+En un AGENTIC_EXECUTION activar:
+
+    Typed artifact output
+
+Configurar, por ejemplo:
+
+    Machine schema:
+    proposal-qualification/v1
+
+    Human artifact title:
+    Informe de entendimiento y cualificación
+
+    Human artifact type:
+    HUMAN_DOCUMENT
+
+    Capture only agents:
+    business-analyst
+
+    Max output tokens:
+    8000
+
+Guardar la nueva versión del ProcessDefinition y activarla.
+
+### Qué observar en una ejecución
+
+En el detalle de Agent Platform debe aparecer:
+
+    TYPED ARTIFACTS
+
+con al menos:
+
+    HUMAN_DOCUMENT
+    MACHINE_DATA
+    AGENT_HANDOFF
+
+y, cuando haya evidencia declarada:
+
+    EVIDENCE_SET
+
+El resultado técnico de la ejecución debe contener artifactRefs y no necesitar
+transportar el cuerpo completo del informe humano.
+
+### Qué observar en el Human Task
+
+Cuando el siguiente step sea HUMAN, la bandeja de Process Platform debe mostrar:
+
+    Review artifacts
+
+El HUMAN_DOCUMENT se abre en la vista de lectura de Control Plane.
+
+El humano puede dar GO/APPROVE o REQUEST_CHANGES sin crear previamente un Google
+Doc.
+
+### Comprobar versionado
+
+Después de REQUEST_CHANGES y de una nueva ejecución del productor:
+
+    v1 -> primera salida
+    v2 -> salida revisada
+
+Ambas versiones permanecen disponibles.
+
+### Smoke sin nuevas llamadas LLM
+
+Una vez exista una ejecución productora:
+
+    ARTIFACT_EXECUTION_ID=<agent-execution-id> \
+      bash scripts/artifact-layer-smoke.sh
+
+Alternativamente, usando el scope del proceso:
+
+    PROCESS_INSTANCE_ID=<process-instance-id> \
+    PROCESS_STEP_KEY=understand-and-qualify \
+      bash scripts/artifact-layer-smoke.sh
+
+El smoke comprueba:
+
+- metadata list sin bodies;
+- HUMAN_DOCUMENT no vacío;
+- MACHINE_DATA presente;
+- AGENT_HANDOFF presente.
+
+Resultado esperado:
+
+    Artifact & Handoff Layer smoke test PASSED.
+
+### Validar consumo compacto
+
+En el siguiente AGENTIC_EXECUTION abrir:
+
+    Context Snapshots
+
+Debe aparecer un componente:
+
+    ARTIFACT_CONTEXT
+
+Su provenance mostrará referencias a MACHINE_DATA / AGENT_HANDOFF /
+EVIDENCE_SET.
+
+No debe aparecer el HUMAN_DOCUMENT completo como contexto automático.
+
+Este es el punto principal de la optimización: el documento permanece disponible
+para la persona, pero no se convierte en coste obligatorio para el siguiente
+agente.
