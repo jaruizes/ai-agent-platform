@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
+from app.business.artifact_service import ArtifactService
 from app.business.catalog_service import CatalogService
 from app.business.context_engine import ContextEngine
 from app.business.execution_service import ExecutionService
@@ -22,6 +23,7 @@ from app.business.step_executor import StepExecutor
 from app.business.tool_service import ToolService
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
 from app.infrastructure.api.rest.admin_router import create_admin_router
+from app.infrastructure.api.rest.artifact_router import create_artifact_router
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
 from app.infrastructure.api.rest.governance_router import create_governance_router
 from app.infrastructure.api.rest.eval_router import create_eval_router
@@ -40,6 +42,7 @@ from app.infrastructure.knowledge.embeddings import HashEmbeddingProvider
 from app.infrastructure.knowledge.parsers import DocumentParser
 from app.infrastructure.orchestration.langgraph_engine import LangGraphOrchestrationEngine
 from app.infrastructure.observability.telemetry import configure_telemetry
+from app.infrastructure.persistence.postgres.artifact_repository import PostgresArtifactRepository
 from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
 from app.infrastructure.persistence.postgres.database import Database
 from app.infrastructure.persistence.postgres.execution_repository import PostgresExecutionRepository
@@ -57,6 +60,12 @@ HTTPXClientInstrumentor().instrument()
 
 database = Database(settings.database_url)
 execution_repository = PostgresExecutionRepository(database)
+artifact_repository = PostgresArtifactRepository(database)
+artifact_service = ArtifactService(
+    artifact_repository,
+    context_max_chars=settings.artifact_context_max_chars,
+    handoff_max_chars=settings.artifact_handoff_max_chars,
+)
 
 if settings.knowledge_embedding_provider.lower() != "hash":
     raise ValueError(
@@ -179,6 +188,7 @@ step_executor = StepExecutor(
     model_gateway=model_gateway,
     execution_repository=execution_repository,
     context_engine=context_engine,
+    artifact_service=artifact_service,
     governance_service=governance_service,
     execution_model_profile=settings.execution_model_profile,
     knowledge_top_k=settings.knowledge_top_k,
@@ -282,6 +292,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(create_router(execution_service))
+app.include_router(create_artifact_router(artifact_service))
 app.include_router(create_admin_router(database, nats_adapter, settings))
 app.include_router(create_catalog_router(catalog_service))
 app.include_router(create_governance_router(governance_service))
