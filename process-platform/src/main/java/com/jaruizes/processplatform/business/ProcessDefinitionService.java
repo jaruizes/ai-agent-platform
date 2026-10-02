@@ -330,6 +330,37 @@ public class ProcessDefinitionService {
                         "AGENTIC_EXECUTION step '%s' requires configuration.intent"
                                 .formatted(step.stepKey()));
             }
+            if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.AGENTIC_EXECUTION
+                    && step.configuration().get("artifactPolicy") instanceof Map<?,?> artifactPolicy
+                    && Boolean.parseBoolean(String.valueOf(
+                            artifactPolicy.getOrDefault("enabled", false)))) {
+                var schema = stringValue(artifactPolicy.get("schema"));
+                if (schema == null || schema.isBlank()) {
+                    throw new IllegalArgumentException(
+                            "AGENTIC_EXECUTION step '%s' artifactPolicy.schema is required"
+                                    .formatted(step.stepKey()));
+                }
+                var humanType = stringValue(
+                        artifactPolicy.containsKey("humanArtifactType")
+                                ? artifactPolicy.get("humanArtifactType")
+                                : "HUMAN_DOCUMENT");
+                if (!Set.of("HUMAN_DOCUMENT", "FINAL_DELIVERABLE")
+                        .contains(humanType)) {
+                    throw new IllegalArgumentException(
+                            "AGENTIC_EXECUTION step '%s' has invalid artifactPolicy.humanArtifactType '%s'"
+                                    .formatted(step.stepKey(), humanType));
+                }
+                var maxOutputTokens = integerValue(
+                        artifactPolicy.containsKey("maxOutputTokens")
+                                ? artifactPolicy.get("maxOutputTokens")
+                                : 8000);
+                if (maxOutputTokens == null || maxOutputTokens < 1000) {
+                    throw new IllegalArgumentException(
+                            "AGENTIC_EXECUTION step '%s' artifactPolicy.maxOutputTokens must be >= 1000"
+                                    .formatted(step.stepKey()));
+                }
+            }
+
             if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.HUMAN
                     && !hasText(step.configuration().get("title"))) {
                 throw new IllegalArgumentException(
