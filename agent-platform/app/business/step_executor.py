@@ -524,11 +524,17 @@ class StepExecutor:
             artifact_context=artifact_context,
             artifact_provenance=artifact_provenance,
         )
+        artifact_max_tokens = (
+            int(artifact_policy.get("maxOutputTokens"))
+            if capture_artifacts and artifact_policy.get("maxOutputTokens")
+            else None
+        )
         detail = await self._model_gateway.complete_detailed(
             system_prompt=effective.system_prompt,
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
+            max_tokens=artifact_max_tokens,
             timeout_seconds=step.timeout_seconds,
         )
 
