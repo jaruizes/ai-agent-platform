@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, ProcessDefinition, ProcessHumanTask, ProcessInstance, ProcessServiceDefinition, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
+import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionArtifact, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, ProcessDefinition, ProcessHumanTask, ProcessInstance, ProcessServiceDefinition, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
 
 @Injectable({providedIn:'root'})
 export class ApiService {
@@ -124,6 +124,9 @@ export class ApiService {
   processHumanTasks(pendingOnly=false){return firstValueFrom(this.http.get<ProcessHumanTask[]>(`${this.processBase}/human-tasks`,{params:pendingOnly?{pendingOnly:'true'}:{}}));}
   completeProcessHumanTask(id:string,decision:string,result:any){return firstValueFrom(this.http.post<ProcessHumanTask>(`${this.processBase}/human-tasks/${id}/complete`,{decision,result}));}
   signalProcessEvent(eventType:string,correlationId:string,payload:any){return firstValueFrom(this.http.post<any>(`${this.processBase}/process-events`,{eventType,correlationId,payload}));}
+
+  executionArtifacts(executionId:string){return firstValueFrom(this.http.get<ExecutionArtifact[]>(`${this.base}/executions/${executionId}/artifacts`));}
+  artifact(id:string){return firstValueFrom(this.http.get<ExecutionArtifact>(`${this.base}/artifacts/${id}`));}
 
   private json(v:any){if(typeof v==='string'){try{return JSON.parse(v||'{}')}catch{throw new Error('JSON inválido');}}return v||{};}
   private jsonArray(v:any){if(Array.isArray(v))return v;if(typeof v==='string'){try{return JSON.parse(v||'[]')}catch{return v.split(/\s+/).filter(Boolean);}}return [];}
