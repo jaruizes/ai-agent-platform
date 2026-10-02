@@ -1037,3 +1037,50 @@ No debe aparecer el HUMAN_DOCUMENT completo como contexto automático.
 Este es el punto principal de la optimización: el documento permanece disponible
 para la persona, pero no se convierte en coste obligatorio para el siguiente
 agente.
+
+
+---
+
+## Human review UX: artifact first, transport payload second
+
+A HUMAN process task must not expose the integration envelope as its primary
+review experience.
+
+The review hierarchy is:
+
+```text
+1. HUMAN_DOCUMENT / FINAL_DELIVERABLE
+   -> primary review surface
+
+2. Legacy generated output
+   -> compatibility fallback for process definitions created before artifactPolicy
+
+3. Technical payload/result
+   -> diagnostic information only
+```
+
+This matters because the Process Platform input envelope contains implementation
+details such as `processInput`, `context`, dependencies and delegated execution
+results. Those are useful for debugging but are not a business review document.
+
+The Control Plane therefore renders human artifacts as structured review
+content and keeps the raw payload behind an explicit "Show technical payload /
+result" control.
+
+The expansion state is owned by Angular rather than the native HTML `details`
+element. This is intentional: the Control Plane refreshes live process state
+periodically, and replacing task objects during polling must not collapse a
+reviewer-opened diagnostic panel.
+
+### Backward compatibility
+
+Existing ACTIVE process definitions are immutable and may predate
+`artifactPolicy`.
+
+When a HUMAN review receives no typed human artifact, Control Plane attempts to
+extract the previous producer's generated narrative output and renders it as
+"Legacy output". This allows an in-flight process to be reviewed without
+restarting it.
+
+New process versions should enable typed artifact output on reviewable
+AGENTIC_EXECUTION producers.
