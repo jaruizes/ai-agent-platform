@@ -6,6 +6,7 @@ import re
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.business.ports import ArtifactRepositoryPort
 from app.domain.artifact import ARTIFACT_TYPES, Artifact
 
 
@@ -18,7 +19,7 @@ _JSON_FENCE = re.compile(
 class ArtifactService:
     def __init__(
         self,
-        repository,
+        repository: ArtifactRepositoryPort,
         *,
         context_max_chars: int = 24000,
         handoff_max_chars: int = 8000,
