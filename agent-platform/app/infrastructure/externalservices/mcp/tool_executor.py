@@ -23,12 +23,14 @@ class InfrastructureToolExecutor:
         repository: ToolRepositoryPort,
         mcp_client: McpStdioClient,
         parser: DocumentParser | None = None,
+        artifact_service=None,
         *,
         mcp_workspace_root: str = "/opt/workspace",
     ):
         self._repository = repository
         self._mcp_client = mcp_client
         self._parser = parser or DocumentParser()
+        self._artifact_service = artifact_service
         self._mcp_workspace_root = Path(mcp_workspace_root).resolve()
 
     async def execute(self, tool: Tool, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -36,6 +38,8 @@ class InfrastructureToolExecutor:
             return await self._execute_mcp(tool, arguments)
         if tool.implementation_type == "GOOGLE_DRIVE_READ":
             return await self._execute_google_drive_read(tool, arguments)
+        if tool.implementation_type == "GOOGLE_DOCS_ARTIFACT_WRITE":
+            return await self._execute_google_docs_artifact_write(tool, arguments)
         raise NotImplementedError(
             f"Tool implementation type '{tool.implementation_type}' is not supported yet"
         )
@@ -52,6 +56,73 @@ class InfrastructureToolExecutor:
             "implementation": "MCP",
             "server": server.name,
             "tool": remote_tool_name,
+            "output": self._normalize_mcp_result(raw),
+        }
+
+    async def _execute_google_docs_artifact_write(
+        self,
+        tool: Tool,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self._artifact_service is None:
+            raise RuntimeError(
+                "GOOGLE_DOCS_ARTIFACT_WRITE requires ArtifactService"
+            )
+        server_name = str(tool.configuration.get("server") or "")
+        if not server_name:
+            raise ValueError(
+                "GOOGLE_DOCS_ARTIFACT_WRITE tool requires configuration.server"
+            )
+        server = await self._repository.get_mcp_server_by_name(server_name)
+        if not server:
+            raise LookupError(f"MCP server '{server_name}' does not exist")
+
+        artifact_id_raw = str(arguments.get("artifactId") or "").strip()
+        if not artifact_id_raw:
+            raise ValueError("artifactId is required")
+        from uuid import UUID
+        try:
+            artifact_id = UUID(artifact_id_raw)
+        except ValueError as exc:
+            raise ValueError("artifactId must be a valid UUID") from exc
+
+        artifact = await self._artifact_service.get(artifact_id)
+        if not artifact:
+            raise LookupError(f"Artifact '{artifact_id}' does not exist")
+        if artifact.artifact_type not in {
+            "HUMAN_DOCUMENT",
+            "FINAL_DELIVERABLE",
+        }:
+            raise ValueError(
+                "Only HUMAN_DOCUMENT or FINAL_DELIVERABLE artifacts can "
+                "be materialized as Google Docs"
+            )
+        if not isinstance(artifact.content, dict):
+            raise ValueError("Artifact content is not a document object")
+        document_text = str(artifact.content.get("markdown") or "").strip()
+        if not document_text:
+            raise ValueError("Artifact does not contain markdown document text")
+
+        title = str(arguments.get("title") or artifact.title).strip()
+        destination_folder = str(
+            arguments.get("destinationFolderId") or ""
+        ).strip()
+        mcp_arguments: dict[str, Any] = {
+            "title": title or artifact.title,
+            "text": document_text,
+        }
+        if destination_folder:
+            mcp_arguments["destinationFolderId"] = destination_folder
+
+        raw = await self._mcp_client.call_tool(
+            server,
+            "docs_create_with_text",
+            mcp_arguments,
+        )
+        return {
+            "implementation": "GOOGLE_DOCS_ARTIFACT_WRITE",
+            "server": server.name,
+            "artifact": artifact.ref(),
             "output": self._normalize_mcp_result(raw),
         }
 
