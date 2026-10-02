@@ -516,8 +516,9 @@
             <label>Human artifact type<select [(ngModel)]="s.artifactHumanType"><option>HUMAN_DOCUMENT</option><option>FINAL_DELIVERABLE</option></select></label>
             <label>Capture only agents<input [(ngModel)]="s.artifactAgentNames" placeholder="business-analyst, solution-architect"></label>
             <label>Max output tokens<input type="number" min="1000" step="1000" [(ngModel)]="s.artifactMaxOutputTokens"></label>
+            <label class="check"><input type="checkbox" [(ngModel)]="s.artifactAllowWriteTools"> Allow WRITE tools inside this agentic execution</label>
           </div>
-          <p class="muted">One model call produces separate artifacts. Downstream agents automatically receive only MACHINE_DATA, AGENT_HANDOFF and evidence; the long human document is not injected into their context.</p>
+          <p class="muted">One authoritative producer call creates the artifact bundle. Downstream agents receive only MACHINE_DATA, AGENT_HANDOFF and evidence. Disable WRITE tools for intermediate outputs that will be reviewed by a HUMAN process step.</p>
         </div>
       </ng-container>
       <ng-container *ngIf="s.type==='DECISION'">
