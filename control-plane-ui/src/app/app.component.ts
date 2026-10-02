@@ -547,6 +547,24 @@ export class AppComponent implements OnInit,OnDestroy {
     return refs.filter((x,index,arr)=>arr.findIndex(y=>y.artifactId===x.artifactId)===index);
   }
 
+  artifactDisplayBlocks(a:ExecutionArtifact){
+    const raw=String(a.content?.markdown||'');
+    const blocks:any[]=[];
+    let paragraph:string[]=[];
+    const flush=()=>{if(paragraph.length){blocks.push({kind:'p',text:paragraph.join(' ')});paragraph=[];}};
+    for(const sourceLine of raw.split('\n')){
+      const line=sourceLine.trim();
+      if(!line){flush();continue;}
+      const heading=line.match(/^(#{1,3})\s+(.+)$/);
+      if(heading){flush();blocks.push({kind:'h'+heading[1].length,text:heading[2]});continue;}
+      const bullet=line.match(/^[-*]\s+(.+)$/);
+      if(bullet){flush();blocks.push({kind:'li',text:bullet[1]});continue;}
+      paragraph.push(line);
+    }
+    flush();
+    return blocks;
+  }
+
   async openArtifact(ref:any){
     await this.run(async()=>{
       this.selectedArtifact.set(await this.api.artifact(ref.artifactId||ref.id));
