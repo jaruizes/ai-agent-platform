@@ -175,6 +175,7 @@ planner_service = PlannerService(
     prompt_service,
     tool_service,
     knowledge_service,
+    artifact_service,
     model_gateway,
     plan_validator,
     plan_policy_enricher,
