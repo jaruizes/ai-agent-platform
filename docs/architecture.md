@@ -5758,3 +5758,68 @@ Platform enforces semantic execution contracts
 
 Artifact ownership is therefore part of deterministic orchestration policy, not
 prompt convention.
+
+
+### ADR-114 — Intermediate artifact production is separated from external materialization
+
+**Estado:** Accepted
+
+A reviewable `AGENTIC_EXECUTION` may produce an internal typed artifact without
+performing an external WRITE.
+
+For intermediate business artifacts such as qualification reports and solution
+designs:
+
+```text
+AGENTIC_EXECUTION
+    -> HUMAN_DOCUMENT / MACHINE_DATA / AGENT_HANDOFF
+    -> Process HUMAN review
+```
+
+External materialization is deliberately disabled with:
+
+```json
+"artifactPolicy": {
+  "allowWriteTools": false
+}
+```
+
+The deterministic planner validation rejects any WRITE Tool in such a plan.
+
+This avoids three failure modes:
+
+1. an Agent Platform approval gate appearing before the Process HUMAN review;
+2. Process Platform timing out while the delegated execution waits for Tool approval;
+3. external documents being created for iterations that the reviewer may immediately reject.
+
+Final deliverables may explicitly set `allowWriteTools=true`.
+
+### ADR-115 — A typed artifact execution has exactly one authoritative producer
+
+**Estado:** Accepted
+
+When `artifactPolicy.agentNames` identifies the authoritative artifact producer,
+that producer may appear exactly once in the LogicalPlan.
+
+Specialists are allowed and encouraged when useful:
+
+```text
+security-architect ----┐
+data-architect --------┼--> solution-architect --> artifact bundle
+cloud-architect -------┘
+```
+
+This is preferred over:
+
+```text
+solution-architect
+    -> solution-architect
+        -> solution-architect
+```
+
+Repeated calls to the same authoritative producer inflate context, latency and
+cost and can create multiple competing artifact versions inside a single
+business step.
+
+The platform validates the invariant after planning and uses the normal repair
+cycle if the LLM proposes an invalid decomposition.
