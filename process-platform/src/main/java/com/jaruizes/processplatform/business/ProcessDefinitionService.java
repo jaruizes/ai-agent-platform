@@ -333,7 +333,9 @@ public class ProcessDefinitionService {
             if (step.type() == com.jaruizes.processplatform.domain.model.ProcessStepType.AGENTIC_EXECUTION
                     && step.configuration().get("artifactPolicy") instanceof Map<?,?> artifactPolicy
                     && Boolean.parseBoolean(String.valueOf(
-                            artifactPolicy.getOrDefault("enabled", false)))) {
+                            artifactPolicy.containsKey("enabled")
+                                    ? artifactPolicy.get("enabled")
+                                    : false))) {
                 var schema = stringValue(artifactPolicy.get("schema"));
                 if (schema == null || schema.isBlank()) {
                     throw new IllegalArgumentException(
