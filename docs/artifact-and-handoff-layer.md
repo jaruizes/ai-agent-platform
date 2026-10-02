@@ -802,6 +802,52 @@ revisó anteriormente.
 
 ---
 
+
+## 18.1 El productor del artifact es un contrato, no una sugerencia
+
+Cuando una fase declara:
+
+    "agentNames": ["solution-architect"]
+
+la intención no es simplemente influir al planner.
+
+Agent Platform valida después del planning que:
+
+- existe un step AGENT ejecutado por `solution-architect`;
+- ese step forma parte del camino que conduce al resultado final.
+
+Por ejemplo, este plan es inválido:
+
+    solution-architect     business-analyst
+          |                      |
+          v                      v
+      artifact                 final
+
+porque el productor configurado queda desconectado del resultado final.
+
+El patrón aceptado es:
+
+    specialists
+        |
+        v
+    solution-architect
+        |
+        v
+      final
+
+Esta decisión ilustra una separación importante en plataformas agénticas:
+
+    LLM
+    propone una estrategia
+
+    Plataforma
+    garantiza invariantes
+
+Los prompts expresan intención. Los contratos críticos de ejecución se validan
+en código.
+
+---
+
 ## 19. Limitaciones de esta primera versión
 
 La implementación inicial es deliberadamente pequeña.
