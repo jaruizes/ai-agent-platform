@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from './api.service';
-import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, ProcessDefinition, ProcessHumanTask, ProcessInstance, ProcessServiceDefinition, ProcessStepDefinition, ProcessStepType, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
+import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionArtifact, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, ProcessDefinition, ProcessHumanTask, ProcessInstance, ProcessServiceDefinition, ProcessStepDefinition, ProcessStepType, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
 
 type View='dashboard'|'executions'|'approvals'|'processes'|'sessions'|'memory'|'agents'|'skills'|'prompts'|'tools'|'mcp'|'knowledge'|'governance'|'evals'|'runtime';
 type ProcessTab='definitions'|'instances'|'services'|'human';
@@ -19,7 +19,7 @@ export class AppComponent implements OnInit,OnDestroy {
   sessions=signal<SessionInfo[]>([]); memories=signal<MemoryInfo[]>([]); contextSnapshots=signal<ContextSnapshot[]>([]); executionContext=signal<any[]>([]);
   memoryPolicy=signal<any>(null); memoryAudit=signal<any[]>([]); selectedSession=signal<SessionInfo|null>(null); sessionContext=signal<any[]>([]); sessionExecutions=signal<any[]>([]);
   memoryQuery=''; memoryScopeType='SESSION'; memoryScopeId=''; memoryTopK=8; memoryHits=signal<MemoryInfo[]>([]);
-  selectedExecution=signal<ExecutionDetail|null>(null); orchestration=signal<Orchestration|null>(null); selectedKb=signal<KnowledgeBase|null>(null);
+  selectedExecution=signal<ExecutionDetail|null>(null); orchestration=signal<Orchestration|null>(null); selectedKb=signal<KnowledgeBase|null>(null); selectedArtifact=signal<ExecutionArtifact|null>(null);
   modal=signal<string|null>(null); draft:any={}; search=''; executionStatus=''; retrievalQuery=''; retrievalTopK=8; actor='operator'; approvalComment='';
   agentKnowledge=signal<any[]>([]); knowledgeDraft:Record<string,string>={};
 
@@ -277,7 +277,12 @@ export class AppComponent implements OnInit,OnDestroy {
       reviewRepeatStep:step.configuration?.review?.repeatStep||'',
       reviewApproveDecision:step.configuration?.review?.approveDecision||'APPROVE',
       reviewRepeatDecision:step.configuration?.review?.repeatDecision||'REQUEST_CHANGES',
-      reviewMaxIterations:step.configuration?.review?.maxIterations||5
+      reviewMaxIterations:step.configuration?.review?.maxIterations||5,
+      artifactEnabled:!!step.configuration?.artifactPolicy?.enabled,
+      artifactSchema:step.configuration?.artifactPolicy?.schema||'generic-agent-output/v1',
+      artifactHumanTitle:step.configuration?.artifactPolicy?.humanTitle||step.name||step.stepKey,
+      artifactHumanType:step.configuration?.artifactPolicy?.humanArtifactType||'HUMAN_DOCUMENT',
+      artifactAgentNames:(step.configuration?.artifactPolicy?.agentNames||[]).join(', ')
     });
     this.modal.set('process-step');
   }
@@ -291,6 +296,16 @@ export class AppComponent implements OnInit,OnDestroy {
         config.intent=s.configuration?.intent||'';
         config.instructions=(s.instructions||'').split('\n').map((x:string)=>x.trim()).filter(Boolean);
         config.metadata=JSON.parse(s.metadata||'{}');
+        delete config.artifactPolicy;
+        if(s.artifactEnabled){
+          config.artifactPolicy={
+            enabled:true,
+            schema:s.artifactSchema||'generic-agent-output/v1',
+            humanTitle:s.artifactHumanTitle||s.name||s.stepKey,
+            humanArtifactType:s.artifactHumanType||'HUMAN_DOCUMENT',
+            agentNames:String(s.artifactAgentNames||'').split(',').map((x:string)=>x.trim()).filter(Boolean)
+          };
+        }
       }
       if(s.type==='DECISION'){
         config.value=s.decisionValue===''||s.decisionValue==null?null:JSON.parse(s.decisionValue);
@@ -515,6 +530,26 @@ export class AppComponent implements OnInit,OnDestroy {
     return (this.processDesigner()?.steps||[]).filter((s:any)=>
       s.stepKey!==currentStepKey
       && (s.type==='SERVICE'||s.type==='AGENTIC_EXECUTION'));
+  }
+
+  taskArtifactRefs(task:ProcessHumanTask){
+    const refs:any[]=[];
+    const visit=(value:any)=>{
+      if(Array.isArray(value)){value.forEach(visit);return;}
+      if(value&&typeof value==='object'){
+        if(value.artifactId&&value.type)refs.push(value);
+        Object.values(value).forEach(visit);
+      }
+    };
+    visit(task.payload);
+    return refs.filter((x,index,arr)=>arr.findIndex(y=>y.artifactId===x.artifactId)===index);
+  }
+
+  async openArtifact(ref:any){
+    await this.run(async()=>{
+      this.selectedArtifact.set(await this.api.artifact(ref.artifactId||ref.id));
+      this.modal.set('artifact');
+    });
   }
 
   humanTaskReviewPolicy(task:ProcessHumanTask){
