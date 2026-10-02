@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.business.artifact_service import ArtifactService
 from app.business.knowledge_service import KnowledgeService
 from app.business.plan_policy_enricher import PlanPolicyEnricher
 from app.business.plan_validator import PlanValidator
@@ -20,6 +21,7 @@ class PlannerService:
         prompt_service: PromptService,
         tool_service: ToolService,
         knowledge_service: KnowledgeService,
+        artifact_service: ArtifactService,
         model_gateway: ModelGatewayPort,
         validator: PlanValidator,
         policy_enricher: PlanPolicyEnricher,
@@ -30,6 +32,7 @@ class PlannerService:
         self._prompt_service = prompt_service
         self._tool_service = tool_service
         self._knowledge_service = knowledge_service
+        self._artifact_service = artifact_service
         self._model_gateway = model_gateway
         self._validator = validator
         self._policy_enricher = policy_enricher
@@ -52,6 +55,14 @@ class PlannerService:
         }
 
         prompt = await self._prompt_service.get_by_name("planner-v1")
+        artifact_context, artifact_provenance = (
+            await self._artifact_service.build_agent_context(
+                {
+                    "input": command.input,
+                    "context": command.context,
+                }
+            )
+        )
         detail = await self._model_gateway.complete_detailed(
             system_prompt=prompt.content,
             user_prompt=json.dumps(
@@ -62,6 +73,8 @@ class PlannerService:
                         "input": command.input,
                         "context": command.context,
                         "instructions": command.instructions,
+                        "artifactContext": artifact_context,
+                        "artifactProvenance": artifact_provenance,
                     },
                     "availableAgents": [
                         {
@@ -144,6 +157,8 @@ class PlannerService:
                             "input": command.input,
                             "context": command.context,
                             "instructions": command.instructions,
+                            "artifactContext": artifact_context,
+                            "artifactProvenance": artifact_provenance,
                         },
                         "previousPlan": plan.as_dict(),
                         "validationErrors": validation.errors,
