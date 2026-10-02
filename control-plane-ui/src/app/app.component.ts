@@ -284,7 +284,8 @@ export class AppComponent implements OnInit,OnDestroy {
       artifactHumanTitle:step.configuration?.artifactPolicy?.humanTitle||step.name||step.stepKey,
       artifactHumanType:step.configuration?.artifactPolicy?.humanArtifactType||'HUMAN_DOCUMENT',
       artifactAgentNames:(step.configuration?.artifactPolicy?.agentNames||[]).join(', '),
-      artifactMaxOutputTokens:step.configuration?.artifactPolicy?.maxOutputTokens||8000
+      artifactMaxOutputTokens:step.configuration?.artifactPolicy?.maxOutputTokens||8000,
+      artifactAllowWriteTools:step.configuration?.artifactPolicy?.allowWriteTools!==false
     });
     this.modal.set('process-step');
   }
@@ -306,7 +307,8 @@ export class AppComponent implements OnInit,OnDestroy {
             humanTitle:s.artifactHumanTitle||s.name||s.stepKey,
             humanArtifactType:s.artifactHumanType||'HUMAN_DOCUMENT',
             agentNames:String(s.artifactAgentNames||'').split(',').map((x:string)=>x.trim()).filter(Boolean),
-            maxOutputTokens:Number(s.artifactMaxOutputTokens||8000)
+            maxOutputTokens:Number(s.artifactMaxOutputTokens||8000),
+            allowWriteTools:!!s.artifactAllowWriteTools
           };
         }
       }
