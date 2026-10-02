@@ -392,7 +392,15 @@
     <ng-container *ngIf="modal()==='artifact' && selectedArtifact() as a">
       <div class="execution-summary"><span class="status-pill">{{a.type}}</span><strong>{{a.title}}</strong><span>v{{a.version}} · {{a.schema}}</span><span>{{a.sizeBytes}} bytes</span></div>
       <p>{{a.summary}}</p>
-      <section class="artifact-human" *ngIf="a.mediaType==='text/markdown'"><pre>{{a.content?.markdown||a.content}}</pre></section>
+      <section class="artifact-human" *ngIf="a.mediaType==='text/markdown'">
+        <ng-container *ngFor="let b of artifactDisplayBlocks(a)">
+          <h1 *ngIf="b.kind==='h1'">{{b.text}}</h1>
+          <h2 *ngIf="b.kind==='h2'">{{b.text}}</h2>
+          <h3 *ngIf="b.kind==='h3'">{{b.text}}</h3>
+          <p *ngIf="b.kind==='p'">{{b.text}}</p>
+          <div class="artifact-bullet" *ngIf="b.kind==='li'">• {{b.text}}</div>
+        </ng-container>
+      </section>
       <details class="json-details" [open]="a.mediaType!=='text/markdown'"><summary>Structured content</summary><pre>{{json(a.content)}}</pre></details>
       <details class="json-details"><summary>Artifact metadata</summary><pre>{{json(a.metadata)}}</pre></details>
     </ng-container>
