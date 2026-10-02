@@ -106,6 +106,7 @@ def test_artifact_policy_rejects_disconnected_producer_branch():
         PlanValidation(valid=True),
         plan,
         command(["business-analyst"]),
+        [],
     )
 
     assert result.valid is False
