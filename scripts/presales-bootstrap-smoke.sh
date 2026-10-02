@@ -43,6 +43,7 @@ required_tools=(
   google-drive-list-folder
   google-drive-read-file
   google-docs-create-with-text
+  google-docs-create-from-artifact
   google-docs-create-document
   google-docs-batch-update
   google-drive-create-folder
