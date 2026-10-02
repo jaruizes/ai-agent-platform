@@ -196,13 +196,13 @@ DEF_BODY=$(cat <<JSON
       "outputSchema":{"type":"object"},
       "configuration":{
         "name":"rfp-response-authoring",
-        "intent":"Act as the final RFP/RFI response owner. Use the original customer documents, the approved business-analysis result and the approved solution-design result as authoritative inputs. Determine first whether the customer explicitly requires a response structure, template, section numbering, questionnaire or compliance matrix. If it does, follow that structure exactly and answer every requested section. If it does not, use the presales-corporate Knowledge Base standard RFP response template. Never invent company capabilities, references, certifications, SLAs, commercial commitments or dates. Use corporate Knowledge only when it contains validated evidence. Produce a complete customer-facing response. If processInput.outputFolderId is non-empty, materialize the final response as a Google Doc using google-docs-create-with-text with a descriptive title and that destination folder. Otherwise return the final response as structured content without creating an external document.",
+        "intent":"Act as the final RFP/RFI response owner. Use the original customer documents, the approved business-analysis result and the approved solution-design result as authoritative inputs. Determine first whether the customer explicitly requires a response structure, template, section numbering, questionnaire or compliance matrix. If it does, follow that structure exactly and answer every requested section. If it does not, use the presales-corporate Knowledge Base standard RFP response template. Never invent company capabilities, references, certifications, SLAs, commercial commitments or dates. Use corporate Knowledge only when it contains validated evidence. Produce a complete customer-facing response. If processInput.outputFolderId is non-empty, materialize the final response as a Google Doc using google-docs-create-from-artifact with the FINAL_DELIVERABLE artifact reference and that destination folder. Otherwise return the final response as structured content without creating an external document.",
         "instructions":[
           "Prefer the customer-required response structure over the corporate template.",
           "Use only approved qualification and approved technical solution content.",
           "Use presales-corporate Knowledge for the default template and validated corporate guidance.",
           "Keep assumptions, dependencies and open questions explicit.",
-          "If outputFolderId is present, use google-docs-create-with-text; this write action requires platform approval.",
+          "If outputFolderId is present, use google-docs-create-from-artifact after the rfp-response-writer artifact is produced; this write action requires platform approval.",
           "Write in processInput.outputLanguage when explicitly set, otherwise use the main language of the customer documents."
         ],
         "retry":{"maxAttempts":2,"backoffMs":2000},
