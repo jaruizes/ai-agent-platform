@@ -29,6 +29,15 @@ class FakeMcpClient:
             return self._text(self.metadata)
         if tool_name in {"docs_get_text", "sheets_get_text", "slides_get_text"}:
             return self._text(self.native_output or {})
+        if tool_name == "docs_create_with_text":
+            return self._text(
+                {
+                    "documentId": "generated-doc",
+                    "title": arguments["title"],
+                    "characterCount": len(arguments["text"]),
+                    "destinationFolderId": arguments.get("destinationFolderId"),
+                }
+            )
         if tool_name == "drive_download_file":
             output = self.root / arguments["outputPath"]
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -148,3 +157,70 @@ async def test_google_drive_reader_downloads_parses_and_cleans_binary(tmp_path: 
     assert not (workspace / "google-drive-reader").exists() or not any(
         (workspace / "google-drive-reader").iterdir()
     )
+
+
+
+class FakeArtifactService:
+    async def get(self, artifact_id):
+        return type(
+            "ArtifactValue",
+            (),
+            {
+                "id": artifact_id,
+                "artifact_type": "FINAL_DELIVERABLE",
+                "title": "Final RFP response",
+                "content": {"markdown": "# Final response\n\nApproved content."},
+                "ref": lambda self: {
+                    "artifactId": str(self.id),
+                    "type": self.artifact_type,
+                    "title": self.title,
+                },
+            },
+        )()
+
+
+def artifact_writer_tool() -> Tool:
+    return Tool(
+        id=uuid4(),
+        name="google-docs-create-from-artifact",
+        description="write artifact",
+        instructions="",
+        implementation_type="GOOGLE_DOCS_ARTIFACT_WRITE",
+        configuration={"server": "google-workspace"},
+        input_schema={"type": "object"},
+        side_effect="WRITE",
+        approval_policy="REQUIRED",
+    )
+
+
+@pytest.mark.asyncio
+async def test_google_docs_writer_materializes_artifact_without_text_argument(tmp_path: Path):
+    client = FakeMcpClient(tmp_path, metadata={})
+    executor = InfrastructureToolExecutor(
+        FakeRepository(server()),
+        client,
+        artifact_service=FakeArtifactService(),
+        mcp_workspace_root=str(tmp_path / "workspace"),
+    )
+    artifact_id = str(uuid4())
+
+    result = await executor.execute(
+        artifact_writer_tool(),
+        {
+            "artifactId": artifact_id,
+            "destinationFolderId": "folder-1",
+        },
+    )
+
+    assert result["implementation"] == "GOOGLE_DOCS_ARTIFACT_WRITE"
+    assert result["artifact"]["artifactId"] == artifact_id
+    assert client.calls == [
+        (
+            "docs_create_with_text",
+            {
+                "title": "Final RFP response",
+                "text": "# Final response\n\nApproved content.",
+                "destinationFolderId": "folder-1",
+            },
+        )
+    ]
