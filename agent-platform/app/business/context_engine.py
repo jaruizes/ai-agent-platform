@@ -50,9 +50,14 @@ class ContextEngine:
         additional_memory_scopes: list[tuple[str, str]] | None = None,
         knowledge_context: str = "",
         knowledge_provenance: list[dict[str, Any]] | None = None,
+        artifact_context: str = "",
+        artifact_provenance: list[dict[str, Any]] | None = None,
     ) -> EffectiveContext:
         components: list[ContextComponent] = []
-        provenance: list[dict[str, Any]] = list(knowledge_provenance or [])
+        provenance: list[dict[str, Any]] = [
+            *(knowledge_provenance or []),
+            *(artifact_provenance or []),
+        ]
 
         system_tokens = self._estimate_tokens(system_prompt)
         components.append(
@@ -227,6 +232,18 @@ class ContextEngine:
                     "scopeId": memory.scope_id,
                     "memoryType": memory.memory_type,
                 }
+            )
+
+        if artifact_context.strip():
+            components.append(
+                ContextComponent(
+                    type="ARTIFACT_CONTEXT",
+                    content=artifact_context,
+                    priority=96,
+                    mandatory=True,
+                    token_estimate=self._estimate_tokens(artifact_context),
+                    metadata={"channel": "user"},
+                )
             )
 
         if knowledge_context.strip():
