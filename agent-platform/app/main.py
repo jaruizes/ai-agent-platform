@@ -133,6 +133,7 @@ tool_executor = InfrastructureToolExecutor(
     tool_repository,
     mcp_client,
     document_parser,
+    artifact_service,
     mcp_workspace_root=settings.mcp_workspace_root,
 )
 tool_service = ToolService(tool_repository, tool_executor)
