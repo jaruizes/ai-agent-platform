@@ -1782,3 +1782,61 @@ bash scripts/m96-create-presales-reference-process.sh
 For full document analysis, Agent Platform must also have a Google Drive
 Tool/MCP available to the planning/execution layer. Process Platform never calls
 that MCP directly.
+
+
+---
+
+# Typed artifacts for AGENTIC_EXECUTION
+
+An AGENTIC_EXECUTION may declare an `artifactPolicy`:
+
+```json
+{
+  "artifactPolicy": {
+    "enabled": true,
+    "schema": "proposal-qualification/v1",
+    "humanTitle": "Informe de entendimiento y cualificación",
+    "humanArtifactType": "HUMAN_DOCUMENT",
+    "agentNames": ["business-analyst"],
+    "maxOutputTokens": 8000
+  }
+}
+```
+
+Process Platform does not persist the full managed artifact body. It forwards the
+policy to Agent Platform and receives compact artifact references in the
+canonical execution result.
+
+Therefore a downstream Process step sees:
+
+```text
+summary
+artifactRefs
+artifactVersion
+artifactScopeKey
+```
+
+instead of having to carry a long human report through ProcessContext.
+
+A following HUMAN step can still review the full HUMAN_DOCUMENT because the
+Control Plane resolves its artifact reference from Agent Platform on demand.
+
+Review-loop iterations naturally version artifacts because Agent Platform uses
+the stable process scope:
+
+```text
+process:{processInstanceId}:step:{processStepKey}
+```
+
+This maintains the bounded-context rule:
+
+```text
+Process Platform
+  owns workflow state + artifact references
+
+Agent Platform
+  owns semantic artifact bodies + context projection
+```
+
+See `docs/artifact-and-handoff-layer.md` for the design rationale, token/cost
+motivation and complete presales example.
