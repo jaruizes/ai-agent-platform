@@ -45,6 +45,9 @@ class ArtifactService:
         artifact_type = str(
             policy.get("humanArtifactType") or "HUMAN_DOCUMENT"
         ).upper()
+        summary_max_tokens = int(policy.get("summaryMaxTokens") or 500)
+        handoff_max_tokens = int(policy.get("handoffMaxTokens") or 1200)
+        machine_max_tokens = int(policy.get("machineMaxTokens") or 2500)
         if artifact_type not in {"HUMAN_DOCUMENT", "FINAL_DELIVERABLE"}:
             artifact_type = "HUMAN_DOCUMENT"
 
@@ -81,6 +84,11 @@ repeat the same long content in several fields.
 
 Machine schema identifier: {schema_name}
 Human artifact type: {artifact_type}
+
+Budgets:
+- summary: <= {summary_max_tokens} tokens.
+- machineData: target <= {machine_max_tokens} tokens.
+- handoff: target <= {handoff_max_tokens} tokens.
 
 Rules:
 - Keep machineData structured and compact; do not copy the human report into it.
