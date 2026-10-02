@@ -36,6 +36,7 @@ export class AppComponent implements OnInit,OnDestroy {
   processDefinitionSearch='';
   processHumanDecision='APPROVED';
   processHumanResult='{}';
+  humanTaskTechnicalOpen:Record<string,boolean>={};
   processSignalEventType='';
   processSignalCorrelation='';
   processSignalPayload='{}';
@@ -547,8 +548,38 @@ export class AppComponent implements OnInit,OnDestroy {
     return refs.filter((x,index,arr)=>arr.findIndex(y=>y.artifactId===x.artifactId)===index);
   }
 
-  artifactDisplayBlocks(a:ExecutionArtifact){
-    const raw=String(a.content?.markdown||'');
+  taskReviewArtifacts(task:ProcessHumanTask){
+    return this.taskArtifactRefs(task).filter((a:any)=>
+      a.type==='HUMAN_DOCUMENT'||a.type==='FINAL_DELIVERABLE'
+    );
+  }
+
+  humanTaskProducerStep(task:ProcessHumanTask){
+    const review=this.humanTaskReviewPolicy(task);
+    return review?.repeatStep||Object.keys(task.payload?.dependencies||{})[0]||'';
+  }
+
+  humanTaskProducerResult(task:ProcessHumanTask){
+    const key=this.humanTaskProducerStep(task);
+    return key?task.payload?.dependencies?.[key]:null;
+  }
+
+  humanTaskLegacyReviewText(task:ProcessHumanTask){
+    if(this.taskReviewArtifacts(task).length)return '';
+    const result:any=this.humanTaskProducerResult(task);
+    if(!result)return '';
+    const candidates=[
+      result?.data?.finalStep?.output?.content,
+      result?.data?.finalStep?.summary,
+      result?.output?.content,
+      result?.summary,
+      result?.content
+    ];
+    return String(candidates.find(x=>typeof x==='string'&&x.trim())||'');
+  }
+
+  textDisplayBlocks(rawValue:string){
+    const raw=String(rawValue||'');
     const blocks:any[]=[];
     let paragraph:string[]=[];
     const flush=()=>{if(paragraph.length){blocks.push({kind:'p',text:paragraph.join(' ')});paragraph=[];}};
@@ -563,6 +594,22 @@ export class AppComponent implements OnInit,OnDestroy {
     }
     flush();
     return blocks;
+  }
+
+  artifactDisplayBlocks(a:ExecutionArtifact){
+    return this.textDisplayBlocks(String(a.content?.markdown||''));
+  }
+
+  toggleHumanTaskTechnical(task:ProcessHumanTask){
+    this.humanTaskTechnicalOpen[task.id]=!this.humanTaskTechnicalOpen[task.id];
+  }
+
+  isHumanTaskTechnicalOpen(task:ProcessHumanTask){
+    return !!this.humanTaskTechnicalOpen[task.id];
+  }
+
+  trackByHumanTaskId(_index:number,task:ProcessHumanTask){
+    return task.id;
   }
 
   async openArtifact(ref:any){
