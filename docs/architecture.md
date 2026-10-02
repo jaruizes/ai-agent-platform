@@ -5542,3 +5542,189 @@ Agent Platform
   internal LogicalPlan attempts/timeouts,
   bounded by the delegated execution policy
 ```
+
+
+---
+
+## Artifact & Handoff Layer
+
+Agent Platform manages the semantic outputs of agentic work as typed,
+versioned artifacts instead of treating every model response as a workflow blob.
+
+The detailed rationale and end-to-end example are documented in
+`docs/artifact-and-handoff-layer.md`.
+
+### ADR-104 — Agent outputs are typed artifact bundles
+
+**Estado:** Accepted
+
+When an AGENTIC execution enables `artifactPolicy`, the selected producer agent
+returns a single structured envelope containing:
+
+```text
+summary
+humanDocument
+machineData
+handoff
+evidence
+```
+
+The platform deterministically persists these projections as:
+
+```text
+HUMAN_DOCUMENT
+MACHINE_DATA
+AGENT_HANDOFF
+EVIDENCE_SET
+FINAL_DELIVERABLE
+```
+
+Different consumers therefore receive representations optimized for their
+needs rather than sharing one large narrative string.
+
+### ADR-105 — Artifact projections are produced in one model call
+
+**Estado:** Accepted
+
+The platform does not make follow-up LLM calls to summarize, structure or
+rewrite the result.
+
+The artifact output contract is appended to the producer's existing model call.
+The response is split and persisted deterministically.
+
+If structured parsing fails, the platform keeps the raw output as a
+HUMAN_DOCUMENT and builds a minimal fallback handoff without another model call.
+
+Motivation:
+
+- predictable cost;
+- lower latency;
+- no semantic drift between independently generated projections.
+
+### ADR-106 — Process Platform stores artifact references, not human document bodies
+
+**Estado:** Accepted
+
+Agent Platform owns artifact content. Process Platform receives compact
+`artifactRefs` through the canonical execution result and persists those refs
+in process step output/context.
+
+This prevents long reports from being duplicated across:
+
+- NATS events;
+- process state;
+- review history;
+- subsequent command inputs.
+
+### ADR-107 — HUMAN_DOCUMENT and FINAL_DELIVERABLE are excluded from automatic agent context
+
+**Estado:** Accepted
+
+The Artifact Context resolver automatically hydrates only:
+
+```text
+AGENT_HANDOFF
+MACHINE_DATA
+EVIDENCE_SET
+```
+
+Long human-facing artifacts are not automatically injected into subsequent
+planner/model calls.
+
+A later agent receives compact semantic context and can retrieve source
+material explicitly when needed.
+
+### ADR-108 — Human review loops create immutable artifact versions
+
+**Estado:** Accepted
+
+Artifacts delegated from Process Platform use the stable scope:
+
+```text
+process:{processInstanceId}:step:{processStepKey}
+```
+
+Every new producer execution for the same reviewed process step increments the
+artifact version.
+
+```text
+review iteration 1 -> artifacts v1
+REQUEST_CHANGES
+review iteration 2 -> artifacts v2
+```
+
+Previous versions remain immutable for audit and future diffing.
+
+### ADR-109 — Internal review artifacts precede external document side effects
+
+**Estado:** Accepted
+
+Intermediate HUMAN process reviews should use internal HUMAN_DOCUMENT artifacts.
+
+A planner must not introduce a WRITE Tool solely to create an intermediate
+document when `artifactPolicy` already provides a reviewable internal
+artifact, unless external materialization is an explicit requirement.
+
+This avoids:
+
+```text
+generate -> external WRITE approval -> business review
+```
+
+and prefers:
+
+```text
+generate -> internal artifact -> business review -> external WRITE if needed
+```
+
+### ADR-110 — External document materialization uses artifact references
+
+**Estado:** Accepted
+
+The preferred Google Docs writer for a managed document is:
+
+```text
+google-docs-create-from-artifact
+```
+
+It accepts an `artifactId`, resolves the document body internally and calls
+the Google Workspace MCP.
+
+The long document is therefore not copied into LogicalPlan tool arguments.
+
+The Tool remains governed as:
+
+```text
+sideEffect=WRITE
+approvalPolicy=REQUIRED
+```
+
+### ADR-111 — Artifact production and consumption have explicit budgets
+
+**Estado:** Accepted
+
+Artifact-producing AGENT steps can declare `maxOutputTokens`.
+
+The output contract also sets compact semantic targets for summary,
+MACHINE_DATA and AGENT_HANDOFF.
+
+Artifact context has an independent bounded size before it is given to a model.
+
+The goal is to reduce context structurally before applying optimizations such as
+prompt caching.
+
+### ADR-112 — Artifact storage is behind a port
+
+**Estado:** Accepted
+
+The initial implementation stores artifact bodies as PostgreSQL JSONB for
+transactional simplicity.
+
+Business code depends on `ArtifactRepositoryPort`, allowing a future
+implementation such as:
+
+```text
+PostgreSQL metadata + S3/Blob/GCS bodies
+```
+
+without changing Process Platform or agent contracts.
