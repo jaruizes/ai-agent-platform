@@ -181,6 +181,13 @@
             <div class="approval-top"><span class="status-pill" [ngClass]="statusClass(t.status)">{{t.status}}</span><small>iteration {{t.iteration}} · {{date(t.createdAt)}}</small></div>
             <h3>{{t.title}}</h3><p>{{t.description||'Human action required by process.'}}</p>
             <dl><div><dt>Process</dt><dd class="mono">{{t.processInstanceId}}</dd></div><div><dt>Step</dt><dd>{{t.stepKey}}</dd></div><div *ngIf="t.decision"><dt>Decision</dt><dd>{{t.decision}}</dd></div></dl>
+            <div class="artifact-review-list" *ngIf="taskArtifactRefs(t).length">
+              <strong>Review artifacts</strong>
+              <article class="artifact-review-item" *ngFor="let a of taskArtifactRefs(t)">
+                <div><span class="status-pill">{{a.type}}</span><b>{{a.title}}</b><small>v{{a.version}} · {{a.schema}}</small><p>{{a.summary}}</p></div>
+                <button class="ghost small" (click)="openArtifact(a)">Open</button>
+              </article>
+            </div>
             <ng-container *ngIf="t.status==='PENDING'">
               <textarea class="mono" rows="3" [(ngModel)]="processHumanResult" placeholder='{"comment":"Add review feedback here"}'></textarea>
               <ng-container *ngIf="humanTaskReviewPolicy(t) as review;else genericHumanActions">
@@ -371,8 +378,15 @@
 </div>
 
 <div class="modal-backdrop" *ngIf="modal() && modal()!=='execution'">
-  <section class="modal" [class.wide]="modal()==='prompt'||modal()==='tool'||modal()==='agent'||modal()==='process-designer'||modal()==='process-instance'"><header><div><span class="eyebrow">CONTROL PLANE EDITOR</span><h2>{{modal()|titlecase}}</h2></div><button class="icon-btn" (click)="cancelModal()">×</button></header>
+  <section class="modal" [class.wide]="modal()==='prompt'||modal()==='tool'||modal()==='agent'||modal()==='process-designer'||modal()==='process-instance'||modal()==='artifact'"><header><div><span class="eyebrow">CONTROL PLANE EDITOR</span><h2>{{modal()|titlecase}}</h2></div><button class="icon-btn" (click)="cancelModal()">×</button></header>
   <div class="modal-body">
+    <ng-container *ngIf="modal()==='artifact' && selectedArtifact() as a">
+      <div class="execution-summary"><span class="status-pill">{{a.type}}</span><strong>{{a.title}}</strong><span>v{{a.version}} · {{a.schema}}</span><span>{{a.sizeBytes}} bytes</span></div>
+      <p>{{a.summary}}</p>
+      <section class="artifact-human" *ngIf="a.mediaType==='text/markdown'"><pre>{{a.content?.markdown||a.content}}</pre></section>
+      <details class="json-details" [open]="a.mediaType!=='text/markdown'"><summary>Structured content</summary><pre>{{json(a.content)}}</pre></details>
+      <details class="json-details"><summary>Artifact metadata</summary><pre>{{json(a.metadata)}}</pre></details>
+    </ng-container>
     <ng-container *ngIf="modal()==='create-execution'"><label>Name<input [(ngModel)]="draft.name"></label><label>Session<select [(ngModel)]="draft.sessionId"><option value="">No session</option><option *ngFor="let s of sessions()" [value]="s.id" [disabled]="s.status!=='ACTIVE'">{{s.name||s.id}} · {{s.scope}}</option></select></label><label>Intent<textarea rows="4" [(ngModel)]="draft.intent"></textarea></label><label>Input JSON<textarea rows="5" class="mono" [(ngModel)]="draft.input"></textarea></label><label>Context JSON<textarea rows="3" class="mono" [(ngModel)]="draft.context"></textarea></label><label>Instructions · one per line<textarea rows="3" [(ngModel)]="draft.instructions"></textarea></label></ng-container>
     <ng-container *ngIf="modal()==='session'"><label>Name<input [(ngModel)]="draft.name"></label><div class="form-grid two"><label>Scope<select [(ngModel)]="draft.scope"><option>USER</option><option>TEAM</option><option>TENANT</option></select></label><label>Owner key<input [(ngModel)]="draft.ownerKey" placeholder="required for USER/TEAM; useful for TENANT"></label></div><label>Expires at<input type="datetime-local" [(ngModel)]="draft.expiresAt"></label><label>Metadata JSON<textarea rows="5" class="mono" [(ngModel)]="draft.metadata"></textarea></label></ng-container>
     <ng-container *ngIf="modal()==='session-inspect' && selectedSession() as s"><div class="execution-summary"><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span><span>{{s.name||s.id}}</span><span>{{s.scope}} · {{s.ownerKey||'—'}}</span></div><h3>Executions</h3><div class="doc-list"><article *ngFor="let x of sessionExecutions()"><div><strong>{{x.command_name||x.commandName||'execution'}}</strong><small class="mono">{{x.id}}</small></div><span class="status-pill" [ngClass]="statusClass(x.status)">{{x.status}}</span></article></div><details class="json-details" open><summary>Working Context · {{sessionContext().length}} entries</summary><pre>{{json(sessionContext())}}</pre></details></ng-container>
@@ -444,6 +458,16 @@
         <label>Intent<textarea rows="5" [(ngModel)]="s.configuration.intent" placeholder="What objective should Agent Platform solve?"></textarea></label>
         <label>Instructions · one per line<textarea rows="4" [(ngModel)]="s.instructions"></textarea></label>
         <label>Metadata JSON<textarea rows="4" class="mono" [(ngModel)]="s.metadata"></textarea></label>
+        <label class="check"><input type="checkbox" [(ngModel)]="s.artifactEnabled"> Typed artifact output: human report + machine data + compact agent handoff</label>
+        <div class="review-config" *ngIf="s.artifactEnabled">
+          <div class="form-grid two">
+            <label>Machine schema<input [(ngModel)]="s.artifactSchema" placeholder="proposal-qualification/v1"></label>
+            <label>Human artifact title<input [(ngModel)]="s.artifactHumanTitle"></label>
+            <label>Human artifact type<select [(ngModel)]="s.artifactHumanType"><option>HUMAN_DOCUMENT</option><option>FINAL_DELIVERABLE</option></select></label>
+            <label>Capture only agents<input [(ngModel)]="s.artifactAgentNames" placeholder="business-analyst, solution-architect"></label>
+          </div>
+          <p class="muted">One model call produces separate artifacts. Downstream agents automatically receive only MACHINE_DATA, AGENT_HANDOFF and evidence; the long human document is not injected into their context.</p>
+        </div>
       </ng-container>
       <ng-container *ngIf="s.type==='DECISION'">
         <div class="form-grid two"><label>Path<input [(ngModel)]="s.configuration.path" placeholder="processInput.score"></label><label>Operator<select [(ngModel)]="s.configuration.operator"><option *ngFor="let op of ['EQ','NE','GT','GTE','LT','LTE','EXISTS','IN']">{{op}}</option></select></label><label>Value JSON<input class="mono" [(ngModel)]="s.decisionValue" placeholder='true, 80, "HIGH", ["A","B"]'></label><label>True outcome<input [(ngModel)]="s.configuration.onTrue"></label><label>False outcome<input [(ngModel)]="s.configuration.onFalse"></label></div>
