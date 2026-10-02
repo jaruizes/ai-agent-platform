@@ -5728,3 +5728,33 @@ PostgreSQL metadata + S3/Blob/GCS bodies
 ```
 
 without changing Process Platform or agent contracts.
+
+
+### ADR-113 — The configured artifact producer is a deterministic planning invariant
+
+**Estado:** Accepted
+
+When `artifactPolicy.agentNames` is non-empty, the configured names are not
+merely suggestions to the LLM planner.
+
+After planning, Agent Platform validates that:
+
+1. at least one AGENT step uses one of the configured producer names; and
+2. that producer contributes to the graph path that reaches `finalStepId`.
+
+If the invariant fails, the normal planner-repair cycle receives the validation
+error. A repaired plan that still violates the invariant is rejected.
+
+This prevents a subtle failure mode where the planner chooses specialists but
+omits the agent that owns the typed output contract, causing an apparently
+successful execution with no authoritative artifact bundle.
+
+The principle is:
+
+```text
+LLM proposes topology
+Platform enforces semantic execution contracts
+```
+
+Artifact ownership is therefore part of deterministic orchestration policy, not
+prompt convention.
