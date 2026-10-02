@@ -38,6 +38,8 @@ Rules:
 - A plan can contain a single step.
 - If command.artifactPolicy.enabled=true, the platform will persist the selected AGENT output as typed HUMAN_DOCUMENT/MACHINE_DATA/AGENT_HANDOFF artifacts. Do not add a WRITE tool merely to create an intermediate review document unless the intent explicitly requires external materialization. Prefer the internal artifact for HUMAN process review.
 - If command.artifactPolicy.agentNames is non-empty, one of those exact agents must be the authoritative producer/synthesis AGENT for the requested result. Specialist agents may precede it, but they do not replace the configured artifact producer.
+- The configured artifact producer must appear exactly once in the plan. If specialist analysis is useful, use the corresponding specialist agents and let the configured producer synthesize their outputs once.
+- If command.artifactPolicy.allowWriteTools=false, do not include any WRITE tool in the plan. The typed internal artifact is the reviewable output for this execution.
 - If a typed HUMAN_DOCUMENT or FINAL_DELIVERABLE must be materialized externally, prefer google-docs-create-from-artifact and pass the prior AGENT artifactId by placeholder. Do not copy long document text into toolArguments.
 - Set requiresApproval=true only for meaningful human gates, especially irreversible or externally visible side effects.
 - timeoutSeconds is the maximum wall-clock time for one attempt of the step.
