@@ -124,18 +124,22 @@ class ToolService:
                 raise ValueError(f"MCP server '{server_name}' does not exist")
             return
 
-        if implementation_type == "GOOGLE_DRIVE_READ":
+        if implementation_type in {
+            "GOOGLE_DRIVE_READ",
+            "GOOGLE_DOCS_ARTIFACT_WRITE",
+        }:
             server_name = configuration.get("server")
             if not server_name:
                 raise ValueError(
-                    "GOOGLE_DRIVE_READ tools require configuration.server"
+                    f"{implementation_type} tools require configuration.server"
                 )
             if not await self._repository.get_mcp_server_by_name(server_name):
                 raise ValueError(f"MCP server '{server_name}' does not exist")
             return
 
         raise ValueError(
-            "implementationType must be MCP or GOOGLE_DRIVE_READ"
+            "implementationType must be MCP, GOOGLE_DRIVE_READ or "
+            "GOOGLE_DOCS_ARTIFACT_WRITE"
         )
 
     @staticmethod
