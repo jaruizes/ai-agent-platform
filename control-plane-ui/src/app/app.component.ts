@@ -285,7 +285,8 @@ export class AppComponent implements OnInit,OnDestroy {
       artifactHumanType:step.configuration?.artifactPolicy?.humanArtifactType||'HUMAN_DOCUMENT',
       artifactAgentNames:(step.configuration?.artifactPolicy?.agentNames||[]).join(', '),
       artifactMaxOutputTokens:step.configuration?.artifactPolicy?.maxOutputTokens||8000,
-      artifactAllowWriteTools:step.configuration?.artifactPolicy?.allowWriteTools!==false
+      materializationEnabled:!!step.configuration?.materializationPolicy?.enabled,
+      materializationAllowedTools:(step.configuration?.materializationPolicy?.allowedTools||[]).join(', ')
     });
     this.modal.set('process-step');
   }
@@ -300,6 +301,7 @@ export class AppComponent implements OnInit,OnDestroy {
         config.instructions=(s.instructions||'').split('\n').map((x:string)=>x.trim()).filter(Boolean);
         config.metadata=JSON.parse(s.metadata||'{}');
         delete config.artifactPolicy;
+        delete config.materializationPolicy;
         if(s.artifactEnabled){
           config.artifactPolicy={
             enabled:true,
@@ -307,8 +309,13 @@ export class AppComponent implements OnInit,OnDestroy {
             humanTitle:s.artifactHumanTitle||s.name||s.stepKey,
             humanArtifactType:s.artifactHumanType||'HUMAN_DOCUMENT',
             agentNames:String(s.artifactAgentNames||'').split(',').map((x:string)=>x.trim()).filter(Boolean),
-            maxOutputTokens:Number(s.artifactMaxOutputTokens||8000),
-            allowWriteTools:!!s.artifactAllowWriteTools
+            maxOutputTokens:Number(s.artifactMaxOutputTokens||8000)
+          };
+        }
+        if(s.materializationEnabled){
+          config.materializationPolicy={
+            enabled:true,
+            allowedTools:String(s.materializationAllowedTools||'').split(',').map((x:string)=>x.trim()).filter(Boolean)
           };
         }
       }
