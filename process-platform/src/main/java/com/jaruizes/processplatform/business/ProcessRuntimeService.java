@@ -500,6 +500,11 @@ public class ProcessRuntimeService {
                     "artifactPolicy",
                     new LinkedHashMap<String,Object>((Map<String,Object>) artifactPolicy));
         }
+        if (configuration.get("materializationPolicy") instanceof Map<?,?> materializationPolicy) {
+            metadata.put(
+                    "materializationPolicy",
+                    new LinkedHashMap<String,Object>((Map<String,Object>) materializationPolicy));
+        }
 
         var retryPolicy = retryPolicy(configuration);
         var agentPolicy = configuration.get("agentPolicy") instanceof Map<?,?> values
