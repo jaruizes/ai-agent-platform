@@ -284,20 +284,56 @@ class PlannerService:
                     "final result path"
                 )
 
-        if policy.get("allowWriteTools") is False:
-            tools_by_name = {tool.name: tool for tool in tools}
-            write_steps = [
-                step.id
-                for step in plan.steps
-                if step.type == "TOOL"
-                and step.tool_name in tools_by_name
-                and tools_by_name[step.tool_name].side_effect.upper() == "WRITE"
+        tools_by_name = {tool.name: tool for tool in tools}
+        write_steps = [
+            step
+            for step in plan.steps
+            if step.type == "TOOL"
+            and step.tool_name in tools_by_name
+            and tools_by_name[step.tool_name].side_effect.upper() == "WRITE"
+        ]
+
+        materialization = (
+            command.metadata.get("materializationPolicy")
+            if isinstance(command.metadata.get("materializationPolicy"), dict)
+            else {}
+        )
+        legacy_explicit_write = policy.get("allowWriteTools") is True
+        materialization_enabled = bool(materialization.get("enabled", False)) or legacy_explicit_write
+        allowed_tools = {
+            str(name).strip()
+            for name in (materialization.get("allowedTools") or [])
+            if str(name).strip()
+        }
+
+        if write_steps and not materialization_enabled:
+            errors.append(
+                "External WRITE tools require explicit materializationPolicy.enabled=true; "
+                "artifact output alone never authorizes external publication"
+            )
+
+        if write_steps and allowed_tools:
+            disallowed = [
+                step.tool_name
+                for step in write_steps
+                if step.tool_name not in allowed_tools
             ]
-            if write_steps:
+            if disallowed:
                 errors.append(
-                    "artifactPolicy.allowWriteTools=false forbids WRITE tool steps: "
-                    + ", ".join(write_steps)
+                    "materializationPolicy only allows WRITE tools: "
+                    + ", ".join(sorted(allowed_tools))
+                    + "; disallowed: "
+                    + ", ".join(sorted(set(disallowed)))
                 )
+
+        if write_steps and producer_steps:
+            producer_id = producer_steps[0].id
+            for step in write_steps:
+                if producer_id not in step.depends_on:
+                    errors.append(
+                        f"WRITE tool step '{step.id}' must depend directly on "
+                        f"artifact producer '{producer_id}'"
+                    )
 
         return PlanValidation(
             valid=not errors,
