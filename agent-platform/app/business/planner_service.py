@@ -297,8 +297,7 @@ class PlannerService:
             if isinstance(command.metadata.get("materializationPolicy"), dict)
             else {}
         )
-        legacy_explicit_write = policy.get("allowWriteTools") is True
-        materialization_enabled = bool(materialization.get("enabled", False)) or legacy_explicit_write
+        materialization_enabled = bool(materialization.get("enabled", False))
         allowed_tools = {
             str(name).strip()
             for name in (materialization.get("allowedTools") or [])
