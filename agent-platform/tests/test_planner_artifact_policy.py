@@ -137,7 +137,7 @@ def test_artifact_policy_without_agent_names_remains_generic():
     assert result.valid is True
 
 
-def command_with_write_policy(agent_names, allow_write_tools):
+def command_with_materialization(agent_names, enabled, allowed_tools=None):
     return Command(
         name="proposal",
         intent="Produce proposal",
@@ -145,8 +145,11 @@ def command_with_write_policy(agent_names, allow_write_tools):
             "artifactPolicy": {
                 "enabled": True,
                 "agentNames": agent_names,
-                "allowWriteTools": allow_write_tools,
-            }
+            },
+            "materializationPolicy": {
+                "enabled": enabled,
+                "allowedTools": allowed_tools or [],
+            },
         },
     )
 
@@ -190,7 +193,7 @@ def test_artifact_policy_rejects_multiple_authoritative_producer_calls():
     assert any("exactly one authoritative producer" in item for item in result.errors)
 
 
-def test_artifact_policy_rejects_write_tool_when_disabled():
+def test_artifact_policy_rejects_write_tool_without_materialization():
     write_tool = Tool(
         id=uuid4(),
         name="google-docs-create-from-artifact",
@@ -223,7 +226,7 @@ def test_artifact_policy_rejects_write_tool_when_disabled():
     result = PlannerService._apply_artifact_policy_validation(
         PlanValidation(valid=True),
         plan,
-        command_with_write_policy(["solution-architect"], False),
+        command_with_materialization(["solution-architect"], False),
         [write_tool],
     )
 
@@ -231,7 +234,7 @@ def test_artifact_policy_rejects_write_tool_when_disabled():
     assert any("forbids WRITE tool steps" in item for item in result.errors)
 
 
-def test_artifact_policy_allows_write_tool_for_final_deliverable():
+def test_artifact_policy_allows_explicit_materialization_for_final_deliverable():
     write_tool = Tool(
         id=uuid4(),
         name="google-docs-create-from-artifact",
@@ -264,8 +267,57 @@ def test_artifact_policy_allows_write_tool_for_final_deliverable():
     result = PlannerService._apply_artifact_policy_validation(
         PlanValidation(valid=True),
         plan,
-        command_with_write_policy(["rfp-response-writer"], True),
+        command_with_materialization(
+            ["rfp-response-writer"],
+            True,
+            ["google-docs-create-from-artifact"],
+        ),
         [write_tool],
     )
 
     assert result.valid is True
+
+
+def test_materialization_rejects_write_tool_not_in_allowlist():
+    docs_tool = Tool(
+        id=uuid4(),
+        name="google-docs-create-from-artifact",
+        description="write",
+        instructions="",
+        implementation_type="MCP",
+        side_effect="WRITE",
+        approval_policy="REQUIRED",
+    )
+    plan = LogicalPlan(
+        objective="Publish result",
+        steps=[
+            PlanStep(
+                id="write-response",
+                type="AGENT",
+                description="Author response",
+                agent_name="rfp-response-writer",
+            ),
+            PlanStep(
+                id="materialize",
+                type="TOOL",
+                description="Materialize",
+                tool_name="google-docs-create-from-artifact",
+                depends_on=["write-response"],
+            ),
+        ],
+        final_step_id="materialize",
+    )
+
+    result = PlannerService._apply_artifact_policy_validation(
+        PlanValidation(valid=True),
+        plan,
+        command_with_materialization(
+            ["rfp-response-writer"],
+            True,
+            ["some-other-write-tool"],
+        ),
+        [docs_tool],
+    )
+
+    assert result.valid is False
+    assert any("disallowed" in item for item in result.errors)
