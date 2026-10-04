@@ -321,3 +321,44 @@ def test_materialization_rejects_write_tool_not_in_allowlist():
 
     assert result.valid is False
     assert any("disallowed" in item for item in result.errors)
+
+
+def test_artifact_output_without_fixed_agent_still_forbids_implicit_write():
+    write_tool = Tool(
+        id=uuid4(),
+        name="google-docs-create-from-artifact",
+        description="write",
+        instructions="",
+        implementation_type="MCP",
+        side_effect="WRITE",
+        approval_policy="REQUIRED",
+    )
+    plan = LogicalPlan(
+        objective="Analyse",
+        steps=[
+            PlanStep(
+                id="analyse",
+                type="AGENT",
+                description="Analyse",
+                agent_name="business-analyst",
+            ),
+            PlanStep(
+                id="publish",
+                type="TOOL",
+                description="Publish",
+                tool_name="google-docs-create-from-artifact",
+                depends_on=["analyse"],
+            ),
+        ],
+        final_step_id="publish",
+    )
+
+    result = PlannerService._apply_artifact_policy_validation(
+        PlanValidation(valid=True),
+        plan,
+        command([]),
+        [write_tool],
+    )
+
+    assert result.valid is False
+    assert any("explicit materializationPolicy" in item for item in result.errors)
