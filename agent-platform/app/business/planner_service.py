@@ -236,53 +236,52 @@ class PlannerService:
             for value in (policy.get("agentNames") or [])
             if str(value).strip()
         ]
-        if not configured:
-            return validation
-
         producer_steps = [
             step
             for step in plan.steps
-            if step.type == "AGENT" and step.agent_name in configured
+            if step.type == "AGENT" and (
+                not configured or step.agent_name in configured
+            )
         ]
         errors = list(validation.errors)
 
-        if not producer_steps:
-            errors.append(
-                "artifactPolicy requires an authoritative producer AGENT from: "
-                + ", ".join(configured)
-            )
-        elif len(producer_steps) > 1:
-            errors.append(
-                "artifactPolicy requires exactly one authoritative producer AGENT; "
-                "specialist decomposition must use other agents"
-            )
-        else:
-            by_id = {step.id: step for step in plan.steps}
-            final_id = plan.final_step_id
-
-            def reaches_final(step_id: str) -> bool:
-                if step_id == final_id:
-                    return True
-                visited: set[str] = set()
-                frontier = [step_id]
-                while frontier:
-                    current = frontier.pop()
-                    if current in visited:
-                        continue
-                    visited.add(current)
-                    for candidate in plan.steps:
-                        if current not in candidate.depends_on:
-                            continue
-                        if candidate.id == final_id:
-                            return True
-                        frontier.append(candidate.id)
-                return False
-
-            if not any(reaches_final(step.id) for step in producer_steps):
+        if configured:
+            if not producer_steps:
                 errors.append(
-                    "artifactPolicy producer AGENT must contribute to the "
-                    "final result path"
+                    "artifactPolicy requires an authoritative producer AGENT from: "
+                    + ", ".join(configured)
                 )
+            elif len(producer_steps) > 1:
+                errors.append(
+                    "artifactPolicy requires exactly one authoritative producer AGENT; "
+                    "specialist decomposition must use other agents"
+                )
+            else:
+                final_id = plan.final_step_id
+
+                def reaches_final(step_id: str) -> bool:
+                    if step_id == final_id:
+                        return True
+                    visited: set[str] = set()
+                    frontier = [step_id]
+                    while frontier:
+                        current = frontier.pop()
+                        if current in visited:
+                            continue
+                        visited.add(current)
+                        for candidate in plan.steps:
+                            if current not in candidate.depends_on:
+                                continue
+                            if candidate.id == final_id:
+                                return True
+                            frontier.append(candidate.id)
+                    return False
+
+                if not any(reaches_final(step.id) for step in producer_steps):
+                    errors.append(
+                        "artifactPolicy producer AGENT must contribute to the "
+                        "final result path"
+                    )
 
         tools_by_name = {tool.name: tool for tool in tools}
         write_steps = [
@@ -326,7 +325,7 @@ class PlannerService:
                     + ", ".join(sorted(set(disallowed)))
                 )
 
-        if write_steps and producer_steps:
+        if write_steps and configured and len(producer_steps) == 1:
             producer_id = producer_steps[0].id
             for step in write_steps:
                 if producer_id not in step.depends_on:
