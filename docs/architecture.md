@@ -5823,3 +5823,54 @@ business step.
 
 The platform validates the invariant after planning and uses the normal repair
 cycle if the LLM proposes an invalid decomposition.
+
+
+### ADR-116 — Agent artifacts are internal by default; external materialization is explicit
+
+**Estado:** Accepted
+
+Agent output and external publication are separate concerns.
+
+`artifactPolicy` controls managed internal outputs:
+
+```text
+HUMAN_DOCUMENT
+MACHINE_DATA
+AGENT_HANDOFF
+EVIDENCE_SET
+FINAL_DELIVERABLE
+```
+
+It never grants permission to execute an external WRITE.
+
+External generation/publication requires a separate explicit contract:
+
+```json
+{
+  "materializationPolicy": {
+    "enabled": true,
+    "allowedTools": ["google-docs-create-from-artifact"]
+  }
+}
+```
+
+Without that policy, any WRITE Tool proposed by the LLM planner is rejected
+deterministically, even when destination-like values such as `outputFolderId`
+exist in process input.
+
+The planner therefore cannot infer side-effect permission from data.
+
+Examples:
+
+```text
+"produce a qualification report"
+    -> internal artifacts only
+
+"produce the qualification report as a Google Doc"
+    -> internal artifacts
+    -> explicit materialization policy
+    -> Google Docs WRITE approval
+```
+
+The same pattern applies to presentations, spreadsheets, files, emails and
+future external output channels.
