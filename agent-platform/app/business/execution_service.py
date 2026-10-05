@@ -279,6 +279,15 @@ class ExecutionService:
                 )
                 final = orchestration["final"]
 
+                artifacts: list[dict[str, Any]] = []
+                seen_artifacts: set[str] = set()
+                for step_result in (orchestration.get("stepResults") or {}).values():
+                    for artifact in step_result.get("artifacts") or []:
+                        artifact_id = str(artifact.get("artifactId") or "")
+                        if artifact_id and artifact_id not in seen_artifacts:
+                            seen_artifacts.add(artifact_id)
+                            artifacts.append(artifact)
+
                 result = {
                     "type": (
                         "agent-response"
@@ -299,7 +308,7 @@ class ExecutionService:
                             "recovered": planner_detail.get("recovered", False),
                         },
                     },
-                    "artifacts": final.get("artifacts") or [],
+                    "artifacts": artifacts,
                 }
 
                 stage = "PERSIST_RESULT"

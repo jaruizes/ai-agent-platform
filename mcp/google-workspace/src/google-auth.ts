@@ -87,7 +87,7 @@ function waitForAuthorizationCode(server: http.Server, redirectUri: string): Pro
 
         clearTimeout(timeout);
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end("<h2>Proposal Copilot authenticated.</h2><p>You can close this tab.</p>");
+        res.end("<h2>AI Agent Platform Google Workspace authenticated.</h2><p>You can close this tab.</p>");
         server.close();
         resolve(code);
       } catch (error) {

@@ -15,6 +15,23 @@ services:
       timeout: 5s
       retries: 20
 
+
+  process-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${PROCESS_POSTGRES_DB:-process_platform}
+      POSTGRES_USER: ${PROCESS_POSTGRES_USER:-process}
+      POSTGRES_PASSWORD: ${PROCESS_POSTGRES_PASSWORD:-process}
+    ports:
+      - "${PROCESS_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - process-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PROCESS_POSTGRES_USER:-process} -d ${PROCESS_POSTGRES_DB:-process_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   nats:
     image: nats:2.11-alpine
     command: ["-js", "-m", "8222", "--store_dir", "/data"]
@@ -47,6 +64,18 @@ services:
       - ./litellm/litellm-config.yaml:/app/config.yaml:ro
     ports:
       - "4000:4000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/readiness', timeout=3).read()",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
 
   jaeger:
     image: jaegertracing/all-in-one:1.62.0
@@ -113,6 +142,8 @@ services:
       EXECUTION_CONTROL_POLL_SECONDS: ${EXECUTION_CONTROL_POLL_SECONDS:-0.5}
       MCP_TIMEOUT_SECONDS: ${MCP_TIMEOUT_SECONDS:-60}
       MCP_MAX_MESSAGE_BYTES: ${MCP_MAX_MESSAGE_BYTES:-16777216}
+      GOOGLE_OAUTH_CREDENTIALS: /run/secrets/google/google-oauth-credentials.json
+      GOOGLE_OAUTH_TOKEN: /run/secrets/google/google-token.json
       MAX_TOOL_RESULT_CHARS_FOR_MODEL: ${MAX_TOOL_RESULT_CHARS_FOR_MODEL:-500000}
       KNOWLEDGE_EMBEDDING_PROVIDER: hash
       KNOWLEDGE_EMBEDDING_MODEL: hash-embedding-v1
@@ -155,6 +186,35 @@ services:
       nats:
         condition: service_started
       litellm:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+
+  process-platform:
+    build:
+      context: .
+      dockerfile: process-platform/Dockerfile
+    environment:
+      SERVER_PORT: 8090
+      PROCESS_DB_URL: jdbc:postgresql://process-postgres:5432/${PROCESS_POSTGRES_DB:-process_platform}
+      PROCESS_DB_USER: ${PROCESS_POSTGRES_USER:-process}
+      PROCESS_DB_PASSWORD: ${PROCESS_POSTGRES_PASSWORD:-process}
+      NATS_URL: nats://nats:4222
+      AGENT_PLATFORM_COMMAND_SUBJECT: ${AGENT_PLATFORM_COMMAND_SUBJECT:-platform.commands.execution}
+      AGENT_PLATFORM_EVENTS_SUBJECT: ${AGENT_PLATFORM_EVENTS_SUBJECT:-platform.events.execution.>}
+      AGENT_PLATFORM_EVENTS_DURABLE: ${AGENT_PLATFORM_EVENTS_DURABLE:-process-platform-agent-events}
+      AGENT_PLATFORM_NATS_MAX_COMMAND_BYTES: ${AGENT_PLATFORM_NATS_MAX_COMMAND_BYTES:-900000}
+      GOOGLE_OAUTH_TOKEN: /run/secrets/google/google-token.json
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    volumes:
+      - ./.secrets:/run/secrets/google:ro
+    ports:
+      - "${PROCESS_PLATFORM_PORT:-8090}:8090"
+    depends_on:
+      process-postgres:
+        condition: service_healthy
+      nats:
         condition: service_started
       otel-collector:
         condition: service_started
@@ -168,6 +228,8 @@ services:
     depends_on:
       agent-platform:
         condition: service_started
+      process-platform:
+        condition: service_started
 
 
 volumes:
@@ -176,3 +238,4 @@ volumes:
   prometheus-data:
   grafana-data:
   knowledge-data:
+  process-postgres-data:

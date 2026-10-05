@@ -4261,3 +4261,1616 @@ A dataset version is captured on every EvalRun. Historical results remain tied t
 **Contexto:** M8.4
 
 The Angular application creates/edits resources and displays persisted state. It does not iterate cases, call agents/models, calculate scores or decide whether a run regressed.
+
+
+---
+
+## M9 — Deterministic Process Orchestration
+
+### M9.1 — Canonical Process Platform / Agent Platform integration
+
+M9 introduces a separate Process Platform. It is a different bounded context and
+deployable from Agent Platform.
+
+```text
+Process Platform
+= deterministic business/process flow
+
+Agent Platform
+= open-ended agentic problem solving
+```
+
+M9.1 defines only the asynchronous integration boundary.
+
+```text
+Process Platform
+      |
+      | ExecutionCommand
+      v
+ platform.commands.execution
+      |
+      v
+Agent Platform
+      |
+      +--> platform.events.execution.lifecycle
+      +--> platform.events.execution.orchestration
+      +--> platform.events.execution.result
+      |
+      v
+Process Platform
+```
+
+The Process Platform implementation is Spring Boot / Java 21 with base package:
+
+```text
+com.jaruizes.processplatform
+```
+
+and package boundaries:
+
+```text
+business
+domain
+infrastructure
+```
+
+Agent Platform internals are not shared with the Process Platform.
+
+### External-to-internal event boundary
+
+NATS is an infrastructure concern.
+
+```text
+NATS ExecutionEvent
+      ↓
+NatsAgentPlatformEventConsumer
+      ↓
+AgentPlatformIntegrationService
+      ↓
+ExecutionEventPublisherPort
+      ↓
+AgentExecutionEventReceived
+```
+
+Future process orchestration code consumes the internal event. Therefore replacing
+NATS does not modify ProcessDefinition/ProcessInstance semantics.
+
+### Delivery semantics
+
+Commands are published through JetStream and use the command `messageId` as
+`Nats-Msg-Id`.
+
+Agent Platform already persists request message IDs and treats duplicate command
+delivery idempotently.
+
+The Process Platform event consumer is durable. Its first creation uses
+`DeliverNew` to avoid consuming events emitted before that Process Platform
+integration existed; subsequent restarts resume from the durable consumer offset.
+
+### ADR-061 — Process Platform is a separate bounded context
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+Deterministic process orchestration is not added to the Agent Platform runtime.
+It is implemented as an independent Spring Boot service communicating exclusively
+through public platform contracts.
+
+### ADR-062 — ExecutionCommand / ExecutionEvent are the boundary, NATS is transport
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+Business/process code does not know NATS subjects, JetStream consumers or JSON
+transport details. It submits a canonical ExecutionCommand through a port and
+receives canonical ExecutionEvent objects.
+
+### ADR-063 — Process Platform never calls Agent Platform internals
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+The Process Platform cannot call Planner, LangGraph, MCP, Agent registries or
+model providers directly. Agentic work is always delegated as an execution.
+
+### ADR-064 — External execution events become internal application events
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+Inbound Agent Platform events are immediately converted into
+`AgentExecutionEventReceived`. M9.2 process runtime will consume that internal
+event and therefore remain independent of NATS.
+
+### ADR-065 — M9.1 diagnostic journal is not process state
+
+**Estado:** Accepted  
+**Contexto:** M9.1
+
+The bounded in-memory event journal exists only to validate and inspect the
+integration. Durable ProcessDefinition, ProcessInstance, ProcessStep and
+ProcessContext state are deferred to M9.2.
+
+
+---
+
+## M9.2 — Process Domain & Durable State
+
+M9.2 introduces the deterministic process model inside the independent Process Platform.
+
+### Domain
+
+```text
+ProcessDefinition
+      |
+      +-- definitionKey
+      +-- version
+      +-- status
+      +-- input/output contracts
+      +-- ProcessStepDefinition[]
+               |
+               +-- stepKey
+               +-- type
+               +-- dependsOn[]
+               +-- inputSchema
+               +-- outputSchema
+               +-- configuration
+
+ProcessInstance
+      |
+      +-- exact ProcessDefinition id/version
+      +-- input
+      +-- ProcessContext
+      +-- ProcessStepInstance[]
+```
+
+The deterministic definition and the agentic LogicalPlan remain different models:
+
+```text
+ProcessDefinition
+  design-time
+  human/configuration defined
+  reusable
+  versioned
+  deterministic
+
+LogicalPlan
+  runtime
+  planner generated
+  execution-specific
+  agentic
+```
+
+### Version semantics
+
+A process version is mutable only while DRAFT.
+
+```text
+DRAFT -> ACTIVE -> RETIRED
+```
+
+An ACTIVE definition is immutable. Changes require a new version.
+
+A ProcessInstance stores both the concrete `definitionId` and
+`definitionVersion`. It never follows a moving "latest" reference after creation.
+
+When callers create an instance without specifying a version, the highest ACTIVE
+version is selected at that instant.
+
+### Dependency graph
+
+Dependencies are explicit in `dependsOn`.
+
+```text
+A
+├── B
+└── C
+    |
+B + C
+  |
+  D
+```
+
+This model naturally expresses sequential and parallel paths. M9.2 validates that:
+
+- step keys are unique;
+- dependencies reference existing steps;
+- self-dependencies are rejected;
+- cycles are rejected.
+
+Execution/scheduling of the graph is intentionally deferred to M9.3.
+
+### Step types
+
+The domain reserves the following deterministic process step kinds:
+
+```text
+SERVICE
+AGENTIC_EXECUTION
+DECISION
+HUMAN
+WAIT_EVENT
+SUBPROCESS
+```
+
+`TOOL` is intentionally excluded from Process Platform terminology. Tools are
+owned by Agent Platform and are invoked only by agents through the Agent
+Platform Tool/MCP subsystem.
+
+Agentic delegation is represented only as:
+
+```text
+AGENTIC_EXECUTION
+  -> objective delegated through the standard ExecutionCommand
+  -> Agent Platform decides agents, tools, knowledge and plan
+```
+
+Process Platform never identifies a concrete Agent Platform agent.
+
+M9.2 only models these step types. Their runtime adapters belong to M9.3.
+
+### Step contracts
+
+Every ProcessStepDefinition has independent `inputSchema` and `outputSchema`.
+
+This creates a deterministic contract around probabilistic steps:
+
+```text
+validated input
+      |
+      v
+ AGENTIC STEP
+      |
+      v
+validated output
+```
+
+M9.2 persists/version-controls the schemas. M9.3 will enforce them at execution time.
+
+### Process Context
+
+ProcessContext is durable state owned by Process Platform.
+
+```text
+Process input
+     |
+     v
+ProcessInstance
+     |
+     +--> ProcessContext
+             |
+             +-- step A output
+             +-- step B output
+             +-- business/process variables
+```
+
+It is intentionally distinct from Agent Platform Working Context, Session,
+Persistent Memory and Knowledge.
+
+### Independent persistence
+
+Process Platform owns a separate PostgreSQL database.
+
+```text
+Agent Platform  ---> agent_platform DB
+
+Process Platform ---> process_platform DB
+```
+
+There are no foreign keys, shared JPA entities or cross-database reads between
+the two bounded contexts.
+
+M9.2 tables:
+
+```text
+process_definitions
+process_step_definitions
+process_instances
+process_step_instances
+```
+
+### ADR-066 — ProcessDefinition and LogicalPlan are separate models
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+A ProcessDefinition describes a known deterministic process designed before
+execution. A LogicalPlan is generated dynamically by Agent Platform to solve an
+open-ended execution. Similar graph shape does not justify sharing the aggregate.
+
+### ADR-067 — Process versions become immutable when ACTIVE
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+Only DRAFT definitions are editable. Changes to a published process create a new
+version. Historical ProcessInstances therefore remain reproducible.
+
+### ADR-068 — ProcessInstance is pinned to an exact definition version
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+Resolution of "latest active" happens only when the instance is created. The
+resolved definition id/version are persisted and never silently upgraded.
+
+### ADR-069 — Parallelism is dependency semantics, not a container step
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+The graph uses `dependsOn`. Independent ready steps can later run concurrently.
+A synthetic PARALLEL step is not required for basic fan-out/fan-in semantics.
+
+### ADR-070 — ProcessContext is process state, not Agent Memory
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+Intermediate deterministic workflow data is persisted in Process Platform.
+Persistent Memory and Working Context in Agent Platform are not used as the
+source of truth for process progression.
+
+### ADR-071 — Process Platform owns independent persistence
+
+**Estado:** Accepted  
+**Contexto:** M9.2
+
+The Process Platform database is physically/logically independent from Agent
+Platform persistence. Integration remains exclusively through public
+ExecutionCommand / ExecutionEvent contracts.
+
+
+---
+
+## M9.3 — Deterministic Process Runtime
+
+M9.3 executes the persisted M9.2 deterministic DAG.
+
+### Runtime progression
+
+```text
+ProcessInstance
+      |
+      v
+dependency evaluation
+      |
+      v
+PENDING -> READY -> RUNNING
+                    |
+                    +-- SERVICE ------------> COMPLETED
+                    |
+                    +-- AGENTIC_EXECUTION
+                              |
+                              v
+                            WAITING
+                              |
+                       ExecutionEvent
+                              |
+                              v
+                         COMPLETED
+```
+
+Ready branches are submitted concurrently using Java virtual threads, but thread
+state is never authoritative. PostgreSQL ProcessInstance/ProcessStepInstance
+state is the source of truth.
+
+### Supported executable step types
+
+M9.3 executes:
+
+```text
+SERVICE
+AGENTIC_EXECUTION
+```
+
+DECISION, HUMAN, WAIT_EVENT and SUBPROCESS remain part of the domain model
+but are deferred to later runtime milestones.
+
+### SERVICE adapter model
+
+A SERVICE step is the Process Platform primitive for an explicit deterministic
+capability selected by the process designer.
+
+```text
+Process Runtime
+     |
+     v
+ProcessServiceHandlerRegistry
+     |
+     v
+ProcessServiceHandlerPort
+     |
+     +--> local deterministic logic
+     |
+     +--> external HTTP/gRPC/database/service adapter
+```
+
+The runtime contains no business-specific switch/case. Deterministic capabilities
+are adapters/plugins.
+
+This is deliberately different from an Agent Platform Tool. A SERVICE may call
+the same external system that an agent eventually reaches through MCP, but Process
+Platform never invokes Agent Platform Tools directly.
+
+SERVICE execution is at-least-once under crash recovery; handlers must therefore
+be idempotent.
+
+### AGENTIC_EXECUTION
+
+The process runtime never resolves a concrete Agent Platform agent.
+
+It creates only the standard public `ExecutionCommand`.
+
+```text
+AGENTIC_EXECUTION
+      |
+      v
+AgentPlatformIntegrationService.prepare()
+      |
+      v
+ExecutionCommand
+      |
+      v
+Process command outbox
+      |
+      v
+NATS
+      |
+      v
+Agent Platform
+```
+
+### Transactional outbox
+
+Agent delegation commits these changes in one Process Platform transaction:
+
+```text
+step.status = WAITING
+step.delegatedExecutionId = executionId
+outbox(messageId, ExecutionCommand) = PENDING
+```
+
+A scheduled publisher sends pending commands via `AgentPlatformCommandPort`.
+
+This avoids the dual-write failure window between process state and NATS.
+
+Delivery remains at-least-once. Duplicate command publication is safe because
+the canonical command retains the same messageId and Agent Platform already
+deduplicates request message IDs.
+
+### Event-driven continuation
+
+M9.1 converts NATS execution events into `AgentExecutionEventReceived`.
+
+M9.3 subscribes to that internal application event:
+
+```text
+execution.result / terminal lifecycle
+        |
+        v
+delegatedExecutionId
+        |
+        v
+ProcessStepInstance
+        |
+        +-- COMPLETED -> validate output -> merge context -> advance DAG
+        |
+        +-- FAILED/CANCELLED -> fail step + process
+```
+
+No Process Runtime code knows NATS.
+
+### Process-neutral step input
+
+The deterministic runtime builds:
+
+```json
+{
+  "processInput": {},
+  "context": {},
+  "dependencies": {
+    "step-a": {}
+  }
+}
+```
+
+This is validated against the step input contract and then supplied to the
+handler/delegated execution.
+
+### Parallel context safety
+
+Parallel branches may complete concurrently.
+
+M9.3 pessimistically locks the ProcessInstance row while merging:
+
+```text
+ProcessContext[stepKey] = output
+```
+
+This prevents lost updates when multiple branches join.
+
+### Durable recovery
+
+A scheduled recovery loop reloads RUNNING/WAITING instances from PostgreSQL.
+
+It:
+
+- re-schedules persisted READY steps;
+- recalculates newly READY dependencies;
+- detects stale RUNNING SERVICE steps and returns them to READY;
+- detects stale pre-outbox AGENTIC_EXECUTION steps and returns them to READY;
+- never re-delegates a WAITING agent step;
+- lets the command outbox retry unpublished execution commands independently.
+
+The stale threshold is configurable because local SERVICE execution has
+at-least-once semantics.
+
+### Contract enforcement
+
+Before progression:
+
+```text
+Process input -> ProcessDefinition.inputSchema
+
+Step input    -> ProcessStepDefinition.inputSchema
+
+Step output   -> ProcessStepDefinition.outputSchema
+
+Final context -> ProcessDefinition.outputSchema
+```
+
+M9.3 implements a deterministic JSON-schema subset: `type`, `required`,
+`properties` and `items`.
+
+### ADR-072 — PostgreSQL is authoritative runtime state
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+Virtual threads are execution workers only. Recovery and progression are derived
+from persisted ProcessInstance and ProcessStepInstance state.
+
+### ADR-073 — Ready steps are claimed before execution
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+A durable READY step must atomically transition to RUNNING before its handler is
+invoked. Pessimistic step locking prevents duplicate local execution caused by
+concurrent progression signals.
+
+### ADR-074 — Agent delegation uses a Process Platform transactional outbox
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+The delegated execution id and pending ExecutionCommand are committed together.
+NATS publication happens asynchronously afterwards.
+
+### ADR-075 — SERVICE handlers are idempotent activities
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+A crash can cause a stale RUNNING deterministic activity to be retried. SERVICE
+handlers therefore have at-least-once semantics and must tolerate repetition.
+
+### ADR-076 — ProcessContext merge is serialized per instance
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+Parallel step completions lock the ProcessInstance while merging output. No
+branch may replace ProcessContext based on a stale in-memory snapshot.
+
+### ADR-077 — Agent Platform remains the only owner of agent selection
+
+**Estado:** Accepted  
+**Contexto:** M9.3
+
+Process Platform exposes only AGENTIC_EXECUTION. It delegates an objective with a
+canonical ExecutionCommand and cannot select concrete Agent Platform agents.
+
+
+### ADR-078 — Tool is not a Process Platform concept
+
+**Estado:** Accepted  
+**Contexto:** M9 terminology hardening
+
+Process Platform exposes deterministic `SERVICE` steps and delegated
+`AGENTIC_EXECUTION` steps. It does not expose a `TOOL` step type.
+
+A SERVICE is an explicit deterministic capability selected by the process
+definition and may call an external service through an adapter.
+
+An AGENTIC_EXECUTION delegates an objective to Agent Platform. If tools are
+needed, Agent Platform selects and invokes them through its own Tool/MCP
+subsystem.
+
+This keeps the bounded contexts and vocabulary unambiguous:
+
+```text
+Process Platform  -> SERVICE | AGENTIC_EXECUTION
+Agent Platform    -> Agents | Tools | MCP
+```
+
+
+---
+
+## M9.4 — Process Capabilities & Long-running Workflow
+
+M9.4 completes the backend process language required by the future visual
+designer.
+
+### Service Registry
+
+A ProcessDefinition no longer references a technical handler.
+
+```text
+ProcessDefinition
+      |
+      | SERVICE
+      | serviceKey + pinned serviceVersion
+      v
+Process Service Registry
+      |
+      | implementationKey
+      v
+ProcessServiceHandlerPort
+      |
+      v
+deterministic adapter / external service
+```
+
+ProcessServiceDefinition uses the same publication discipline as processes:
+
+```text
+DRAFT -> ACTIVE -> RETIRED
+          |
+          +-> next version
+```
+
+Process activation resolves an ACTIVE service version and writes that exact
+version into the immutable ProcessDefinition. Runtime can continue resolving
+that pinned version after the service is RETIRED, but a new ProcessDefinition
+cannot newly select a retired service.
+
+### Deterministic decisions
+
+`DECISION` evaluates persisted data with a restricted operator set:
+
+```text
+EQ NE GT GTE LT LTE EXISTS IN
+```
+
+It produces an explicit `outcome`. Conditional steps reference the decision
+step and expected outcome.
+
+No LLM, Agent Platform or scripting engine participates in deterministic
+branching.
+
+### Branch skip semantics
+
+A non-selected branch becomes `SKIPPED`.
+
+If all dependencies of a step are skipped, that step is recursively skipped.
+A join is runnable when its dependencies are terminal and at least one
+dependency completed.
+
+This supports deterministic fan-out/fan-in without BPMN gateway nodes.
+
+### Durable human work
+
+`HUMAN` creates a persisted HumanTask and transitions the step to WAITING.
+
+```text
+ProcessStep WAITING
+      |
+      +-- HumanTask PENDING
+              |
+              | complete(decision, result)
+              v
+         HumanTask COMPLETED
+              |
+              v
+        ProcessStep COMPLETED
+```
+
+Human completion is locked and idempotent with respect to process progression.
+
+### Durable external events
+
+`WAIT_EVENT` persists:
+
+```text
+eventType
+correlationId
+processInstanceId
+stepKey
+status
+```
+
+No worker/thread waits for the external event.
+
+An inbound Process Event matches the durable subscription, consumes it under a
+pessimistic lock and resumes the step.
+
+The ProcessInstance correlation id is the default wait correlation.
+
+### Runtime controls
+
+M9.4 adds:
+
+```text
+PAUSE
+RESUME
+CANCEL
+```
+
+PAUSE stops new DAG progression but does not attempt to interrupt already
+in-flight external side effects.
+
+A result arriving while PAUSED is persisted; downstream steps wait until RESUME.
+
+CANCEL terminates all non-terminal process steps and cancels pending Human Tasks
+and Event Waits.
+
+Agent Platform cancellation is intentionally not performed through an internal
+API. A future public execution-control contract is required to propagate cancel
+across the bounded-context boundary.
+
+### Durable retries and deadlines
+
+Each ProcessStepInstance now persists:
+
+```text
+attemptCount
+availableAt
+deadlineAt
+```
+
+Automated steps may configure max attempts and backoff. Retry scheduling is
+therefore restart-safe.
+
+Every claimed execution receives a persisted `attemptCount`. Completion,
+retry, failure, delegation and stale-recovery transitions are fenced by that
+expected attempt number.
+
+Therefore a SERVICE result that arrives after its attempt timed out cannot
+overwrite the state of a newer retry.
+
+When an AGENTIC_EXECUTION is retried, the previous delegatedExecutionId is also
+cleared before the new execution is created. Late events from the previous
+attempt cannot correlate with the new attempt.
+
+HUMAN and WAIT_EVENT deadlines fail the waiting step instead of automatically
+creating repeated human/event waits.
+
+### ADR-079 — Process services are catalog capabilities, not handler names
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+The public ProcessDefinition references `serviceKey` and `serviceVersion`.
+`implementationKey` and `ProcessServiceHandlerPort` are internal Process
+Platform implementation details.
+
+### ADR-080 — Service versions are pinned at ProcessDefinition activation
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Activation resolves an ACTIVE service version and freezes it in the published
+process definition. Runtime never follows "latest" dynamically.
+
+Retirement prevents new selection but does not invalidate already-pinned
+ProcessDefinitions.
+
+### ADR-081 — DECISION is deterministic and LLM-free
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Known business branching is evaluated from process data with a restricted
+deterministic expression model. Open-ended judgment belongs in
+AGENTIC_EXECUTION, not DECISION.
+
+### ADR-082 — HUMAN and WAIT_EVENT are durable waits
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Long-running waits are rows in PostgreSQL, never blocked threads. Human actions
+and external events complete those persisted waits and trigger normal DAG
+progression.
+
+### ADR-083 — Pause freezes progression, not external side effects
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+An already-running SERVICE or delegated agent execution may finish while the
+process is paused. The result is persisted, but no downstream work starts until
+resume.
+
+### ADR-084 — Step retries have at-least-once semantics
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Retry state is durable and can repeat side-effecting work after failures or
+timeouts. SERVICE implementations must be idempotent. Agentic retries create a
+new execution and ignore late events from older attempts.
+
+Runtime state transitions use attempt fencing so stale results cannot mutate a
+newer retry. This protects workflow state, but it cannot undo an external side
+effect already performed by an older attempt.
+
+Exactly-once business effects must therefore be implemented through idempotency
+keys or transactional domain boundaries, not assumed from the workflow engine.
+
+
+### ADR-085 — External HTTP calls are Process SERVICE capabilities
+
+**Estado:** Accepted  
+**Contexto:** M9.4
+
+Process Platform provides a generic `http` ProcessServiceHandlerPort adapter.
+The endpoint URL/method/headers belong to the versioned Process Service catalog;
+ProcessDefinitions reference only the public service key/version.
+
+This keeps deterministic external integration distinct from Agent Platform
+Tools/MCP even when both eventually call the same backend.
+
+HTTP adapter configuration is validated when the Process Service is activated.
+The M9.4 request body for body-capable methods is the standard process-step input
+envelope. Fine-grained mapping expressions are deferred so the runtime does not
+invent a second workflow language before the visual designer.
+
+
+---
+
+## M9.5 — Process Control Plane
+
+M9.5 adds a visual/operator surface over the M9.1-M9.4 Process Platform
+contracts.
+
+### One visual model, one runtime model
+
+The designer does not persist nodes/edges separately.
+
+```text
+Visual node        == ProcessStepDefinition
+Visual edge A -> B == B.dependsOn contains A.stepKey
+```
+
+The canvas is therefore a projection of the authoritative ProcessDefinition.
+
+### Dual-backend Control Plane
+
+The Angular SPA is shared, but API ownership remains explicit:
+
+```text
+/api/v1/*         -> Agent Platform
+/process-api/v1/* -> Process Platform
+```
+
+Nginx provides routing only. It does not translate domain contracts.
+
+### Cross-platform drill-down
+
+Process Platform persists `delegatedExecutionId` on AGENTIC_EXECUTION.
+
+M9.5 uses that public correlation to navigate from a process step to the Agent
+Platform Execution Explorer. No Process Platform UI calls internal planner,
+agent, tool or MCP endpoints.
+
+### Human work stays process-owned
+
+Process HUMAN tasks are not represented as Agent Platform approvals.
+
+```text
+Process HUMAN task
+  -> business/process continuation
+
+Agent approval
+  -> governance/side-effect gate inside an agentic execution
+```
+
+The Control Plane intentionally gives them separate inboxes.
+
+### ADR-086 — The visual designer is a projection of ProcessDefinition
+
+**Estado:** Accepted  
+**Contexto:** M9.5
+
+No UI-specific workflow graph is persisted. Nodes map to ProcessStepDefinition
+and edges map to `dependsOn`.
+
+This prevents drift between design-time UI and runtime semantics.
+
+### ADR-087 — One Control Plane may operate multiple bounded contexts
+
+**Estado:** Accepted  
+**Contexto:** M9.5
+
+A shared Angular shell may expose Agent Platform and Process Platform, while
+Nginx routes requests directly to the owning backend.
+
+A shared user experience does not imply a shared domain API.
+
+### ADR-088 — Process and Agent human approvals are distinct concepts
+
+**Estado:** Accepted  
+**Contexto:** M9.5
+
+Process HUMAN tasks are durable business-workflow activities. Agent Platform
+approvals are governance gates for an agentic execution.
+
+They remain separate models, APIs and inboxes.
+
+### ADR-089 — Agentic drill-down uses delegatedExecutionId only
+
+**Estado:** Accepted  
+**Contexto:** M9.5
+
+The Process Control Plane may navigate to Agent Platform execution diagnostics
+using the public delegated execution id persisted by Process Platform.
+
+It must not infer or depend on Agent Platform internal planner/agent/tool state.
+
+
+---
+
+## M9.6 — Controlled Human Review Loops
+
+M9.6 introduces a restricted backward transition owned by a HUMAN review step.
+The ProcessDefinition dependency graph itself remains acyclic.
+
+### Runtime transition
+
+```text
+producer COMPLETED
+review WAITING
+       |
+       | REQUEST_CHANGES
+       v
+producer READY
+review PENDING
+       |
+       v
+producer runs again
+```
+
+The transition is atomic with review feedback persistence.
+
+### Review context
+
+REQUEST_CHANGES appends to:
+
+```text
+ProcessContext._reviewHistory[reviewStepKey]
+```
+
+Each entry contains review iteration, structured feedback and a snapshot of the
+producer's previous output.
+
+This gives the next AGENTIC_EXECUTION attempt deterministic access to human
+feedback without introducing a separate conversational-memory mechanism.
+
+### ADR-090 — Review iteration is not a general graph cycle
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+ProcessDefinition remains a DAG. A HUMAN review may repeat exactly one direct
+SERVICE or AGENTIC_EXECUTION producer under explicit bounded policy.
+
+Arbitrary back edges and cyclic dependencies remain invalid.
+
+### ADR-091 — A repeatable producer has a single review consumer
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+A producer referenced by HUMAN.review must feed only that review step. This
+prevents repeating the producer after sibling branches have already consumed an
+older result.
+
+### ADR-092 — Human review iterations are durable audit records
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+Every review iteration creates a distinct HumanTask keyed by process instance,
+step key and iteration. Previous tasks remain completed and auditable.
+
+### ADR-093 — Review feedback is ProcessContext, not Agent memory
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+Human feedback controlling a business process is authoritative process state.
+It is persisted in ProcessContext and explicitly supplied to subsequent producer
+attempts. It is not delegated to Agent Platform persistent-memory semantics.
+
+### ADR-094 — Google Drive corpus discovery is a Process SERVICE
+
+**Estado:** Accepted  
+**Contexto:** M9.6
+
+The deterministic process may establish which Drive folder/files belong to an
+opportunity using the `google-drive-folder` SERVICE adapter.
+
+Document interpretation remains agentic. Agent Platform may retrieve actual
+content through its own Google Drive Tool/MCP. Process Platform never invokes
+Agent Platform MCP directly.
+
+
+---
+
+## Google Drive document access in Agent Platform
+
+Agent Platform exposes Google Workspace through a stdio MCP server and governed
+Tools.
+
+The preferred document-reading abstraction is:
+
+```text
+google-drive-read-file(fileId)
+```
+
+This is intentionally a Tool owned by Agent Platform, not a Process Platform
+SERVICE.
+
+Internally:
+
+```text
+Agent / Planner
+      |
+      v
+google-drive-read-file
+      |
+      v
+Google Workspace MCP
+      |
+      +-- drive_get_file
+      |
+      +-- Google Docs   -> docs_get_text
+      +-- Google Sheets -> sheets_get_text
+      +-- Google Slides -> slides_get_text
+      |
+      +-- binary file -> drive_download_file
+                            |
+                            v
+                    Agent Platform
+                    DocumentParser
+```
+
+The temporary binary is written only under MCP scratch storage and deleted
+after parsing.
+
+### ADR-095 — Google Drive semantic reading is an Agent Platform Tool backed by MCP
+
+**Estado:** Accepted
+
+Process Platform may deterministically identify which files belong to a process,
+but it does not invoke Agent Platform MCP servers.
+
+When an AGENTIC_EXECUTION needs document contents, the planner/agent uses the
+governed `google-drive-read-file` Tool.
+
+This keeps:
+
+- Google Workspace connectivity in MCP;
+- Tool selection and governance in Agent Platform;
+- binary parsing in the existing Agent Platform document parser;
+- business-process orchestration in Process Platform.
+
+### ADR-096 — MIME dispatch is hidden behind the high-level Drive reader
+
+**Estado:** Accepted
+
+Agents should not normally have to branch explicitly between Docs, Sheets,
+Slides and downloaded binary files.
+
+`google-drive-read-file` resolves the Drive MIME type and chooses the correct
+MCP reader or download+parser path.
+
+The lower-level Drive MCP Tools remain registered for diagnostics and advanced
+workflows.
+
+
+### ADR-097 — Google OAuth refresh credentials are shared as mounted secrets
+
+**Estado:** Accepted
+
+Agent Platform and Process Platform may both access Google Workspace, but they
+remain independent consumers of Google OAuth credentials.
+
+The repository-level `.secrets` directory is mounted read-only into both
+containers. Runtime authentication uses:
+
+```text
+/run/secrets/google/google-token.json
+```
+
+The stored token is the `authorized_user` document generated by the Google
+Workspace MCP auth flow and contains `client_id`, `client_secret` and
+`refresh_token`.
+
+```text
+.secrets/google-token.json
+          |
+          +--------------------------+
+          |                          |
+          v                          v
+   Process Platform            Agent Platform
+          |                          |
+ refresh access token          Google Workspace MCP
+          |                          |
+ Google Drive REST API         Google APIs / Tools
+```
+
+Process Platform never receives or persists a long-lived
+`GOOGLE_DRIVE_ACCESS_TOKEN`. It exchanges the stored refresh token for a
+short-lived access token and caches that access token until shortly before
+expiry.
+
+Sharing the secret source does not merge bounded-context responsibilities:
+Process Platform uses Google Drive only for deterministic SERVICE capabilities;
+Agent Platform uses Google Workspace through Tools/MCP for agentic work.
+
+
+---
+
+## Presales bootstrap architecture
+
+The reference presales use case is shipped as catalog configuration, not
+hard-coded orchestration logic.
+
+```text
+Process Platform
+    |
+    | AGENTIC_EXECUTION intent
+    v
+Agent Platform Planner
+    |
+    +-- Agents
+    +-- Skills
+    +-- Knowledge
+    +-- Tools / MCP
+```
+
+Specialist participation remains a runtime planning decision. Process Platform
+does not contain explicit Security/Cloud/Data specialist steps.
+
+### ADR-098 — Agents define roles; Skills define reusable procedures
+
+**Estado:** Accepted
+
+Agent bootstrap instructions describe stable persona, responsibility, judgement
+and working principles.
+
+Task-specific checklists and procedures belong to Skills. This avoids turning an
+Agent into a single-use workflow step and allows the same agent to perform
+different tasks.
+
+### ADR-099 — Presales corporate knowledge is bootstrap-as-code
+
+**Estado:** Accepted
+
+Default corporate guidance and templates live under
+`agent-platform/bootstrap/knowledge`.
+
+The bootstrap loader creates Knowledge Bases/documents idempotently, tracks a
+source checksum and updates/reindexes a document when its Git source changes.
+
+Agent-to-Knowledge assignments are declarative in Agent front matter and are
+merged with existing user assignments.
+
+### ADR-100 — Default corporate capability data must not fabricate company facts
+
+**Estado:** Accepted
+
+The shipped capabilities document is a placeholder. It explicitly tells agents
+not to invent references, certifications, partnerships, customers or
+differentiators.
+
+Real deployments should replace it with validated corporate content.
+
+### ADR-101 — Proposal document writes are governed Agent Platform Tools
+
+**Estado:** Accepted
+
+Creating or modifying a Google document is an external side effect owned by
+Agent Platform Tools/MCP, not Process Platform.
+
+Write Tools declare:
+
+```text
+sideEffect=WRITE
+approvalPolicy=REQUIRED
+```
+
+The process may therefore wait for Agent Platform governance approval while an
+AGENTIC_EXECUTION is materializing a customer-facing deliverable.
+
+### ADR-102 — The final RFP response chooses customer structure before corporate structure
+
+**Estado:** Accepted
+
+The response-writing skill must first inspect customer documentation for an
+explicit response template, questionnaire, numbering or section structure.
+
+Customer-required structure wins. The `presales-corporate` default template is
+retrieved only when no customer structure is specified.
+
+
+### ADR-103 — Delegated AGENTIC execution policy is authoritative
+
+**Estado:** Accepted
+
+When Process Platform delegates an `AGENTIC_EXECUTION`, its execution policy is
+propagated in command metadata as `executionPolicy`.
+
+By default:
+
+```text
+Process retry.maxAttempts   -> Agent Platform maxStepAttempts
+Process timeoutSeconds      -> Agent Platform stepTimeoutSeconds
+```
+
+An optional `agentPolicy` may override the delegated internal values without
+changing the Process Platform retry/deadline semantics.
+
+The LLM planner may propose retry/timeout values, but the deterministic
+`PlanPolicyEnricher` overwrites them with the caller policy. This prevents a
+LogicalPlan from silently contradicting the process definition.
+
+Model calls also receive the effective logical-step timeout so the HTTP client
+does not fail earlier because of its generic model timeout default.
+
+This produces two explicit layers:
+
+```text
+Process Platform
+  attempt/deadline for the delegated business step
+
+Agent Platform
+  internal LogicalPlan attempts/timeouts,
+  bounded by the delegated execution policy
+```
+
+
+---
+
+## Artifact & Handoff Layer
+
+Agent Platform manages the semantic outputs of agentic work as typed,
+versioned artifacts instead of treating every model response as a workflow blob.
+
+The detailed rationale and end-to-end example are documented in
+`docs/artifact-and-handoff-layer.md`.
+
+### ADR-104 — Agent outputs are typed artifact bundles
+
+**Estado:** Accepted
+
+When an AGENTIC execution enables `artifactPolicy`, the selected producer agent
+returns a single structured envelope containing:
+
+```text
+summary
+humanDocument
+machineData
+handoff
+evidence
+```
+
+The platform deterministically persists these projections as:
+
+```text
+HUMAN_DOCUMENT
+MACHINE_DATA
+AGENT_HANDOFF
+EVIDENCE_SET
+FINAL_DELIVERABLE
+```
+
+Different consumers therefore receive representations optimized for their
+needs rather than sharing one large narrative string.
+
+### ADR-105 — Artifact projections are produced in one model call
+
+**Estado:** Accepted
+
+The platform does not make follow-up LLM calls to summarize, structure or
+rewrite the result.
+
+The artifact output contract is appended to the producer's existing model call.
+The response is split and persisted deterministically.
+
+If structured parsing fails, the platform keeps the raw output as a
+HUMAN_DOCUMENT and builds a minimal fallback handoff without another model call.
+
+Motivation:
+
+- predictable cost;
+- lower latency;
+- no semantic drift between independently generated projections.
+
+### ADR-106 — Process Platform stores artifact references, not human document bodies
+
+**Estado:** Accepted
+
+Agent Platform owns artifact content. Process Platform receives compact
+`artifactRefs` through the canonical execution result and persists those refs
+in process step output/context.
+
+This prevents long reports from being duplicated across:
+
+- NATS events;
+- process state;
+- review history;
+- subsequent command inputs.
+
+### ADR-107 — HUMAN_DOCUMENT and FINAL_DELIVERABLE are excluded from automatic agent context
+
+**Estado:** Accepted
+
+The Artifact Context resolver automatically hydrates only:
+
+```text
+AGENT_HANDOFF
+MACHINE_DATA
+EVIDENCE_SET
+```
+
+Long human-facing artifacts are not automatically injected into subsequent
+planner/model calls.
+
+A later agent receives compact semantic context and can retrieve source
+material explicitly when needed.
+
+### ADR-108 — Human review loops create immutable artifact versions
+
+**Estado:** Accepted
+
+Artifacts delegated from Process Platform use the stable scope:
+
+```text
+process:{processInstanceId}:step:{processStepKey}
+```
+
+Every new producer execution for the same reviewed process step increments the
+artifact version.
+
+```text
+review iteration 1 -> artifacts v1
+REQUEST_CHANGES
+review iteration 2 -> artifacts v2
+```
+
+Previous versions remain immutable for audit and future diffing.
+
+### ADR-109 — Internal review artifacts precede external document side effects
+
+**Estado:** Accepted
+
+Intermediate HUMAN process reviews should use internal HUMAN_DOCUMENT artifacts.
+
+A planner must not introduce a WRITE Tool solely to create an intermediate
+document when `artifactPolicy` already provides a reviewable internal
+artifact, unless external materialization is an explicit requirement.
+
+This avoids:
+
+```text
+generate -> external WRITE approval -> business review
+```
+
+and prefers:
+
+```text
+generate -> internal artifact -> business review -> external WRITE if needed
+```
+
+### ADR-110 — External document materialization uses artifact references
+
+**Estado:** Accepted
+
+The preferred Google Docs writer for a managed document is:
+
+```text
+google-docs-create-from-artifact
+```
+
+It accepts an `artifactId`, resolves the document body internally and calls
+the Google Workspace MCP.
+
+The long document is therefore not copied into LogicalPlan tool arguments.
+
+The Tool remains governed as:
+
+```text
+sideEffect=WRITE
+approvalPolicy=REQUIRED
+```
+
+### ADR-111 — Artifact production and consumption have explicit budgets
+
+**Estado:** Accepted
+
+Artifact-producing AGENT steps can declare `maxOutputTokens`.
+
+The output contract also sets compact semantic targets for summary,
+MACHINE_DATA and AGENT_HANDOFF.
+
+Artifact context has an independent bounded size before it is given to a model.
+
+The goal is to reduce context structurally before applying optimizations such as
+prompt caching.
+
+### ADR-112 — Artifact storage is behind a port
+
+**Estado:** Accepted
+
+The initial implementation stores artifact bodies as PostgreSQL JSONB for
+transactional simplicity.
+
+Business code depends on `ArtifactRepositoryPort`, allowing a future
+implementation such as:
+
+```text
+PostgreSQL metadata + S3/Blob/GCS bodies
+```
+
+without changing Process Platform or agent contracts.
+
+
+### ADR-113 — The configured artifact producer is a deterministic planning invariant
+
+**Estado:** Accepted
+
+When `artifactPolicy.agentNames` is non-empty, the configured names are not
+merely suggestions to the LLM planner.
+
+After planning, Agent Platform validates that:
+
+1. at least one AGENT step uses one of the configured producer names; and
+2. that producer contributes to the graph path that reaches `finalStepId`.
+
+If the invariant fails, the normal planner-repair cycle receives the validation
+error. A repaired plan that still violates the invariant is rejected.
+
+This prevents a subtle failure mode where the planner chooses specialists but
+omits the agent that owns the typed output contract, causing an apparently
+successful execution with no authoritative artifact bundle.
+
+The principle is:
+
+```text
+LLM proposes topology
+Platform enforces semantic execution contracts
+```
+
+Artifact ownership is therefore part of deterministic orchestration policy, not
+prompt convention.
+
+
+### ADR-114 — Intermediate artifact production is separated from external materialization
+
+**Estado:** Accepted
+
+A reviewable `AGENTIC_EXECUTION` may produce an internal typed artifact without
+performing an external WRITE.
+
+For intermediate business artifacts such as qualification reports and solution
+designs:
+
+```text
+AGENTIC_EXECUTION
+    -> HUMAN_DOCUMENT / MACHINE_DATA / AGENT_HANDOFF
+    -> Process HUMAN review
+```
+
+External materialization is deliberately disabled with:
+
+```json
+"artifactPolicy": {
+  "allowWriteTools": false
+}
+```
+
+The deterministic planner validation rejects any WRITE Tool in such a plan.
+
+This avoids three failure modes:
+
+1. an Agent Platform approval gate appearing before the Process HUMAN review;
+2. Process Platform timing out while the delegated execution waits for Tool approval;
+3. external documents being created for iterations that the reviewer may immediately reject.
+
+Final deliverables may explicitly set `allowWriteTools=true`.
+
+### ADR-115 — A typed artifact execution has exactly one authoritative producer
+
+**Estado:** Accepted
+
+When `artifactPolicy.agentNames` identifies the authoritative artifact producer,
+that producer may appear exactly once in the LogicalPlan.
+
+Specialists are allowed and encouraged when useful:
+
+```text
+security-architect ----┐
+data-architect --------┼--> solution-architect --> artifact bundle
+cloud-architect -------┘
+```
+
+This is preferred over:
+
+```text
+solution-architect
+    -> solution-architect
+        -> solution-architect
+```
+
+Repeated calls to the same authoritative producer inflate context, latency and
+cost and can create multiple competing artifact versions inside a single
+business step.
+
+The platform validates the invariant after planning and uses the normal repair
+cycle if the LLM proposes an invalid decomposition.
+
+
+### ADR-116 — Agent artifacts are internal by default; external materialization is explicit
+
+**Estado:** Accepted
+
+Agent output and external publication are separate concerns.
+
+`artifactPolicy` controls managed internal outputs:
+
+```text
+HUMAN_DOCUMENT
+MACHINE_DATA
+AGENT_HANDOFF
+EVIDENCE_SET
+FINAL_DELIVERABLE
+```
+
+It never grants permission to execute an external WRITE.
+
+External generation/publication requires a separate explicit contract:
+
+```json
+{
+  "materializationPolicy": {
+    "enabled": true,
+    "allowedTools": ["google-docs-create-from-artifact"]
+  }
+}
+```
+
+Without that policy, any WRITE Tool proposed by the LLM planner is rejected
+deterministically, even when destination-like values such as `outputFolderId`
+exist in process input.
+
+The planner therefore cannot infer side-effect permission from data.
+
+Examples:
+
+```text
+"produce a qualification report"
+    -> internal artifacts only
+
+"produce the qualification report as a Google Doc"
+    -> internal artifacts
+    -> explicit materialization policy
+    -> Google Docs WRITE approval
+```
+
+The same pattern applies to presentations, spreadsheets, files, emails and
+future external output channels.

@@ -34,9 +34,13 @@ class Settings(BaseSettings):
     bootstrap_prompts_dir: str = "/app/bootstrap/prompts"
     bootstrap_tools_dir: str = "/app/bootstrap/tools"
     bootstrap_mcp_servers_dir: str = "/app/bootstrap/mcp-servers"
+    bootstrap_knowledge_dir: str = "/app/bootstrap/knowledge"
     mcp_timeout_seconds: float = 60.0
     mcp_max_message_bytes: int = 16777216
+    mcp_workspace_root: str = "/opt/workspace"
     max_tool_result_chars_for_model: int = 500000
+    artifact_context_max_chars: int = 24000
+    artifact_handoff_max_chars: int = 8000
 
     knowledge_embedding_provider: str = "hash"
     knowledge_embedding_model: str = "hash-embedding-v1"

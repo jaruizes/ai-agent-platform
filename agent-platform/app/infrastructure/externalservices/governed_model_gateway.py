@@ -27,11 +27,12 @@ class GovernedModelGateway:
         self,*,system_prompt:str,user_prompt:str,model_profile:str,
         temperature:float=0.2,
         max_tokens:int|None=None,
+        timeout_seconds:float|None=None,
     )->str:
         detail=await self.complete_detailed(
             system_prompt=system_prompt,user_prompt=user_prompt,
             model_profile=model_profile,temperature=temperature,
-            max_tokens=max_tokens,
+            max_tokens=max_tokens,timeout_seconds=timeout_seconds,
         )
         return detail["content"]
 
@@ -39,6 +40,7 @@ class GovernedModelGateway:
         self,*,system_prompt:str,user_prompt:str,model_profile:str,
         temperature:float=0.2,
         max_tokens:int|None=None,
+        timeout_seconds:float|None=None,
     )->dict[str,Any]:
         ctx=get_governance_context()
         effective_profile=model_profile
@@ -137,7 +139,7 @@ class GovernedModelGateway:
         detail=await self._delegate.complete_detailed(
             system_prompt=system_prompt,user_prompt=user_prompt,
             model_profile=effective_profile,temperature=temperature,
-            max_tokens=effective_max_tokens,
+            max_tokens=effective_max_tokens,timeout_seconds=timeout_seconds,
         )
         if ctx:
             cost=await self._governance.record_usage(

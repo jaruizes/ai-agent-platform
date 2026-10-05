@@ -15,6 +15,52 @@ class McpStdioClient:
         self._timeout_seconds = timeout_seconds
         self._max_message_bytes = max_message_bytes
 
+    async def list_tools(self, server: McpServer) -> list[dict[str, Any]]:
+        if not server.enabled:
+            raise RuntimeError(f"MCP server '{server.name}' is disabled")
+
+        env = os.environ.copy()
+        env.update(server.environment)
+
+        process = await asyncio.create_subprocess_exec(
+            server.command,
+            *server.args,
+            cwd=server.cwd,
+            env=env,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            limit=self._max_message_bytes,
+        )
+        try:
+            await self._request(
+                process,
+                1,
+                "initialize",
+                {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "ai-agent-platform",
+                        "version": "0.9.0",
+                    },
+                },
+            )
+            await self._notify(process, "notifications/initialized", {})
+            result = await self._request(process, 2, "tools/list", {})
+            tools = result.get("tools") or []
+            if not isinstance(tools, list):
+                raise RuntimeError("MCP tools/list returned an invalid tools payload")
+            return [tool for tool in tools if isinstance(tool, dict)]
+        finally:
+            if process.returncode is None:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=2)
+                except TimeoutError:
+                    process.kill()
+                    await process.wait()
+
     async def call_tool(
         self,
         server: McpServer,

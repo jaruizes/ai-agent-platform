@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
+from app.business.artifact_service import ArtifactService
 from app.business.catalog_service import CatalogService
 from app.business.context_engine import ContextEngine
 from app.business.execution_service import ExecutionService
@@ -22,6 +23,7 @@ from app.business.step_executor import StepExecutor
 from app.business.tool_service import ToolService
 from app.infrastructure.api.messaging.nats_adapter import NatsAdapter
 from app.infrastructure.api.rest.admin_router import create_admin_router
+from app.infrastructure.api.rest.artifact_router import create_artifact_router
 from app.infrastructure.api.rest.catalog_router import create_catalog_router
 from app.infrastructure.api.rest.governance_router import create_governance_router
 from app.infrastructure.api.rest.eval_router import create_eval_router
@@ -40,6 +42,7 @@ from app.infrastructure.knowledge.embeddings import HashEmbeddingProvider
 from app.infrastructure.knowledge.parsers import DocumentParser
 from app.infrastructure.orchestration.langgraph_engine import LangGraphOrchestrationEngine
 from app.infrastructure.observability.telemetry import configure_telemetry
+from app.infrastructure.persistence.postgres.artifact_repository import PostgresArtifactRepository
 from app.infrastructure.persistence.postgres.catalog_repository import PostgresCatalogRepository
 from app.infrastructure.persistence.postgres.database import Database
 from app.infrastructure.persistence.postgres.execution_repository import PostgresExecutionRepository
@@ -57,6 +60,12 @@ HTTPXClientInstrumentor().instrument()
 
 database = Database(settings.database_url)
 execution_repository = PostgresExecutionRepository(database)
+artifact_repository = PostgresArtifactRepository(database)
+artifact_service = ArtifactService(
+    artifact_repository,
+    context_max_chars=settings.artifact_context_max_chars,
+    handoff_max_chars=settings.artifact_handoff_max_chars,
+)
 
 if settings.knowledge_embedding_provider.lower() != "hash":
     raise ValueError(
@@ -115,11 +124,18 @@ catalog_service = CatalogService(catalog_repository)
 prompt_repository = PostgresPromptRepository(database)
 prompt_service = PromptService(prompt_repository)
 tool_repository = PostgresToolRepository(database)
+document_parser = DocumentParser()
 mcp_client = McpStdioClient(
     timeout_seconds=settings.mcp_timeout_seconds,
     max_message_bytes=settings.mcp_max_message_bytes,
 )
-tool_executor = InfrastructureToolExecutor(tool_repository, mcp_client)
+tool_executor = InfrastructureToolExecutor(
+    tool_repository,
+    mcp_client,
+    document_parser,
+    artifact_service,
+    mcp_workspace_root=settings.mcp_workspace_root,
+)
 tool_service = ToolService(tool_repository, tool_executor)
 raw_model_gateway = LiteLLMModelGateway(settings)
 model_gateway = GovernedModelGateway(
@@ -147,7 +163,7 @@ knowledge_service = KnowledgeService(
     repository=knowledge_repository,
     embedding_provider=embedding_provider,
     tool_service=tool_service,
-    parser=DocumentParser(),
+    parser=document_parser,
     storage_root=settings.knowledge_storage_root,
     embedding_batch_size=settings.knowledge_embedding_batch_size,
     worker_poll_seconds=settings.knowledge_worker_poll_seconds,
@@ -160,6 +176,7 @@ planner_service = PlannerService(
     prompt_service,
     tool_service,
     knowledge_service,
+    artifact_service,
     model_gateway,
     plan_validator,
     plan_policy_enricher,
@@ -173,6 +190,7 @@ step_executor = StepExecutor(
     model_gateway=model_gateway,
     execution_repository=execution_repository,
     context_engine=context_engine,
+    artifact_service=artifact_service,
     governance_service=governance_service,
     execution_model_profile=settings.execution_model_profile,
     knowledge_top_k=settings.knowledge_top_k,
@@ -213,11 +231,13 @@ bootstrap_loader = MarkdownCatalogLoader(
     catalog_service,
     prompt_service,
     tool_service,
+    knowledge_service,
     skills_dir=settings.bootstrap_skills_dir,
     agents_dir=settings.bootstrap_agents_dir,
     prompts_dir=settings.bootstrap_prompts_dir,
     tools_dir=settings.bootstrap_tools_dir,
     mcp_servers_dir=settings.bootstrap_mcp_servers_dir,
+    knowledge_dir=settings.bootstrap_knowledge_dir,
 )
 
 
@@ -274,6 +294,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(create_router(execution_service))
+app.include_router(create_artifact_router(artifact_service))
 app.include_router(create_admin_router(database, nats_adapter, settings))
 app.include_router(create_catalog_router(catalog_service))
 app.include_router(create_governance_router(governance_service))

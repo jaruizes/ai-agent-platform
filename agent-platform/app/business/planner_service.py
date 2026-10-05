@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.business.artifact_service import ArtifactService
 from app.business.knowledge_service import KnowledgeService
 from app.business.plan_policy_enricher import PlanPolicyEnricher
 from app.business.plan_validator import PlanValidator
@@ -11,6 +12,7 @@ from app.business.prompt_service import PromptService
 from app.business.tool_service import ToolService
 from app.domain.execution import Command
 from app.domain.orchestration import LogicalPlan, PlanStep, PlanValidation
+from app.domain.tool import Tool
 
 
 class PlannerService:
@@ -20,6 +22,7 @@ class PlannerService:
         prompt_service: PromptService,
         tool_service: ToolService,
         knowledge_service: KnowledgeService,
+        artifact_service: ArtifactService,
         model_gateway: ModelGatewayPort,
         validator: PlanValidator,
         policy_enricher: PlanPolicyEnricher,
@@ -30,6 +33,7 @@ class PlannerService:
         self._prompt_service = prompt_service
         self._tool_service = tool_service
         self._knowledge_service = knowledge_service
+        self._artifact_service = artifact_service
         self._model_gateway = model_gateway
         self._validator = validator
         self._policy_enricher = policy_enricher
@@ -52,6 +56,14 @@ class PlannerService:
         }
 
         prompt = await self._prompt_service.get_by_name("planner-v1")
+        artifact_context, artifact_provenance = (
+            await self._artifact_service.build_agent_context(
+                {
+                    "input": command.input,
+                    "context": command.context,
+                }
+            )
+        )
         detail = await self._model_gateway.complete_detailed(
             system_prompt=prompt.content,
             user_prompt=json.dumps(
@@ -62,6 +74,10 @@ class PlannerService:
                         "input": command.input,
                         "context": command.context,
                         "instructions": command.instructions,
+                        "artifactPolicy": command.metadata.get("artifactPolicy") or {},
+                        "materializationPolicy": command.metadata.get("materializationPolicy") or {},
+                        "artifactContext": artifact_context,
+                        "artifactProvenance": artifact_provenance,
                     },
                     "availableAgents": [
                         {
@@ -112,15 +128,27 @@ class PlannerService:
             model_profile=self._planner_model_profile,
             temperature=0.0,
         )
+        execution_policy = (
+            command.metadata.get("executionPolicy")
+            if isinstance(command.metadata.get("executionPolicy"), dict)
+            else {}
+        )
         plan = self._policy_enricher.apply(
             self._parse_plan(detail["content"]),
             tools=tools,
+            execution_policy=execution_policy,
         )
         validation = self._validator.validate(
             plan,
             agent_names={agent.name for agent in agents},
             tools_by_name={tool.name: tool for tool in tools},
             knowledge_base_names={kb.name for kb in knowledge_bases},
+        )
+        validation = self._apply_artifact_policy_validation(
+            validation,
+            plan,
+            command,
+            tools,
         )
 
         if not validation.valid:
@@ -138,6 +166,10 @@ class PlannerService:
                             "input": command.input,
                             "context": command.context,
                             "instructions": command.instructions,
+                            "artifactPolicy": command.metadata.get("artifactPolicy") or {},
+                            "materializationPolicy": command.metadata.get("materializationPolicy") or {},
+                            "artifactContext": artifact_context,
+                            "artifactProvenance": artifact_provenance,
                         },
                         "previousPlan": plan.as_dict(),
                         "validationErrors": validation.errors,
@@ -155,12 +187,19 @@ class PlannerService:
             repaired_plan = self._policy_enricher.apply(
                 self._parse_plan(repair["content"]),
                 tools=tools,
+                execution_policy=execution_policy,
             )
             repaired_validation = self._validator.validate(
                 repaired_plan,
                 agent_names={agent.name for agent in agents},
                 tools_by_name={tool.name: tool for tool in tools},
                 knowledge_base_names={kb.name for kb in knowledge_bases},
+            )
+            repaired_validation = self._apply_artifact_policy_validation(
+                repaired_validation,
+                repaired_plan,
+                command,
+                tools,
             )
             detail = {
                 **repair,
@@ -176,6 +215,129 @@ class PlannerService:
             detail["planningAttempts"] = 1
 
         return plan, validation, detail
+
+    @staticmethod
+    def _apply_artifact_policy_validation(
+        validation: PlanValidation,
+        plan: LogicalPlan,
+        command: Command,
+        tools: list[Tool],
+    ) -> PlanValidation:
+        policy = (
+            command.metadata.get("artifactPolicy")
+            if isinstance(command.metadata.get("artifactPolicy"), dict)
+            else {}
+        )
+        if not policy or not bool(policy.get("enabled", False)):
+            return validation
+
+        configured = [
+            str(value).strip()
+            for value in (policy.get("agentNames") or [])
+            if str(value).strip()
+        ]
+        producer_steps = [
+            step
+            for step in plan.steps
+            if step.type == "AGENT" and (
+                not configured or step.agent_name in configured
+            )
+        ]
+        errors = list(validation.errors)
+
+        if configured:
+            if not producer_steps:
+                errors.append(
+                    "artifactPolicy requires an authoritative producer AGENT from: "
+                    + ", ".join(configured)
+                )
+            elif len(producer_steps) > 1:
+                errors.append(
+                    "artifactPolicy requires exactly one authoritative producer AGENT; "
+                    "specialist decomposition must use other agents"
+                )
+            else:
+                final_id = plan.final_step_id
+
+                def reaches_final(step_id: str) -> bool:
+                    if step_id == final_id:
+                        return True
+                    visited: set[str] = set()
+                    frontier = [step_id]
+                    while frontier:
+                        current = frontier.pop()
+                        if current in visited:
+                            continue
+                        visited.add(current)
+                        for candidate in plan.steps:
+                            if current not in candidate.depends_on:
+                                continue
+                            if candidate.id == final_id:
+                                return True
+                            frontier.append(candidate.id)
+                    return False
+
+                if not any(reaches_final(step.id) for step in producer_steps):
+                    errors.append(
+                        "artifactPolicy producer AGENT must contribute to the "
+                        "final result path"
+                    )
+
+        tools_by_name = {tool.name: tool for tool in tools}
+        write_steps = [
+            step
+            for step in plan.steps
+            if step.type == "TOOL"
+            and step.tool_name in tools_by_name
+            and tools_by_name[step.tool_name].side_effect.upper() == "WRITE"
+        ]
+
+        materialization = (
+            command.metadata.get("materializationPolicy")
+            if isinstance(command.metadata.get("materializationPolicy"), dict)
+            else {}
+        )
+        materialization_enabled = bool(materialization.get("enabled", False))
+        allowed_tools = {
+            str(name).strip()
+            for name in (materialization.get("allowedTools") or [])
+            if str(name).strip()
+        }
+
+        if write_steps and not materialization_enabled:
+            errors.append(
+                "External WRITE tools require explicit materializationPolicy.enabled=true; "
+                "artifact output alone never authorizes external publication"
+            )
+
+        if write_steps and allowed_tools:
+            disallowed = [
+                step.tool_name
+                for step in write_steps
+                if step.tool_name not in allowed_tools
+            ]
+            if disallowed:
+                errors.append(
+                    "materializationPolicy only allows WRITE tools: "
+                    + ", ".join(sorted(allowed_tools))
+                    + "; disallowed: "
+                    + ", ".join(sorted(set(disallowed)))
+                )
+
+        if write_steps and configured and len(producer_steps) == 1:
+            producer_id = producer_steps[0].id
+            for step in write_steps:
+                if producer_id not in step.depends_on:
+                    errors.append(
+                        f"WRITE tool step '{step.id}' must depend directly on "
+                        f"artifact producer '{producer_id}'"
+                    )
+
+        return PlanValidation(
+            valid=not errors,
+            errors=errors,
+            warnings=list(validation.warnings),
+        )
 
     @classmethod
     def _parse_plan(cls, raw: str) -> LogicalPlan:

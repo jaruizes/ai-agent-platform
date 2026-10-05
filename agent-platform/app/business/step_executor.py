@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
+from app.business.artifact_service import ArtifactService
 from app.business.context_engine import ContextEngine
 from app.business.governance_runtime import (
     get_governance_context,
@@ -45,6 +46,7 @@ class StepExecutor:
         model_gateway: ModelGatewayPort,
         execution_repository: ExecutionRepositoryPort,
         context_engine: ContextEngine,
+        artifact_service: ArtifactService,
         governance_service,
         execution_model_profile: str,
         knowledge_top_k: int,
@@ -58,6 +60,7 @@ class StepExecutor:
         self._model_gateway = model_gateway
         self._repository = execution_repository
         self._context_engine = context_engine
+        self._artifact_service = artifact_service
         self._governance_service = governance_service
         self._execution_model_profile = execution_model_profile
         self._knowledge_top_k = knowledge_top_k
@@ -468,6 +471,29 @@ class StepExecutor:
             agent_instructions=agent.instructions,
             skills=self._skills_text(agent),
         )
+
+        artifact_policy = (
+            command.metadata.get("artifactPolicy")
+            if isinstance(command.metadata.get("artifactPolicy"), dict)
+            else {}
+        )
+        capture_artifacts = self._artifact_service.enabled_for_agent(
+            artifact_policy,
+            agent.name,
+        )
+        if capture_artifacts:
+            system_prompt += self._artifact_service.output_contract(artifact_policy)
+
+        artifact_context, artifact_provenance = (
+            await self._artifact_service.build_agent_context(
+                {
+                    "commandInput": command.input,
+                    "commandContext": command.context,
+                    "dependencies": previous_results,
+                }
+            )
+        )
+
         effective = await self._context_engine.build(
             execution=execution,
             command=command,
@@ -495,16 +521,47 @@ class StepExecutor:
                 if step.knowledge_base_names
                 else []
             ),
+            artifact_context=artifact_context,
+            artifact_provenance=artifact_provenance,
+        )
+        artifact_max_tokens = (
+            int(artifact_policy.get("maxOutputTokens"))
+            if capture_artifacts and artifact_policy.get("maxOutputTokens")
+            else None
         )
         detail = await self._model_gateway.complete_detailed(
             system_prompt=effective.system_prompt,
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
+            max_tokens=artifact_max_tokens,
+            timeout_seconds=step.timeout_seconds,
         )
+
+        artifacts: list[dict[str, Any]] = []
+        summary = detail["content"]
+        output: dict[str, Any] = {"content": detail["content"]}
+        if capture_artifacts:
+            captured = await self._artifact_service.capture_model_output(
+                execution_id=execution["id"],
+                step_id=step.id,
+                metadata=command.metadata,
+                raw_content=detail["content"],
+                policy=artifact_policy,
+            )
+            summary = captured["summary"]
+            artifacts = captured["artifactRefs"]
+            output = {
+                "summary": summary,
+                "artifactRefs": artifacts,
+                "artifactVersion": captured["version"],
+                "artifactScopeKey": captured["scopeKey"],
+            }
+
         return {
-            "summary": detail["content"],
-            "output": {"content": detail["content"]},
+            "summary": summary,
+            "output": output,
+            "artifacts": artifacts,
             "usage": detail.get("usage") or {},
             "model": detail.get("model"),
             "modelProfile": detail.get("modelProfile"),
@@ -517,6 +574,7 @@ class StepExecutor:
                 "selectedTokenEstimate": effective.selected_token_estimate,
                 "droppedTokenEstimate": effective.dropped_token_estimate,
                 "compressed": effective.compressed,
+                "artifactContextRefs": artifact_provenance,
             },
         }
 
@@ -543,6 +601,7 @@ class StepExecutor:
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.2,
+            timeout_seconds=step.timeout_seconds,
         )
         return {
             "summary": detail["content"],
@@ -607,6 +666,7 @@ class StepExecutor:
             user_prompt=effective.user_prompt,
             model_profile=self._execution_model_profile,
             temperature=0.0,
+            timeout_seconds=step.timeout_seconds,
         )
         return {
             "summary": detail["content"],

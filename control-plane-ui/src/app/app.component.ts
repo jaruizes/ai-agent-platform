@@ -2,9 +2,10 @@ import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from './api.service';
-import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
+import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionArtifact, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, ProcessDefinition, ProcessHumanTask, ProcessInstance, ProcessServiceDefinition, ProcessStepDefinition, ProcessStepType, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
 
-type View='dashboard'|'executions'|'approvals'|'sessions'|'memory'|'agents'|'skills'|'prompts'|'tools'|'mcp'|'knowledge'|'governance'|'evals'|'runtime';
+type View='dashboard'|'executions'|'approvals'|'processes'|'sessions'|'memory'|'agents'|'skills'|'prompts'|'tools'|'mcp'|'knowledge'|'governance'|'evals'|'runtime';
+type ProcessTab='definitions'|'instances'|'services'|'human';
 
 @Component({selector:'app-root',standalone:true,imports:[CommonModule,FormsModule],templateUrl:'./app.component.html'})
 export class AppComponent implements OnInit,OnDestroy {
@@ -18,16 +19,36 @@ export class AppComponent implements OnInit,OnDestroy {
   sessions=signal<SessionInfo[]>([]); memories=signal<MemoryInfo[]>([]); contextSnapshots=signal<ContextSnapshot[]>([]); executionContext=signal<any[]>([]);
   memoryPolicy=signal<any>(null); memoryAudit=signal<any[]>([]); selectedSession=signal<SessionInfo|null>(null); sessionContext=signal<any[]>([]); sessionExecutions=signal<any[]>([]);
   memoryQuery=''; memoryScopeType='SESSION'; memoryScopeId=''; memoryTopK=8; memoryHits=signal<MemoryInfo[]>([]);
-  selectedExecution=signal<ExecutionDetail|null>(null); orchestration=signal<Orchestration|null>(null); selectedKb=signal<KnowledgeBase|null>(null);
+  selectedExecution=signal<ExecutionDetail|null>(null); orchestration=signal<Orchestration|null>(null); selectedKb=signal<KnowledgeBase|null>(null); selectedArtifact=signal<ExecutionArtifact|null>(null); executionArtifacts=signal<ExecutionArtifact[]>([]);
   modal=signal<string|null>(null); draft:any={}; search=''; executionStatus=''; retrievalQuery=''; retrievalTopK=8; actor='operator'; approvalComment='';
-  agentKnowledge=signal<any[]>([]); knowledgeDraft:Record<string,string>={}; private poller?:ReturnType<typeof setInterval>;
+  agentKnowledge=signal<any[]>([]); knowledgeDraft:Record<string,string>={};
+
+  processTab=signal<ProcessTab>('definitions');
+  processDefinitions=signal<ProcessDefinition[]>([]);
+  processServices=signal<ProcessServiceDefinition[]>([]);
+  processInstances=signal<ProcessInstance[]>([]);
+  processHumanTasks=signal<ProcessHumanTask[]>([]);
+  selectedProcessDefinition=signal<ProcessDefinition|null>(null);
+  selectedProcessInstance=signal<ProcessInstance|null>(null);
+  processDesigner=signal<any|null>(null);
+  processStepDraft=signal<any|null>(null);
+  processInstanceSearch='';
+  processDefinitionSearch='';
+  processHumanDecision='APPROVED';
+  processHumanResult='{}';
+  humanTaskTechnicalOpen:Record<string,boolean>={};
+  processSignalEventType='';
+  processSignalCorrelation='';
+  processSignalPayload='{}';
+
+  private poller?:ReturnType<typeof setInterval>;
 
   constructor(public api:ApiService){}
   async ngOnInit(){await this.refreshAll();this.poller=setInterval(()=>this.refreshLive(),3000);}
   ngOnDestroy(){if(this.poller)clearInterval(this.poller);}
   async refreshAll(){await this.run(async()=>{const [o,r,e,a,ag,sk,pr,to,mc,kb,se,me,mp,ma,gp,gb,gd,bd,ed,ef,er]=await Promise.all([this.api.overview(),this.api.runtime(),this.api.executions(),this.api.approvals(),this.api.agents(),this.api.skills(),this.api.prompts(),this.api.tools(),this.api.mcpServers(),this.api.knowledgeBases(),this.api.sessions(),this.api.memories(),this.api.memoryPolicy(),this.api.memoryPolicyAudit(),this.api.governancePolicies(),this.api.governanceBudgets(),this.api.governanceDecisions(),this.api.budgetDecisions(),this.api.evalDatasets(),this.api.evalDefinitions(),this.api.evalRuns()]);this.overview.set(o);this.runtime.set(r);this.executions.set(e);this.approvals.set(a);this.agents.set(ag);this.skills.set(sk);this.prompts.set(pr);this.tools.set(to);this.mcpServers.set(mc);this.knowledgeBases.set(kb);this.sessions.set(se);this.memories.set(me);this.memoryPolicy.set(mp);this.memoryAudit.set(ma);this.governancePolicies.set(gp);this.governanceBudgets.set(gb);this.governanceDecisions.set(gd);this.budgetDecisions.set(bd);this.evalDatasets.set(ed);this.evalDefinitions.set(ef);this.evalRuns.set(er);});}
-  async refreshLive(){try{this.overview.set(await this.api.overview());this.executions.set(await this.api.executions(this.executionStatus));this.approvals.set(await this.api.approvals());if(this.selectedExecution())await this.openExecution(this.selectedExecution()!.executionId,false);}catch{}}
-  setView(v:View){this.view.set(v);if(v==='runtime')this.loadRuntime();if(v==='sessions')this.loadSessions();if(v==='memory')this.loadMemory();if(v==='governance')this.loadGovernance();if(v==='evals')this.loadEvals();}
+  async refreshLive(){try{this.overview.set(await this.api.overview());this.executions.set(await this.api.executions(this.executionStatus));this.approvals.set(await this.api.approvals());if(this.selectedExecution())await this.openExecution(this.selectedExecution()!.executionId,false);if(this.view()==='processes')await this.refreshProcessesLive();}catch{}}
+  setView(v:View){this.view.set(v);if(v==='runtime')this.loadRuntime();if(v==='sessions')this.loadSessions();if(v==='memory')this.loadMemory();if(v==='governance')this.loadGovernance();if(v==='evals')this.loadEvals();if(v==='processes')this.loadProcesses();}
 
   async loadGovernance(){try{const [p,b,d,bd]=await Promise.all([this.api.governancePolicies(),this.api.governanceBudgets(),this.api.governanceDecisions(),this.api.budgetDecisions()]);this.governancePolicies.set(p);this.governanceBudgets.set(b);this.governanceDecisions.set(d);this.budgetDecisions.set(bd);}catch(e:any){this.error.set(this.message(e));}}
   editGovernancePolicy(x?:GovernancePolicy){this.draft=x?{...x,conditions:this.json(x.conditions)}:{name:'',description:'',policyType:'RESOURCE_ACCESS',effect:'ALLOW',resourceType:'MODEL',resourcePattern:'*',subjectType:'GLOBAL',subjectPattern:'*',conditions:'{}',priority:100,enabled:true};this.modal.set('governance-policy');}
@@ -51,7 +72,19 @@ export class AppComponent implements OnInit,OnDestroy {
   async loadRuntime(){try{this.runtime.set(await this.api.runtime());}catch(e:any){this.error.set(this.message(e));}}
   filteredExecutions(){const q=this.search.toLowerCase();return this.executions().filter(x=>(!q||[x.executionId,x.commandName,x.intent,x.objective].some(v=>(v||'').toLowerCase().includes(q)))&&(!this.executionStatus||x.status===this.executionStatus));}
   async filterExecutions(){this.executions.set(await this.api.executions(this.executionStatus));}
-  async openExecution(id:string,show=true){try{const [d,o,s,c]=await Promise.all([this.api.execution(id),this.api.orchestration(id),this.api.contextSnapshots(id),this.api.executionContext(id)]);this.selectedExecution.set(d);this.orchestration.set(o);this.contextSnapshots.set(s);this.executionContext.set(c);if(show)this.modal.set('execution');}catch(e:any){this.error.set(this.message(e));}}
+  async openExecution(id:string,show=true){try{const [d,o,s,c,a]=await Promise.all([this.api.execution(id),this.api.orchestration(id),this.api.contextSnapshots(id),this.api.executionContext(id),this.api.executionArtifacts(id)]);this.selectedExecution.set(d);this.orchestration.set(o);this.contextSnapshots.set(s);this.executionContext.set(c);this.executionArtifacts.set(a);if(show)this.modal.set('execution');}catch(e:any){this.error.set(this.message(e));}}
+  cancelModal(){
+    if(this.modal()==='process-step'){
+      this.processStepDraft.set(null);
+      this.modal.set('process-designer');
+      return;
+    }
+    if(this.modal()==='process-designer'){
+      this.processDesigner.set(null);
+      this.processStepDraft.set(null);
+    }
+    this.closeModal();
+  }
   closeModal(){this.modal.set(null);this.draft={};this.approvalComment='';}
   statusClass(s:string){return (s||'').toLowerCase().replaceAll('_','-');}
   tokens(v:any){return new Intl.NumberFormat('es-ES').format(Number(v||0));}
@@ -116,6 +149,523 @@ export class AppComponent implements OnInit,OnDestroy {
   async reindex(d:KnowledgeDocument){await this.run(async()=>{await this.api.reindexDocument(d.id);if(this.selectedKb())this.documents.set(await this.api.documents(this.selectedKb()!.id));});}
   async deleteDocument(d:KnowledgeDocument){if(confirm(`Eliminar documento ${d.name}?`))await this.run(async()=>{await this.api.deleteDocument(d.id);if(this.selectedKb())this.documents.set(await this.api.documents(this.selectedKb()!.id));});}
   async retrieve(){const kb=this.selectedKb();if(!kb||!this.retrievalQuery)return;await this.run(async()=>this.retrievalHits.set(await this.api.retrieve(this.retrievalQuery,[kb.name],this.retrievalTopK)));}
+
+
+  async loadProcesses(){
+    await this.run(async()=>{
+      const [definitions,services,instances,human]=await Promise.all([
+        this.api.processDefinitions(),
+        this.api.processServices(),
+        this.api.processInstances(),
+        this.api.processHumanTasks()
+      ]);
+      this.processDefinitions.set(definitions);
+      this.processServices.set(services);
+      this.processInstances.set(instances);
+      this.processHumanTasks.set(human);
+    });
+  }
+
+  async refreshProcessesLive(){
+    const [instances,human]=await Promise.all([
+      this.api.processInstances(),
+      this.api.processHumanTasks()
+    ]);
+    this.processInstances.set(instances);
+    this.processHumanTasks.set(human);
+    if(this.selectedProcessInstance()){
+      const updated=await this.api.processInstance(this.selectedProcessInstance()!.id);
+      this.selectedProcessInstance.set(updated);
+    }
+  }
+
+  setProcessTab(tab:ProcessTab){this.processTab.set(tab);}
+
+  filteredProcessDefinitions(){
+    const q=this.processDefinitionSearch.toLowerCase();
+    return this.processDefinitions().filter(x=>!q||[x.definitionKey,x.name,x.description].some(v=>(v||'').toLowerCase().includes(q)));
+  }
+
+  filteredProcessInstances(){
+    const q=this.processInstanceSearch.toLowerCase();
+    return this.processInstances().filter(x=>!q||[x.id,x.definitionKey,x.correlationId,x.status].some(v=>(v||'').toLowerCase().includes(q)));
+  }
+
+  processDefinitionLevels(definition?:ProcessDefinition|null){
+    const steps=definition?.steps||[];
+    const level=new Map<string,number>();
+    let changed=true,guard=0;
+    while(changed&&guard++<steps.length+2){
+      changed=false;
+      for(const s of steps){
+        const l=s.dependsOn?.length?Math.max(...s.dependsOn.map(d=>level.get(d)??0))+1:0;
+        if(level.get(s.stepKey)!==l){level.set(s.stepKey,l);changed=true;}
+      }
+    }
+    return [...new Set([...level.values()])].sort((a,b)=>a-b).map(l=>steps.filter(s=>level.get(s.stepKey)===l));
+  }
+
+  processInstanceLevels(instance?:ProcessInstance|null){
+    const steps=instance?.steps||[];
+    const definition=this.processDefinitions().find(d=>d.id===instance?.definitionId);
+    const defs=new Map((definition?.steps||[]).map(s=>[s.stepKey,s]));
+    const level=new Map<string,number>();
+    let changed=true,guard=0;
+    while(changed&&guard++<steps.length+2){
+      changed=false;
+      for(const s of steps){
+        const deps=defs.get(s.stepKey)?.dependsOn||[];
+        const l=deps.length?Math.max(...deps.map(d=>level.get(d)??0))+1:0;
+        if(level.get(s.stepKey)!==l){level.set(s.stepKey,l);changed=true;}
+      }
+    }
+    return [...new Set([...level.values()])].sort((a,b)=>a-b).map(l=>steps.filter(s=>level.get(s.stepKey)===l));
+  }
+
+  openCreateProcessDefinition(){
+    this.processDesigner.set({
+      id:null,definitionKey:'',name:'',description:'',version:1,status:'DRAFT',
+      inputSchema:'{"type":"object"}',outputSchema:'{"type":"object"}',steps:[]
+    });
+    this.selectedProcessDefinition.set(null);
+    this.modal.set('process-designer');
+  }
+
+  editProcessDefinition(x:ProcessDefinition){
+    this.selectedProcessDefinition.set(x);
+    this.processDesigner.set({
+      ...x,
+      inputSchema:this.json(x.inputSchema),
+      outputSchema:this.json(x.outputSchema),
+      steps:x.steps.map(s=>({...s,inputSchema:this.json(s.inputSchema),outputSchema:this.json(s.outputSchema),configuration:{...(s.configuration||{})}}))
+    });
+    this.modal.set('process-designer');
+  }
+
+  addProcessStep(type:ProcessStepType){
+    const d=this.processDesigner();if(!d)return;
+    const index=(d.steps?.length||0)+1;
+    const step:any={
+      stepKey:`${type.toLowerCase()}-${index}`,
+      name:this.processStepLabel(type),
+      description:'',
+      type,
+      dependsOn:[],
+      inputSchema:'{"type":"object"}',
+      outputSchema:'{"type":"object"}',
+      configuration:this.defaultProcessStepConfiguration(type)
+    };
+    this.editProcessStep(step);
+  }
+
+  editProcessStep(step:any){
+    this.processStepDraft.set({
+      ...step,
+      originalStepKey:step.stepKey,
+      dependsOn:[...(step.dependsOn||[])],
+      configuration:{...(step.configuration||{})},
+      inputSchema:typeof step.inputSchema==='string'?step.inputSchema:this.json(step.inputSchema),
+      outputSchema:typeof step.outputSchema==='string'?step.outputSchema:this.json(step.outputSchema),
+      instructions:Array.isArray(step.configuration?.instructions)?step.configuration.instructions.join('\n'):'',
+      metadata:this.json(step.configuration?.metadata||{}),
+      decisionValue:this.json(step.configuration?.value),
+      whenDecisionStep:step.configuration?.when?.decisionStep||'',
+      whenEquals:step.configuration?.when?.equals??'',
+      retryMaxAttempts:step.configuration?.retry?.maxAttempts||1,
+      retryBackoffMs:step.configuration?.retry?.backoffMs||0,
+      timeoutSeconds:step.configuration?.timeoutSeconds||null,
+      reviewEnabled:!!step.configuration?.review,
+      reviewRepeatStep:step.configuration?.review?.repeatStep||'',
+      reviewApproveDecision:step.configuration?.review?.approveDecision||'APPROVE',
+      reviewRepeatDecision:step.configuration?.review?.repeatDecision||'REQUEST_CHANGES',
+      reviewMaxIterations:step.configuration?.review?.maxIterations||5,
+      artifactEnabled:!!step.configuration?.artifactPolicy?.enabled,
+      artifactSchema:step.configuration?.artifactPolicy?.schema||'generic-agent-output/v1',
+      artifactHumanTitle:step.configuration?.artifactPolicy?.humanTitle||step.name||step.stepKey,
+      artifactHumanType:step.configuration?.artifactPolicy?.humanArtifactType||'HUMAN_DOCUMENT',
+      artifactAgentNames:(step.configuration?.artifactPolicy?.agentNames||[]).join(', '),
+      artifactMaxOutputTokens:step.configuration?.artifactPolicy?.maxOutputTokens||8000,
+      materializationEnabled:!!step.configuration?.materializationPolicy?.enabled,
+      materializationAllowedTools:(step.configuration?.materializationPolicy?.allowedTools||[]).join(', ')
+    });
+    this.modal.set('process-step');
+  }
+
+  saveProcessStep(){
+    try{
+      const d=this.processDesigner(),s=this.processStepDraft();if(!d||!s)return;
+      const config:any={...(s.configuration||{})};
+      delete config.when;delete config.retry;delete config.timeoutSeconds;
+      if(s.type==='AGENTIC_EXECUTION'){
+        config.intent=s.configuration?.intent||'';
+        config.instructions=(s.instructions||'').split('\n').map((x:string)=>x.trim()).filter(Boolean);
+        config.metadata=JSON.parse(s.metadata||'{}');
+        delete config.artifactPolicy;
+        delete config.materializationPolicy;
+        if(s.artifactEnabled){
+          config.artifactPolicy={
+            enabled:true,
+            schema:s.artifactSchema||'generic-agent-output/v1',
+            humanTitle:s.artifactHumanTitle||s.name||s.stepKey,
+            humanArtifactType:s.artifactHumanType||'HUMAN_DOCUMENT',
+            agentNames:String(s.artifactAgentNames||'').split(',').map((x:string)=>x.trim()).filter(Boolean),
+            maxOutputTokens:Number(s.artifactMaxOutputTokens||8000)
+          };
+        }
+        if(s.materializationEnabled){
+          config.materializationPolicy={
+            enabled:true,
+            allowedTools:String(s.materializationAllowedTools||'').split(',').map((x:string)=>x.trim()).filter(Boolean)
+          };
+        }
+      }
+      if(s.type==='DECISION'){
+        config.value=s.decisionValue===''||s.decisionValue==null?null:JSON.parse(s.decisionValue);
+      }
+      if(s.type==='HUMAN'){
+        delete config.review;
+        if(s.reviewEnabled){
+          config.review={
+            repeatStep:s.reviewRepeatStep,
+            approveDecision:s.reviewApproveDecision||'APPROVE',
+            repeatDecision:s.reviewRepeatDecision||'REQUEST_CHANGES',
+            maxIterations:Number(s.reviewMaxIterations||5)
+          };
+        }
+      }
+      if(s.whenDecisionStep)config.when={decisionStep:s.whenDecisionStep,equals:s.whenEquals};
+      if(Number(s.retryMaxAttempts)>1||Number(s.retryBackoffMs)>0)config.retry={maxAttempts:Number(s.retryMaxAttempts||1),backoffMs:Number(s.retryBackoffMs||0)};
+      if(s.timeoutSeconds)config.timeoutSeconds=Number(s.timeoutSeconds);
+
+      const normalized={
+        ...s,
+        dependsOn:[...(s.dependsOn||[])],
+        inputSchema:s.inputSchema||'{}',
+        outputSchema:s.outputSchema||'{}',
+        configuration:config
+      };
+      let steps=[...(d.steps||[])];
+      const original=s.originalStepKey||s.stepKey;
+      const existingIndex=steps.findIndex((x:any)=>(x.id&&s.id&&x.id===s.id)||x.stepKey===original);
+      if(existingIndex>=0)steps[existingIndex]=normalized;else steps.push(normalized);
+      if(original!==s.stepKey){
+        steps=steps.map((x:any)=>{
+          if(x.stepKey===s.stepKey)return x;
+          const configuration={...(x.configuration||{})};
+          if(configuration.when?.decisionStep===original){
+            configuration.when={...configuration.when,decisionStep:s.stepKey};
+          }
+          return {...x,dependsOn:(x.dependsOn||[]).map((k:string)=>k===original?s.stepKey:k),configuration};
+        });
+      }
+      d.steps=steps;
+      this.processDesigner.set({...d});
+      this.processStepDraft.set(null);
+      this.modal.set('process-designer');
+    }catch(e:any){
+      this.error.set(this.message(e));
+    }
+  }
+
+  removeProcessStep(step:any){
+    const d=this.processDesigner();if(!d||d.status!=='DRAFT')return;
+    if(!confirm(`Remove step ${step.stepKey}?`))return;
+    d.steps=(d.steps||[]).filter((x:any)=>x.stepKey!==step.stepKey)
+      .map((x:any)=>({...x,dependsOn:(x.dependsOn||[]).filter((k:string)=>k!==step.stepKey)}));
+    this.processDesigner.set({...d});
+  }
+
+  toggleProcessDependency(key:string,checked:boolean){
+    const s=this.processStepDraft();if(!s)return;
+    const deps=new Set<string>(s.dependsOn||[]);
+    checked?deps.add(key):deps.delete(key);
+    s.dependsOn=[...deps];
+    this.processStepDraft.set({...s});
+  }
+
+  async saveProcessDefinition(){
+    const d=this.processDesigner();if(!d)return;
+    await this.run(async()=>{
+      const body={
+        ...d,
+        inputSchema:JSON.parse(d.inputSchema||'{}'),
+        outputSchema:JSON.parse(d.outputSchema||'{}'),
+        steps:(d.steps||[]).map((s:any)=>({
+          id:s.id||null,stepKey:s.stepKey,name:s.name,description:s.description||'',type:s.type,
+          dependsOn:s.dependsOn||[],
+          inputSchema:typeof s.inputSchema==='string'?JSON.parse(s.inputSchema||'{}'):s.inputSchema,
+          outputSchema:typeof s.outputSchema==='string'?JSON.parse(s.outputSchema||'{}'):s.outputSchema,
+          configuration:s.configuration||{}
+        }))
+      };
+      const saved=await this.api.saveProcessDefinition(body);
+      this.processDefinitions.set(await this.api.processDefinitions());
+      this.processDesigner.set(null);this.selectedProcessDefinition.set(saved);this.closeModal();
+    });
+  }
+
+  async activateProcessDefinition(x:ProcessDefinition){
+    if(!confirm(`Activate ${x.definitionKey} v${x.version}? The version becomes immutable.`))return;
+    await this.run(async()=>{const saved=await this.api.activateProcessDefinition(x.id);this.processDefinitions.set(await this.api.processDefinitions());this.selectedProcessDefinition.set(saved);});
+  }
+  async retireProcessDefinition(x:ProcessDefinition){await this.run(async()=>{await this.api.retireProcessDefinition(x.id);this.processDefinitions.set(await this.api.processDefinitions());});}
+  async nextProcessDefinitionVersion(x:ProcessDefinition){await this.run(async()=>{const v=await this.api.nextProcessDefinitionVersion(x.id);this.processDefinitions.set(await this.api.processDefinitions());this.editProcessDefinition(v);});}
+
+  openCreateProcessService(){
+    this.draft={serviceKey:'',name:'',description:'',version:1,implementationKey:'http',configuration:'{"url":"http://service:8080/api","method":"POST"}',inputSchema:'{"type":"object"}',outputSchema:'{"type":"object"}'};
+    this.modal.set('process-service');
+  }
+  editProcessService(x:ProcessServiceDefinition){
+    this.draft={...x,configuration:this.json(x.configuration),inputSchema:this.json(x.inputSchema),outputSchema:this.json(x.outputSchema)};
+    this.modal.set('process-service');
+  }
+  async saveProcessService(){await this.run(async()=>{await this.api.saveProcessService(this.draft);this.processServices.set(await this.api.processServices());this.closeModal();});}
+  async activateProcessService(x:ProcessServiceDefinition){await this.run(async()=>{await this.api.activateProcessService(x.id);this.processServices.set(await this.api.processServices());});}
+  async retireProcessService(x:ProcessServiceDefinition){await this.run(async()=>{await this.api.retireProcessService(x.id);this.processServices.set(await this.api.processServices());});}
+  async nextProcessServiceVersion(x:ProcessServiceDefinition){await this.run(async()=>{const v=await this.api.nextProcessServiceVersion(x.id);this.processServices.set(await this.api.processServices());this.editProcessService(v);});}
+
+  openCreateProcessInstance(x?:ProcessDefinition){
+    const active=x||(this.processDefinitions().find(d=>d.status==='ACTIVE'));
+    this.draft={
+      definitionSelection:active?`${active.definitionKey}::${active.version}`:'',
+      definitionKey:active?.definitionKey||'',
+      version:active?.version||null,
+      correlationId:crypto.randomUUID(),input:'{}',context:'{}',start:true
+    };
+    this.modal.set('process-instance-create');
+  }
+
+  selectProcessDefinitionForNewInstance(value:string){
+    const [definitionKey,version]=String(value||'').split('::');
+    this.draft.definitionSelection=value;
+    this.draft.definitionKey=definitionKey||'';
+    this.draft.version=version?Number(version):null;
+  }
+
+  activeProcessDefinitions(){
+    return this.processDefinitions()
+      .filter(d=>d.status==='ACTIVE')
+      .sort((a,b)=>a.definitionKey.localeCompare(b.definitionKey)||b.version-a.version);
+  }
+  async saveProcessInstance(){
+    await this.run(async()=>{
+      const body={definitionKey:this.draft.definitionKey,version:this.draft.version?Number(this.draft.version):null,correlationId:this.draft.correlationId||crypto.randomUUID(),input:JSON.parse(this.draft.input||'{}'),context:JSON.parse(this.draft.context||'{}')};
+      const created=await this.api.createProcessInstance(body);
+      if(this.draft.start!==false)await this.api.startProcessInstance(created.id);
+      this.processInstances.set(await this.api.processInstances());
+      this.closeModal();
+      await this.openProcessInstance(created.id);
+    });
+  }
+
+  async openProcessInstance(id:string){
+    await this.run(async()=>{const x=await this.api.processInstance(id);this.selectedProcessInstance.set(x);this.modal.set('process-instance');});
+  }
+  async processInstanceAction(kind:'start'|'pause'|'resume'|'cancel'){
+    const x=this.selectedProcessInstance();if(!x)return;
+    await this.run(async()=>{
+      if(kind==='start')await this.api.startProcessInstance(x.id);
+      if(kind==='pause')await this.api.pauseProcessInstance(x.id);
+      if(kind==='resume')await this.api.resumeProcessInstance(x.id);
+      if(kind==='cancel')await this.api.cancelProcessInstance(x.id);
+      this.selectedProcessInstance.set(await this.api.processInstance(x.id));
+      this.processInstances.set(await this.api.processInstances());
+    });
+  }
+
+  async completeHumanTask(x:ProcessHumanTask,explicitDecision?:string){
+    await this.run(async()=>{
+      const review=this.humanTaskReviewPolicy(x);
+      const allowed=review?[review.approveDecision||'APPROVE',review.repeatDecision||'REQUEST_CHANGES']:[];
+      const decision=explicitDecision||(review&&!allowed.includes(this.processHumanDecision)
+        ? (review.approveDecision||'APPROVE')
+        : this.processHumanDecision);
+      await this.api.completeProcessHumanTask(x.id,decision,JSON.parse(this.processHumanResult||'{}'));
+      this.processHumanTasks.set(await this.api.processHumanTasks());
+      this.processInstances.set(await this.api.processInstances());
+      this.processHumanResult='{}';
+    });
+  }
+
+  openSignalProcessEvent(x?:ProcessInstance){
+    let eventType='';
+    if(x){
+      const waiting=x.steps.find(s=>s.type==='WAIT_EVENT'&&s.status==='WAITING');
+      const definition=this.processDefinitions().find(d=>d.id===x.definitionId);
+      eventType=definition?.steps.find(s=>s.stepKey===waiting?.stepKey)?.configuration?.eventType||'';
+    }
+    this.processSignalEventType=eventType;
+    this.processSignalCorrelation=x?.correlationId||'';
+    this.processSignalPayload='{}';
+    this.modal.set('process-event');
+  }
+  async signalProcessEvent(){
+    await this.run(async()=>{
+      await this.api.signalProcessEvent(this.processSignalEventType,this.processSignalCorrelation,JSON.parse(this.processSignalPayload||'{}'));
+      this.closeModal();
+      await this.refreshProcessesLive();
+    });
+  }
+
+  processStepLabel(type:ProcessStepType){
+    return ({SERVICE:'Service',AGENTIC_EXECUTION:'Agentic execution',DECISION:'Decision',HUMAN:'Human task',WAIT_EVENT:'Wait event',SUBPROCESS:'Subprocess'} as any)[type]||type;
+  }
+
+  processStepIcon(type:ProcessStepType){
+    return ({SERVICE:'↗',AGENTIC_EXECUTION:'◎',DECISION:'◇',HUMAN:'♙',WAIT_EVENT:'◷',SUBPROCESS:'▣'} as any)[type]||'•';
+  }
+
+  defaultProcessStepConfiguration(type:ProcessStepType){
+    if(type==='SERVICE'){
+      const svc=this.processServices().filter(s=>s.status==='ACTIVE').sort((a,b)=>b.version-a.version)[0];
+      return {serviceKey:svc?.serviceKey||'',serviceVersion:svc?.version||null};
+    }
+    if(type==='AGENTIC_EXECUTION')return {intent:'',instructions:[],metadata:{}};
+    if(type==='DECISION')return {path:'processInput.value',operator:'EQ',value:true,onTrue:'TRUE',onFalse:'FALSE'};
+    if(type==='HUMAN')return {title:'Human approval',description:''};
+    if(type==='WAIT_EVENT')return {eventType:'event.received'};
+    return {};
+  }
+
+
+  selectReviewProducer(step:any,key:string){
+    const previous=step.reviewRepeatStep;
+    const deps=new Set<string>(step.dependsOn||[]);
+    if(previous)deps.delete(previous);
+    if(key)deps.add(key);
+    step.reviewRepeatStep=key;
+    step.dependsOn=[...deps];
+    this.processStepDraft.set({...step});
+  }
+
+  reviewableProducerSteps(currentStepKey:string){
+    return (this.processDesigner()?.steps||[]).filter((s:any)=>
+      s.stepKey!==currentStepKey
+      && (s.type==='SERVICE'||s.type==='AGENTIC_EXECUTION'));
+  }
+
+  taskArtifactRefs(task:ProcessHumanTask){
+    const refs:any[]=[];
+    const visit=(value:any)=>{
+      if(Array.isArray(value)){value.forEach(visit);return;}
+      if(value&&typeof value==='object'){
+        if(value.artifactId&&value.type)refs.push(value);
+        Object.values(value).forEach(visit);
+      }
+    };
+    visit(task.payload);
+    return refs.filter((x,index,arr)=>arr.findIndex(y=>y.artifactId===x.artifactId)===index);
+  }
+
+  taskReviewArtifacts(task:ProcessHumanTask){
+    return this.taskArtifactRefs(task).filter((a:any)=>
+      a.type==='HUMAN_DOCUMENT'||a.type==='FINAL_DELIVERABLE'
+    );
+  }
+
+  humanTaskProducerStep(task:ProcessHumanTask){
+    const review=this.humanTaskReviewPolicy(task);
+    return review?.repeatStep||Object.keys(task.payload?.dependencies||{})[0]||'';
+  }
+
+  humanTaskProducerResult(task:ProcessHumanTask){
+    const key=this.humanTaskProducerStep(task);
+    return key?task.payload?.dependencies?.[key]:null;
+  }
+
+  humanTaskLegacyReviewText(task:ProcessHumanTask){
+    if(this.taskReviewArtifacts(task).length)return '';
+    const result:any=this.humanTaskProducerResult(task);
+    if(!result)return '';
+    const candidates=[
+      result?.data?.finalStep?.output?.content,
+      result?.data?.finalStep?.summary,
+      result?.output?.content,
+      result?.summary,
+      result?.content
+    ];
+    return String(candidates.find(x=>typeof x==='string'&&x.trim())||'');
+  }
+
+  textDisplayBlocks(rawValue:string){
+    const raw=String(rawValue||'');
+    const blocks:any[]=[];
+    let paragraph:string[]=[];
+    const flush=()=>{if(paragraph.length){blocks.push({kind:'p',text:paragraph.join(' ')});paragraph=[];}};
+    for(const sourceLine of raw.split('\n')){
+      const line=sourceLine.trim();
+      if(!line){flush();continue;}
+      const heading=line.match(/^(#{1,3})\s+(.+)$/);
+      if(heading){flush();blocks.push({kind:'h'+heading[1].length,text:heading[2]});continue;}
+      const bullet=line.match(/^[-*]\s+(.+)$/);
+      if(bullet){flush();blocks.push({kind:'li',text:bullet[1]});continue;}
+      paragraph.push(line);
+    }
+    flush();
+    return blocks;
+  }
+
+  artifactDisplayBlocks(a:ExecutionArtifact){
+    return this.textDisplayBlocks(String(a.content?.markdown||''));
+  }
+
+  toggleHumanTaskTechnical(task:ProcessHumanTask){
+    this.humanTaskTechnicalOpen[task.id]=!this.humanTaskTechnicalOpen[task.id];
+  }
+
+  isHumanTaskTechnicalOpen(task:ProcessHumanTask){
+    return !!this.humanTaskTechnicalOpen[task.id];
+  }
+
+  trackByHumanTaskId(_index:number,task:ProcessHumanTask){
+    return task.id;
+  }
+
+  async openArtifact(ref:any){
+    await this.run(async()=>{
+      this.selectedArtifact.set(await this.api.artifact(ref.artifactId||ref.id));
+      this.modal.set('artifact');
+    });
+  }
+
+  humanTaskReviewPolicy(task:ProcessHumanTask){
+    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
+    const definition=this.processDefinitions().find(d=>d.id===instance?.definitionId);
+    return definition?.steps.find(s=>s.stepKey===task.stepKey)?.configuration?.review||null;
+  }
+
+  pendingProcessHumanTasks(){return this.processHumanTasks().filter(x=>x.status==='PENDING').length;}
+  activeProcessServices(){return this.processServices().filter(x=>x.status==='ACTIVE').length;}
+  processProgress(x:ProcessInstance){return x.steps.filter(s=>s.status==='COMPLETED'||s.status==='SKIPPED').length;}
+  processCompletedSteps(x:ProcessInstance){return x.steps.filter(s=>s.status==='COMPLETED').length;}
+  processWaitingSteps(x:ProcessInstance){return x.steps.filter(s=>s.status==='WAITING').length;}
+
+  processServiceSelection(step:any){
+    const key=step.configuration?.serviceKey,version=step.configuration?.serviceVersion;
+    return key&&version?`${key}::${version}`:'';
+  }
+  selectProcessService(step:any,value:string){
+    const [key,version]=String(value||'').split('::');
+    step.configuration.serviceKey=key||'';
+    step.configuration.serviceVersion=version?Number(version):null;
+  }
+  activeProcessServiceVersions(){
+    return this.processServices()
+      .filter(s=>s.status==='ACTIVE')
+      .sort((a,b)=>a.serviceKey.localeCompare(b.serviceKey)||b.version-a.version);
+  }
+
+  processServiceName(step:any){
+    if(step.type!=='SERVICE')return '';
+    const key=step.configuration?.serviceKey,version=step.configuration?.serviceVersion;
+    const svc=this.processServices().find(s=>s.serviceKey===key&&(!version||s.version===version));
+    return svc?`${svc.name} · v${svc.version}`:key||'No service selected';
+  }
+
+  selectedProcessDefinitionForInstance(){
+    const x=this.selectedProcessInstance();
+    return x?this.processDefinitions().find(d=>d.id===x.definitionId)||null:null;
+  }
 
   private async run(fn:()=>Promise<any>){this.busy.set(true);this.error.set('');try{await fn();}catch(e:any){this.error.set(this.message(e));}finally{this.busy.set(false);}}
   private message(e:any){return e?.error?.detail||e?.message||'Error inesperado';}

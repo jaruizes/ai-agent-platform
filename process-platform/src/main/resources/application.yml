@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: process-platform
+  datasource:
+    url: ${PROCESS_DB_URL:jdbc:postgresql://localhost:5433/process_platform}
+    username: ${PROCESS_DB_USER:process}
+    password: ${PROCESS_DB_PASSWORD:process}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  port: ${SERVER_PORT:8090}
+
+agent-platform:
+  nats:
+    url: ${NATS_URL:nats://localhost:4222}
+    command-subject: ${AGENT_PLATFORM_COMMAND_SUBJECT:platform.commands.execution}
+    events-subject: ${AGENT_PLATFORM_EVENTS_SUBJECT:platform.events.execution.>}
+    events-durable: ${AGENT_PLATFORM_EVENTS_DURABLE:process-platform-agent-events}
+    max-command-bytes: ${AGENT_PLATFORM_NATS_MAX_COMMAND_BYTES:900000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  pattern:
+    correlation: "[%X{traceId:-},%X{spanId:-}] "
+
+process:
+  runtime:
+    recovery-delay-ms: ${PROCESS_RUNTIME_RECOVERY_DELAY_MS:2000}
+    outbox-poll-ms: ${PROCESS_RUNTIME_OUTBOX_POLL_MS:250}
+    step-stale-seconds: ${PROCESS_RUNTIME_STEP_STALE_SECONDS:60}
+    agent-callback-grace-seconds: ${PROCESS_RUNTIME_AGENT_CALLBACK_GRACE_SECONDS:30}
+
+
+google:
+  oauth:
+    token-path: ${GOOGLE_OAUTH_TOKEN:/run/secrets/google/google-token.json}
+    token-endpoint: ${GOOGLE_OAUTH_TOKEN_ENDPOINT:https://oauth2.googleapis.com/token}
