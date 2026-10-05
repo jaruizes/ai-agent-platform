@@ -7,6 +7,7 @@
       <button class="nav-item" [class.active]="view()==='approvals'" (click)="setView('approvals')">✓ <span>Approvals</span><i *ngIf="approvals().length">{{approvals().length}}</i></button>
       <div class="nav-section">PROCESS ORCHESTRATION</div>
       <button class="nav-item" [class.active]="view()==='processes'" (click)="setView('processes')">⌘ <span>Processes</span><i *ngIf="pendingProcessHumanTasks()">{{pendingProcessHumanTasks()}}</i></button>
+      <button class="nav-item" [class.active]="view()==='services'" (click)="setView('services')">↗ <span>Service Registry</span></button>
       <div class="nav-section">CONTEXT & MEMORY</div>
       <button class="nav-item" [class.active]="view()==='sessions'" (click)="setView('sessions')">◉ <span>Sessions</span></button>
       <button class="nav-item" [class.active]="view()==='memory'" (click)="setView('memory')">◈ <span>Memory</span></button>
@@ -98,7 +99,6 @@
       <div class="process-tabs">
         <button [class.active]="processTab()==='definitions'" (click)="setProcessTab('definitions')">Definitions</button>
         <button [class.active]="processTab()==='instances'" (click)="setProcessTab('instances')">Instances</button>
-        <button [class.active]="processTab()==='services'" (click)="setProcessTab('services')">Services</button>
         <button [class.active]="processTab()==='human'" (click)="setProcessTab('human')">Human tasks <span *ngIf="pendingProcessHumanTasks()">· {{pendingProcessHumanTasks()}}</span></button>
       </div>
 
@@ -144,7 +144,7 @@
         <div class="table-wrap"><table><thead><tr><th>Status</th><th>Process</th><th>Correlation</th><th>Progress</th><th>Updated</th><th></th></tr></thead><tbody>
           <tr *ngFor="let x of filteredProcessInstances()" (click)="openProcessInstance(x.id)">
             <td><span class="status-pill" [ngClass]="statusClass(x.status)">{{x.status}}</span></td>
-            <td><strong>{{x.definitionKey}} · v{{x.definitionVersion}}</strong><small class="block mono">{{x.id}}</small></td>
+            <td><strong>{{processDefinitionName(x)}} · v{{x.definitionVersion}}</strong><small class="block mono">{{x.id}}</small></td>
             <td class="mono">{{short(x.correlationId,28)}}</td>
             <td>{{processProgress(x)}} / {{x.steps.length}}</td>
             <td>{{date(x.updatedAt)}}</td><td>›</td>
@@ -152,27 +152,6 @@
         </tbody></table></div>
       </section>
 
-      <section class="panel" *ngIf="processTab()==='services'">
-        <div class="panel-head">
-          <div><h2>Service Registry</h2><p>Discoverable deterministic capabilities owned by Process Platform. Tools/MCP remain exclusive to Agent Platform.</p></div>
-          <button class="primary" (click)="openCreateProcessService()">＋ Service</button>
-        </div>
-        <div class="resource-grid">
-          <article class="resource-card process-service-card" *ngFor="let s of processServices()">
-            <div class="resource-head"><span class="resource-icon">↗</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span></div>
-            <h3>{{s.name}} <small>v{{s.version}}</small></h3>
-            <p>{{s.description||'Deterministic process capability'}}</p>
-            <code>{{s.serviceKey}}</code>
-            <div class="chips"><span>{{s.implementationKey}}</span><span *ngIf="s.configuration?.method">{{s.configuration.method}}</span></div>
-            <footer><small>{{date(s.updatedAt)}}</small><div>
-              <button class="ghost small" *ngIf="s.status==='DRAFT'" (click)="editProcessService(s)">Edit</button>
-              <button class="approve small" *ngIf="s.status==='DRAFT'" (click)="activateProcessService(s)">Activate</button>
-              <button class="ghost small" *ngIf="s.status!=='DRAFT'" (click)="nextProcessServiceVersion(s)">Next</button>
-              <button class="danger small" *ngIf="s.status==='ACTIVE'" (click)="retireProcessService(s)">Retire</button>
-            </div></footer>
-          </article>
-        </div>
-      </section>
 
       <section class="panel" *ngIf="processTab()==='human'">
         <div class="panel-head"><div><h2>Human Task Inbox</h2><p>Durable business approvals and reviews emitted by HUMAN process steps.</p></div></div>
@@ -180,11 +159,11 @@
           <article class="approval-detail" *ngFor="let t of processHumanTasks();trackBy:trackByHumanTaskId">
             <div class="approval-top"><span class="status-pill" [ngClass]="statusClass(t.status)">{{t.status}}</span><small>iteration {{t.iteration}} · {{date(t.createdAt)}}</small></div>
             <h3>{{t.title}}</h3><p>{{t.description||'Human action required by process.'}}</p>
-            <dl><div><dt>Process</dt><dd class="mono">{{t.processInstanceId}}</dd></div><div><dt>Step</dt><dd>{{t.stepKey}}</dd></div><div *ngIf="t.decision"><dt>Decision</dt><dd>{{t.decision}}</dd></div></dl>
+            <dl><div><dt>Process</dt><dd>{{humanTaskProcessName(t)}}</dd></div><div><dt>Step</dt><dd>{{humanTaskStepName(t)}}</dd></div><div *ngIf="t.decision"><dt>Decision</dt><dd>{{t.decision}}</dd></div></dl>
             <section class="human-review-panel">
               <div class="human-review-head">
                 <div><span class="eyebrow">Review material</span><h3>Generated output</h3></div>
-                <small>Producer · {{humanTaskProducerStep(t)||'previous step'}}</small>
+                <small>Producer · {{humanTaskStepName(t)||'previous step'}}</small>
               </div>
 
               <div class="artifact-review-list" *ngIf="taskReviewArtifacts(t).length">
@@ -233,6 +212,31 @@
           <div class="empty big" *ngIf="!processHumanTasks().length">No human tasks yet.</div>
         </div>
       </section>
+    </ng-container>
+
+    <ng-container *ngIf="view()==='services'">
+      <section class="panel">
+        <div class="panel-head">
+          <div><h2>Service Registry</h2><p>Discoverable deterministic capabilities owned by Process Platform. Tools/MCP remain exclusive to Agent Platform.</p></div>
+          <button class="primary" (click)="openCreateProcessService()">＋ Service</button>
+        </div>
+        <div class="resource-grid">
+          <article class="resource-card process-service-card" *ngFor="let s of processServices()">
+            <div class="resource-head"><span class="resource-icon">↗</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span></div>
+            <h3>{{s.name}} <small>v{{s.version}}</small></h3>
+            <p>{{s.description||'Deterministic process capability'}}</p>
+            <code>{{s.serviceKey}}</code>
+            <div class="chips"><span>{{s.implementationKey}}</span><span *ngIf="s.configuration?.method">{{s.configuration.method}}</span></div>
+            <footer><small>{{date(s.updatedAt)}}</small><div>
+              <button class="ghost small" *ngIf="s.status==='DRAFT'" (click)="editProcessService(s)">Edit</button>
+              <button class="approve small" *ngIf="s.status==='DRAFT'" (click)="activateProcessService(s)">Activate</button>
+              <button class="ghost small" *ngIf="s.status!=='DRAFT'" (click)="nextProcessServiceVersion(s)">Next</button>
+              <button class="danger small" *ngIf="s.status==='ACTIVE'" (click)="retireProcessService(s)">Retire</button>
+            </div></footer>
+          </article>
+        </div>
+      </section>
+
     </ng-container>
 
     <ng-container *ngIf="view()==='sessions'">
@@ -387,8 +391,8 @@
       <div class="exec-actions"><button class="ghost" *ngIf="canPause()" (click)="execAction('pause')">Pause</button><button class="ghost" *ngIf="canResume()" (click)="execAction('resume')">Resume</button><button class="ghost" *ngIf="canRetry()" (click)="execAction('retry')">Retry</button><button class="danger" *ngIf="!['COMPLETED','FAILED','CANCELLED'].includes(e.status)" (click)="execAction('cancel')">Cancel</button></div>
       <section class="plan-head"><div><span class="eyebrow">LOGICAL PLAN</span><h3>{{orchestration()?.plan?.objective||'Planning…'}}</h3></div><div class="planner-meta">Planner {{orchestration()?.plan?.planner?.model||'—'}} · {{tokens(orchestration()?.plan?.planner?.usage?.total_tokens)}} tokens</div></section>
       <div class="dag" *ngIf="orchestration()?.steps?.length;else noPlan"><div class="dag-level" *ngFor="let level of executionLevels();let li=index"><div class="dag-step" *ngFor="let s of level" [ngClass]="statusClass(s.status)">
-        <div class="step-top"><span class="step-type">{{s.type}}</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span></div><strong>{{s.id}}</strong><p>{{s.description}}</p>
-        <div class="step-owner" *ngIf="s.agent||s.tool">{{s.agent?'◎ '+s.agent:'⌁ '+s.tool}}</div><div class="step-meta"><span>{{tokens(s.usage?.total_tokens)}} tok</span><span>attempt {{s.attemptCount}}/{{s.maxAttempts}}</span><span *ngIf="s.dependsOn?.length">after {{s.dependsOn.join(', ')}}</span></div>
+        <div class="step-top"><span class="step-type">{{s.type}}</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span></div><strong>{{stepDisplayName(s)}}</strong><small class="technical-id">{{s.id}}</small><p *ngIf="s.description && stepDisplayName(s)!==s.description">{{s.description}}</p>
+        <div class="step-owner" *ngIf="s.agent||s.tool">{{s.agent?'◎ '+agentDisplayName(s.agent):'⌁ '+humanizeIdentifier(s.tool)}}</div><div class="step-meta"><span>{{tokens(s.usage?.total_tokens)}} tok</span><span>attempt {{s.attemptCount}}/{{s.maxAttempts}}</span><span *ngIf="s.dependsOn?.length">after {{s.dependsOn.join(', ')}}</span></div>
         <div class="approval-note" *ngIf="s.requiresApproval">Human approval · {{s.approvalSource}} · {{s.approval?.status}}</div>
         <div class="step-error" *ngIf="s.error">{{s.error?.message||json(s.error)}}</div>
         <div class="step-approval-actions" *ngIf="s.status==='WAITING_APPROVAL'"><button class="danger small" (click)="decide(e.executionId,s.id,false)">Reject</button><button class="approve small" (click)="decide(e.executionId,s.id,true)">Approve</button></div>
@@ -420,12 +424,12 @@
 </div>
 
 <div class="modal-backdrop" *ngIf="modal() && modal()!=='execution'">
-  <section class="modal" [class.wide]="modal()==='prompt'||modal()==='tool'||modal()==='agent'||modal()==='process-designer'||modal()==='process-instance'||modal()==='artifact'"><header><div><span class="eyebrow">CONTROL PLANE EDITOR</span><h2>{{modal()|titlecase}}</h2></div><button class="icon-btn" (click)="cancelModal()">×</button></header>
+  <section class="modal" [class.wide]="modal()==='prompt'||modal()==='tool'||modal()==='agent'||modal()==='process-designer'||modal()==='process-instance'||modal()==='artifact'"><header><div><span class="eyebrow">CONTROL PLANE EDITOR</span><h2>{{modal()==='process-instance' ? processDefinitionName(selectedProcessInstance()) : (modal()|titlecase)}}</h2></div><button class="icon-btn" (click)="cancelModal()">×</button></header>
   <div class="modal-body">
     <ng-container *ngIf="modal()==='artifact' && selectedArtifact() as a">
       <div class="execution-summary"><span class="status-pill">{{a.type}}</span><strong>{{a.title}}</strong><span>v{{a.version}} · {{a.schema}}</span><span>{{a.sizeBytes}} bytes</span></div>
       <p>{{a.summary}}</p>
-      <section class="artifact-human" *ngIf="a.mediaType==='text/markdown'">
+      <section class="artifact-human" *ngIf="artifactMarkdown(a)">
         <ng-container *ngFor="let b of artifactDisplayBlocks(a)">
           <h1 *ngIf="b.kind==='h1'">{{b.text}}</h1>
           <h2 *ngIf="b.kind==='h2'">{{b.text}}</h2>
@@ -434,7 +438,7 @@
           <div class="artifact-bullet" *ngIf="b.kind==='li'">• {{b.text}}</div>
         </ng-container>
       </section>
-      <details class="json-details" [open]="a.mediaType!=='text/markdown'"><summary>Structured content</summary><pre>{{json(a.content)}}</pre></details>
+      <details class="json-details"><summary>Structured content · technical</summary><pre>{{json(a.content)}}</pre></details>
       <details class="json-details"><summary>Artifact metadata</summary><pre>{{json(a.metadata)}}</pre></details>
     </ng-container>
     <ng-container *ngIf="modal()==='create-execution'"><label>Name<input [(ngModel)]="draft.name"></label><label>Session<select [(ngModel)]="draft.sessionId"><option value="">No session</option><option *ngFor="let s of sessions()" [value]="s.id" [disabled]="s.status!=='ACTIVE'">{{s.name||s.id}} · {{s.scope}}</option></select></label><label>Intent<textarea rows="4" [(ngModel)]="draft.intent"></textarea></label><label>Input JSON<textarea rows="5" class="mono" [(ngModel)]="draft.input"></textarea></label><label>Context JSON<textarea rows="3" class="mono" [(ngModel)]="draft.context"></textarea></label><label>Instructions · one per line<textarea rows="3" [(ngModel)]="draft.instructions"></textarea></label></ng-container>
@@ -488,7 +492,7 @@
             <div class="node-deps" *ngIf="s.dependsOn?.length">after {{s.dependsOn.join(', ')}}</div>
             <div class="actions"><button class="ghost small" *ngIf="p.status==='DRAFT'" (click)="editProcessStep(s)">Configure</button><button class="icon-danger" *ngIf="p.status==='DRAFT'" (click)="removeProcessStep(s)">×</button></div>
           </article>
-          <div class="canvas-arrow" *ngIf="li<processDefinitionLevels(p).length-1">↓</div>
+          <div class="canvas-arrow" *ngIf="li<processDefinitionLevels(p).length-1">→</div>
         </div>
       </div>
       <ng-template #emptyDesigner><div class="empty big">Add the first step to start the process DAG.</div></ng-template>
@@ -573,7 +577,7 @@
 
     <ng-container *ngIf="modal()==='process-instance' && selectedProcessInstance() as x">
       <div class="process-instance-summary">
-        <div><span class="status-pill" [ngClass]="statusClass(x.status)">{{x.status}}</span><h2>{{x.definitionKey}} · v{{x.definitionVersion}}</h2><p class="mono">{{x.id}}</p></div>
+        <div><span class="status-pill" [ngClass]="statusClass(x.status)">{{x.status}}</span><h2>{{processDefinitionName(x)}} · v{{x.definitionVersion}}</h2><p class="mono">{{x.id}}</p></div>
         <div class="process-instance-actions">
           <button class="primary" *ngIf="x.status==='CREATED'" (click)="processInstanceAction('start')">Start</button>
           <button class="ghost" *ngIf="x.status==='RUNNING'||x.status==='WAITING'" (click)="processInstanceAction('pause')">Pause</button>
@@ -586,14 +590,14 @@
       <div class="process-canvas instance-canvas">
         <div class="process-canvas-level" *ngFor="let level of processInstanceLevels(x);let li=index">
           <article class="process-node runtime-node" *ngFor="let s of level" [attr.data-type]="s.type" [ngClass]="statusClass(s.status)">
-            <div class="process-node-top"><span class="node-icon">{{processStepIcon(s.type)}}</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span></div>
-            <strong>{{s.stepKey}}</strong><small>{{s.type}} · attempt {{s.attemptCount}}</small>
+            <div class="process-node-top"><span class="node-icon">{{processStepIcon(s.type)}}</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{processStatusLabel(s.status,s.type)}}</span></div>
+            <strong>{{processStepName(x,s.stepKey)}}</strong><small class="technical-id">{{s.stepKey}} · {{s.type}} · attempt {{s.attemptCount}}</small>
             <div class="node-runtime-meta"><span *ngIf="s.startedAt">started {{date(s.startedAt)}}</span><span *ngIf="s.deadlineAt">deadline {{date(s.deadlineAt)}}</span></div>
             <button class="ghost small" *ngIf="s.delegatedExecutionId" (click)="closeModal();openExecution(s.delegatedExecutionId)">Inspect agent execution ↗</button>
             <div class="step-error" *ngIf="s.error?.code||s.error?.message">{{s.error?.code}} {{s.error?.message}}</div>
             <details class="json-details"><summary>I/O</summary><pre>{{json({input:s.input,output:s.output})}}</pre></details>
           </article>
-          <div class="canvas-arrow" *ngIf="li<processInstanceLevels(x).length-1">↓</div>
+          <div class="canvas-arrow" *ngIf="li<processInstanceLevels(x).length-1">→</div>
         </div>
       </div>
       <details class="json-details"><summary>Process input / context</summary><pre>{{json({input:x.input,context:x.context})}}</pre></details>
