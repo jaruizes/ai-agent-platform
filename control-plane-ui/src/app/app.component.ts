@@ -656,11 +656,42 @@ export class AppComponent implements OnInit,OnDestroy {
     return blocks;
   }
 
+  private unwrapStructuredText(rawValue:string){
+    const raw=String(rawValue||'').trim();
+    return raw.replace(/^\s*```(?:json|markdown|md)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+  }
+
+  private extractJsonStringField(rawValue:string,field:string){
+    const raw=this.unwrapStructuredText(rawValue);
+    const token=`"${field}"`;
+    const keyIndex=raw.indexOf(token);
+    if(keyIndex<0)return '';
+    const colon=raw.indexOf(':',keyIndex+token.length);
+    if(colon<0)return '';
+    const quote=raw.indexOf('"',colon+1);
+    if(quote<0)return '';
+    let escaped=false;
+    for(let i=quote+1;i<raw.length;i++){
+      const ch=raw[i];
+      if(ch==='"'&&!escaped){
+        const literal=raw.slice(quote,i+1);
+        try{return JSON.parse(literal);}catch{return raw.slice(quote+1,i);}
+      }
+      escaped=ch==='\\'&&!escaped;
+      if(ch!=='\\')escaped=false;
+    }
+    return '';
+  }
+
   private markdownFrom(value:any,depth=0):string{
-    if(value==null||depth>5)return '';
+    if(value==null||depth>7)return '';
     if(typeof value==='object'){
-      const direct=value.markdown||value.humanDocument?.markdown||value.human_document?.markdown;
-      if(typeof direct==='string'&&direct.trim())return this.markdownFrom(direct,depth+1);
+      const human=value.humanDocument||value.human_document;
+      if(typeof human?.markdown==='string'&&human.markdown.trim())return human.markdown.trim();
+      if(typeof value.markdown==='string'&&value.markdown.trim()){
+        const nested=this.markdownFrom(value.markdown,depth+1);
+        if(nested)return nested;
+      }
       for(const key of ['content','data','output','result','document']){
         if(value[key]!=null){
           const nested=this.markdownFrom(value[key],depth+1);
@@ -670,20 +701,59 @@ export class AppComponent implements OnInit,OnDestroy {
       return '';
     }
     if(typeof value!=='string')return '';
-    const raw=value.trim();
-    const unfenced=raw.replace(/^\s*```(?:json|markdown|md)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
-    if((unfenced.startsWith('{')&&unfenced.endsWith('}'))||(unfenced.startsWith('[')&&unfenced.endsWith(']'))){
+    const raw=this.unwrapStructuredText(value);
+    if((raw.startsWith('{')&&raw.endsWith('}'))||(raw.startsWith('[')&&raw.endsWith(']'))){
       try{
-        const parsed=JSON.parse(unfenced);
+        const parsed=JSON.parse(raw);
         const nested=this.markdownFrom(parsed,depth+1);
         if(nested)return nested;
-      }catch{}
+      }catch{
+        const markdown=this.extractJsonStringField(raw,'markdown');
+        if(markdown)return markdown;
+      }
     }
-    return unfenced;
+    const embeddedMarkdown=this.extractJsonStringField(raw,'markdown');
+    if(embeddedMarkdown)return embeddedMarkdown;
+    return raw;
+  }
+
+  private summaryFrom(value:any,depth=0):string{
+    if(value==null||depth>6)return '';
+    if(typeof value==='object'){
+      if(typeof value.summary==='string'&&value.summary.trim())return this.summaryFrom(value.summary,depth+1);
+      for(const key of ['content','data','output','result']){
+        if(value[key]!=null){
+          const nested=this.summaryFrom(value[key],depth+1);
+          if(nested)return nested;
+        }
+      }
+      return '';
+    }
+    if(typeof value!=='string')return '';
+    const raw=this.unwrapStructuredText(value);
+    if(raw.startsWith('{')||raw.startsWith('[')){
+      try{
+        const parsed=JSON.parse(raw);
+        const nested=this.summaryFrom(parsed,depth+1);
+        if(nested)return nested;
+      }catch{
+        const summary=this.extractJsonStringField(raw,'summary');
+        if(summary)return summary;
+      }
+    }
+    const embedded=this.extractJsonStringField(raw,'summary');
+    return embedded||raw;
   }
 
   artifactMarkdown(a:ExecutionArtifact){
     return this.markdownFrom(a.content);
+  }
+
+  artifactSummary(a:any){
+    const parsed=this.summaryFrom(a?.summary);
+    if(parsed&&parsed!==a?.summary)return parsed;
+    const fromContent=this.summaryFrom(a?.content);
+    return fromContent||parsed||'';
   }
 
   artifactDisplayBlocks(a:ExecutionArtifact){
