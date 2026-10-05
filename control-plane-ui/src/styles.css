@@ -19,3 +19,16 @@
 .artifact-human h1{font-size:24px;margin:0 0 18px}.artifact-human h2{font-size:18px;margin:24px 0 10px;border-bottom:1px solid #e2e5ed;padding-bottom:6px}.artifact-human h3{font-size:15px;margin:18px 0 8px}.artifact-human p{line-height:1.65;margin:8px 0;color:#30374b}.artifact-bullet{padding:4px 0 4px 16px;line-height:1.5;color:#30374b}
 
 .human-review-panel{margin:16px 0;padding:16px;background:#091121;border:1px solid #263758;border-radius:11px}.human-review-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:10px}.human-review-head h3{margin:3px 0 0;font-size:16px}.human-review-head small{color:#7785a4}.legacy-review-note{margin:8px 0 12px;padding:10px 12px;border-left:3px solid #d39a48;background:#171526;border-radius:6px}.legacy-review-note strong{color:#f0c36d}.legacy-review-note p{margin:4px 0 0!important;color:#aeb8ce!important;font-size:10px!important}.legacy-human-output{max-height:560px;overflow:auto}.review-warning{padding:13px;background:#211823;border:1px solid #623947;border-radius:8px;color:#d9a8b1;line-height:1.5}.human-technical{margin-top:12px;border-top:1px solid #202d4c;padding-top:10px}.human-technical pre{margin-top:9px;max-height:420px;overflow:auto;background:#070d19;border:1px solid #202d4c;border-radius:8px;padding:12px;white-space:pre-wrap;word-break:break-word;color:#8f9bb5;font-size:9px;line-height:1.45}
+
+/* Review defects: horizontal process flow and human-readable technical metadata */
+.process-canvas{flex-direction:row;align-items:stretch;gap:10px;overflow-x:auto;overflow-y:hidden}
+.process-canvas-level{flex:0 0 auto;flex-direction:column;justify-content:flex-start;align-items:center;padding:0 32px 0 0;min-width:max-content}
+.process-canvas-level:last-child{padding-right:0}
+.canvas-arrow{right:7px;left:auto;bottom:auto;top:50%;transform:translateY(-50%)}
+.technical-id{display:block;color:#596783!important;font-size:8px!important;margin-top:2px;word-break:break-all}
+.instance-canvas{padding-bottom:22px}
+@media(max-width:700px){
+  .process-canvas{flex-direction:column;overflow-x:hidden;overflow-y:auto}
+  .process-canvas-level{padding:0 0 28px 0;min-width:0;width:100%}
+  .canvas-arrow{position:absolute;right:auto;left:50%;top:auto;bottom:2px;transform:translateX(-50%) rotate(90deg)}
+}
