@@ -549,7 +549,7 @@ export class AppComponent implements OnInit,OnDestroy {
     return this.humanizeIdentifier(step?.id||'Step');
   }
 
-  humanizeIdentifier(value:string){
+  humanizeIdentifier(value?:string|null){
     return String(value||'').replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
   }
 
