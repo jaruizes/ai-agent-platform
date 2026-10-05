@@ -619,6 +619,11 @@ export class AppComponent implements OnInit,OnDestroy {
     return key?task.payload?.dependencies?.[key]:null;
   }
 
+  humanTaskProducerName(task:ProcessHumanTask){
+    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
+    return this.processStepName(instance,this.humanTaskProducerStep(task));
+  }
+
   humanTaskLegacyReviewText(task:ProcessHumanTask){
     if(this.taskReviewArtifacts(task).length)return '';
     const result:any=this.humanTaskProducerResult(task);
