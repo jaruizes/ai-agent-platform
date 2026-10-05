@@ -168,7 +168,7 @@
 
               <div class="artifact-review-list" *ngIf="taskReviewArtifacts(t).length">
                 <article class="artifact-review-item" *ngFor="let a of taskReviewArtifacts(t)">
-                  <div><span class="status-pill">{{a.type}}</span><b>{{a.title}}</b><small>v{{a.version}} · {{a.schema}}</small><p>{{a.summary}}</p></div>
+                  <div><span class="status-pill">{{a.type}}</span><b>{{a.title}}</b><small>v{{a.version}} · {{a.schema}}</small><p *ngIf="artifactSummary(a)">{{artifactSummary(a)}}</p></div>
                   <button class="primary small" (click)="openArtifact(a)">Review document</button>
                 </article>
               </div>
@@ -403,7 +403,7 @@
         <div class="panel-head"><div><span class="eyebrow">TYPED ARTIFACTS</span><h3>Human, machine and handoff outputs</h3><p>Only compact machine/handoff artifacts are eligible for downstream agent context.</p></div></div>
         <div class="artifact-review-list">
           <article class="artifact-review-item" *ngFor="let a of executionArtifacts()">
-            <div><span class="status-pill">{{a.type}}</span><b>{{a.title}}</b><small>v{{a.version}} · {{a.schema}} · {{a.sizeBytes}} bytes</small><p>{{a.summary}}</p></div>
+            <div><span class="status-pill">{{a.type}}</span><b>{{a.title}}</b><small>v{{a.version}} · {{a.schema}} · {{a.sizeBytes}} bytes</small><p *ngIf="artifactSummary(a)">{{artifactSummary(a)}}</p></div>
             <button class="ghost small" (click)="openArtifact(a)">Open</button>
           </article>
         </div>
@@ -428,7 +428,7 @@
   <div class="modal-body">
     <ng-container *ngIf="modal()==='artifact' && selectedArtifact() as a">
       <div class="execution-summary"><span class="status-pill">{{a.type}}</span><strong>{{a.title}}</strong><span>v{{a.version}} · {{a.schema}}</span><span>{{a.sizeBytes}} bytes</span></div>
-      <p>{{a.summary}}</p>
+      <p *ngIf="artifactSummary(a)">{{artifactSummary(a)}}</p>
       <section class="artifact-human" *ngIf="artifactMarkdown(a)">
         <ng-container *ngFor="let b of artifactDisplayBlocks(a)">
           <h1 *ngIf="b.kind==='h1'">{{b.text}}</h1>
