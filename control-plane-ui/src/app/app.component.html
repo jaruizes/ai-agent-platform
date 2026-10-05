@@ -119,7 +119,7 @@
             <p>{{d.description||'No description'}}</p>
             <div class="mini-dag">
               <div class="mini-dag-level" *ngFor="let level of processDefinitionLevels(d);let li=index">
-                <span class="mini-step" *ngFor="let s of level" [attr.data-type]="s.type"><i>{{processStepIcon(s.type)}}</i>{{s.stepKey}}</span>
+                <span class="mini-step" *ngFor="let s of level" [attr.data-type]="s.type"><i>{{processStepIcon(s.type)}}</i>{{s.name||humanizeIdentifier(s.stepKey)}}</span>
                 <b *ngIf="li<processDefinitionLevels(d).length-1">↓</b>
               </div>
             </div>
@@ -143,7 +143,7 @@
         </div>
         <div class="table-wrap"><table><thead><tr><th>Status</th><th>Process</th><th>Correlation</th><th>Progress</th><th>Updated</th><th></th></tr></thead><tbody>
           <tr *ngFor="let x of filteredProcessInstances()" (click)="openProcessInstance(x.id)">
-            <td><span class="status-pill" [ngClass]="statusClass(x.status)">{{x.status}}</span></td>
+            <td><span class="status-pill" [ngClass]="statusClass(x.status)">{{processStatusLabel(x.status)}}</span></td>
             <td><strong>{{processDefinitionName(x)}} · v{{x.definitionVersion}}</strong><small class="block mono">{{x.id}}</small></td>
             <td class="mono">{{short(x.correlationId,28)}}</td>
             <td>{{processProgress(x)}} / {{x.steps.length}}</td>
@@ -163,7 +163,7 @@
             <section class="human-review-panel">
               <div class="human-review-head">
                 <div><span class="eyebrow">Review material</span><h3>Generated output</h3></div>
-                <small>Producer · {{humanTaskStepName(t)||'previous step'}}</small>
+                <small>Producer · {{humanTaskProducerName(t)||'previous step'}}</small>
               </div>
 
               <div class="artifact-review-list" *ngIf="taskReviewArtifacts(t).length">
@@ -189,7 +189,7 @@
                 </div>
                 <ng-template #noReviewOutput>
                   <div class="review-warning">
-                    No review-ready artifact was produced by the previous step. Create a new Process Definition version and enable <b>Typed artifact output</b> on {{humanTaskProducerStep(t)||'the producer AGENTIC_EXECUTION'}}.
+                    No review-ready artifact was produced by the previous step. Create a new Process Definition version and enable <b>Typed artifact output</b> on {{humanTaskProducerName(t)||'the producer AGENTIC_EXECUTION'}}.
                   </div>
                 </ng-template>
               </ng-container>
@@ -577,7 +577,7 @@
 
     <ng-container *ngIf="modal()==='process-instance' && selectedProcessInstance() as x">
       <div class="process-instance-summary">
-        <div><span class="status-pill" [ngClass]="statusClass(x.status)">{{x.status}}</span><h2>{{processDefinitionName(x)}} · v{{x.definitionVersion}}</h2><p class="mono">{{x.id}}</p></div>
+        <div><span class="status-pill" [ngClass]="statusClass(x.status)">{{processStatusLabel(x.status)}}</span><h2>{{processDefinitionName(x)}} · v{{x.definitionVersion}}</h2><p class="mono">{{x.id}}</p></div>
         <div class="process-instance-actions">
           <button class="primary" *ngIf="x.status==='CREATED'" (click)="processInstanceAction('start')">Start</button>
           <button class="ghost" *ngIf="x.status==='RUNNING'||x.status==='WAITING'" (click)="processInstanceAction('pause')">Pause</button>
