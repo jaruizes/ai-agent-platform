@@ -1,0 +1,32 @@
+name: Control Plane UI build
+
+on:
+  push:
+    branches:
+      - refactor/control-plane-ui
+    paths:
+      - 'control-plane-ui/**'
+      - '.github/workflows/control-plane-ui-build.yml'
+  pull_request:
+    paths:
+      - 'control-plane-ui/**'
+      - '.github/workflows/control-plane-ui-build.yml'
+  workflow_dispatch:
+
+jobs:
+  angular-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: control-plane-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: control-plane-ui/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Angular application
+        run: npm run build
