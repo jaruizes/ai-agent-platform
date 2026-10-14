@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component } from '@angular/core';
+import { Component, Input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ControlPlaneViewBase } from '../../shared/control-plane-view.base';
+import type { AppComponent } from '../../app.component';
 
 @Component({
   selector: 'app-dashboard-view',
@@ -10,4 +10,4 @@ import { ControlPlaneViewBase } from '../../shared/control-plane-view.base';
   templateUrl: './dashboard-view.component.html',
   styles: [':host { display: contents; }'],
 })
-export class DashboardViewComponent extends ControlPlaneViewBase {}
+export class DashboardViewComponent { @Input({ required: true }) host!: AppComponent; }
