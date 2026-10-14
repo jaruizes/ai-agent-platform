@@ -1,3 +1,8 @@
+import * as governanceActions from './features/governance/governance.actions';
+import * as evalsActions from './features/evals/evals.actions';
+import * as executionsActions from './features/executions/executions.actions';
+import * as sessionsActions from './features/sessions/sessions.actions';
+import * as memoryActions from './features/memory/memory.actions';
 import * as definitionActions from './features/processes/process-definitions.actions';
 import * as serviceActions from './features/processes/process-services.actions';
 import * as instanceActions from './features/processes/process-instances.actions';
@@ -73,71 +78,55 @@ export class AppComponent implements OnInit,OnDestroy {
   async refreshLive(){try{this.overview.set(await this.api.overview());this.executions.set(await this.api.executions(this.executionStatus));this.approvals.set(await this.api.approvals());if(this.selectedExecution())await this.openExecution(this.selectedExecution()!.executionId,false);if(this.view()==='processes'||this.view()==='services')await this.refreshProcessesLive();}catch{}}
   setView(v:View){this.view.set(v);if(v==='runtime')this.loadRuntime();if(v==='sessions')this.loadSessions();if(v==='memory')this.loadMemory();if(v==='governance')this.loadGovernance();if(v==='evals')this.loadEvals();if(v==='processes'||v==='services')this.loadProcesses();}
 
-  async loadGovernance(){try{const [p,b,d,bd]=await Promise.all([this.api.governancePolicies(),this.api.governanceBudgets(),this.api.governanceDecisions(),this.api.budgetDecisions()]);this.governancePolicies.set(p);this.governanceBudgets.set(b);this.governanceDecisions.set(d);this.budgetDecisions.set(bd);}catch(e:any){this.error.set(this.message(e));}}
-  editGovernancePolicy(x?:GovernancePolicy){this.draft=x?{...x,conditions:this.json(x.conditions)}:{name:'',description:'',policyType:'RESOURCE_ACCESS',effect:'ALLOW',resourceType:'MODEL',resourcePattern:'*',subjectType:'GLOBAL',subjectPattern:'*',conditions:'{}',priority:100,enabled:true};this.modal.set('governance-policy');}
-  async saveGovernancePolicy(){await this.run(async()=>{await this.api.saveGovernancePolicy(this.draft);this.governancePolicies.set(await this.api.governancePolicies());this.closeModal();});}
-  async deleteGovernancePolicy(x:GovernancePolicy){if(confirm(`Delete policy ${x.name}?`))await this.run(async()=>{await this.api.deleteGovernancePolicy(x.id);this.governancePolicies.set(await this.api.governancePolicies());});}
-  editGovernanceBudget(x?:GovernanceBudget){this.draft=x?{...x}:{name:'',scopeType:'GLOBAL',scopeId:'*',period:'EXECUTION',maxPromptTokens:null,maxCompletionTokens:null,maxTotalTokens:null,maxCostUsd:null,action:'DENY',degradeModelProfile:'',enabled:true};this.modal.set('governance-budget');}
-  async saveGovernanceBudget(){await this.run(async()=>{await this.api.saveGovernanceBudget(this.draft);this.governanceBudgets.set(await this.api.governanceBudgets());this.closeModal();});}
-  async deleteGovernanceBudget(x:GovernanceBudget){if(confirm(`Delete budget ${x.name}?`))await this.run(async()=>{await this.api.deleteGovernanceBudget(x.id);this.governanceBudgets.set(await this.api.governanceBudgets());});}
-
-  async loadEvals(){try{const [d,f,r]=await Promise.all([this.api.evalDatasets(),this.api.evalDefinitions(),this.api.evalRuns()]);this.evalDatasets.set(d);this.evalDefinitions.set(f);this.evalRuns.set(r);}catch(e:any){this.error.set(this.message(e));}}
-  editEvalDataset(x?:EvalDataset){this.draft=x?{...x,items:this.json(x.items)}:{name:'',description:'',version:1,enabled:true,items:'[{"name":"case-1","command":{"name":"eval-case","intent":"Explain briefly what an API Gateway is.","input":{},"context":{},"instructions":[]},"expectedOutput":"An API Gateway is an entry point for APIs.","assertions":[{"type":"CONTAINS","value":"API"}],"tags":["smoke"]}]'};this.modal.set('eval-dataset');}
-  async saveEvalDataset(){await this.run(async()=>{const items=typeof this.draft.items==='string'?JSON.parse(this.draft.items):this.draft.items;await this.api.saveEvalDataset({name:this.draft.name,description:this.draft.description||'',version:Number(this.draft.version||1),enabled:this.draft.enabled!==false,items});this.evalDatasets.set(await this.api.evalDatasets());this.closeModal();});}
-  async deleteEvalDataset(x:EvalDataset){if(confirm(`Delete dataset ${x.name}?`))await this.run(async()=>{await this.api.deleteEvalDataset(x.id);this.evalDatasets.set(await this.api.evalDatasets());});}
-  editEvalDefinition(x?:EvalDefinition){this.draft=x?{...x,metrics:[...(x.metrics||[])],thresholds:this.json(x.thresholds)}:{name:'',description:'',datasetId:this.evalDatasets()[0]?.id||'',metrics:['relevance','instruction_adherence'],thresholds:'{"passRate":0.8,"relevance":0.7}',judgeModelProfile:'router-fast',enabled:true};this.modal.set('eval-definition');}
-  toggleEvalMetric(name:string,checked:boolean){const set=new Set<string>(this.draft.metrics||[]);checked?set.add(name):set.delete(name);this.draft.metrics=[...set];}
-  async saveEvalDefinition(){await this.run(async()=>{await this.api.saveEvalDefinition({name:this.draft.name,description:this.draft.description||'',datasetId:this.draft.datasetId,metrics:this.draft.metrics||[],thresholds:typeof this.draft.thresholds==='string'?JSON.parse(this.draft.thresholds):this.draft.thresholds,judgeModelProfile:this.draft.metrics?.length?this.draft.judgeModelProfile:null,enabled:this.draft.enabled!==false});this.evalDefinitions.set(await this.api.evalDefinitions());this.closeModal();});}
-  async deleteEvalDefinition(x:EvalDefinition){if(confirm(`Delete eval ${x.name}?`))await this.run(async()=>{await this.api.deleteEvalDefinition(x.id);this.evalDefinitions.set(await this.api.evalDefinitions());});}
-  async runEval(x:EvalDefinition){await this.run(async()=>{const previous=this.evalRuns().find(r=>r.definitionId===x.id&&r.status==='COMPLETED');await this.api.createEvalRun(x.id,previous?.id);this.evalRuns.set(await this.api.evalRuns());});}
-  async inspectEvalRun(x:EvalRun){await this.run(async()=>{this.selectedEvalRun.set(await this.api.evalRun(x.id));this.modal.set('eval-run');});}
-
-  async loadRuntime(){try{this.runtime.set(await this.api.runtime());}catch(e:any){this.error.set(this.message(e));}}
-  filteredExecutions(){const q=this.search.toLowerCase();return this.executions().filter(x=>(!q||[x.executionId,x.commandName,x.intent,x.objective].some(v=>(v||'').toLowerCase().includes(q)))&&(!this.executionStatus||x.status===this.executionStatus));}
-  async filterExecutions(){this.executions.set(await this.api.executions(this.executionStatus));}
-  async openExecution(id:string,show=true){try{const [d,o,s,c,a]=await Promise.all([this.api.execution(id),this.api.orchestration(id),this.api.contextSnapshots(id),this.api.executionContext(id),this.api.executionArtifacts(id)]);this.selectedExecution.set(d);this.orchestration.set(o);this.contextSnapshots.set(s);this.executionContext.set(c);this.executionArtifacts.set(a);if(show)this.modal.set('execution');}catch(e:any){this.error.set(this.message(e));}}
-  cancelModal(){
-    if(this.modal()==='process-step'){
-      this.processStepDraft.set(null);
-      this.modal.set('process-designer');
-      return;
-    }
-    if(this.modal()==='process-designer'){
-      this.processDesigner.set(null);
-      this.processStepDraft.set(null);
-    }
-    this.closeModal();
-  }
-  closeModal(){this.modal.set(null);this.draft={};this.approvalComment='';}
-  statusClass(s:string){return (s||'').toLowerCase().replaceAll('_','-');}
-  tokens(v:any){return new Intl.NumberFormat('es-ES').format(Number(v||0));}
-  runningEvalCount(){return this.evalRuns().filter(r=>r.status==='RUNNING').length;}
-  regressionEvalCount(){return this.evalRuns().filter(r=>r.regression?.regressed).length;}
-  date(v:any){return v?new Date(v).toLocaleString('es-ES'):'—';}
-  json(v:any){return JSON.stringify(v??{},null,2);}
-  short(v:string,n=80){return !v?'—':v.length>n?v.slice(0,n)+'…':v;}
-  executionLevels(){const steps=this.orchestration()?.steps||[];const level=new Map<string,number>();let changed=true;while(changed){changed=false;for(const s of steps){const l=s.dependsOn?.length?Math.max(...s.dependsOn.map(d=>level.get(d)??0))+1:0;if(level.get(s.id)!==l){level.set(s.id,l);changed=true;}}}return [...new Set([...level.values()])].sort((a,b)=>a-b).map(l=>steps.filter(s=>level.get(s.id)===l));}
-  canPause(){return ['RUNNING','RETRYING','ACCEPTED'].includes(this.selectedExecution()?.status||'');}
-  canResume(){return this.selectedExecution()?.status==='PAUSED';}
-  canRetry(){return this.selectedExecution()?.status==='FAILED';}
-  async execAction(kind:'pause'|'resume'|'retry'|'cancel'){const id=this.selectedExecution()?.executionId;if(!id)return;await this.run(async()=>{if(kind==='pause')await this.api.pause(id);if(kind==='resume')await this.api.resume(id);if(kind==='retry')await this.api.retry(id);if(kind==='cancel')await this.api.cancel(id);await this.openExecution(id,false);});}
-  async decide(executionId:string,stepId:string,approved:boolean){await this.run(async()=>{await this.api.approval(executionId,stepId,approved,this.actor,this.approvalComment|| (approved?'Approved from Control Plane':'Rejected from Control Plane'));this.approvals.set(await this.api.approvals());if(this.selectedExecution()?.executionId===executionId)await this.openExecution(executionId,false);this.approvalComment='';});}
-
-  openCreateExecution(){this.draft={name:'control-plane-request',intent:'',sessionId:'',input:'{}',context:'{}',instructions:''};this.modal.set('create-execution');}
-  async saveExecution(){await this.run(async()=>{const body={correlationId:crypto.randomUUID(),sessionId:this.draft.sessionId||null,command:{name:this.draft.name||null,intent:this.draft.intent,input:JSON.parse(this.draft.input||'{}'),context:JSON.parse(this.draft.context||'{}'),instructions:(this.draft.instructions||'').split('\n').filter(Boolean)}};const r=await this.api.createExecution(body);this.closeModal();await this.refreshAll();await this.openExecution(r.executionId);});}
-
-  async loadSessions(){try{this.sessions.set(await this.api.sessions());}catch(e:any){this.error.set(this.message(e));}}
-  openCreateSession(){this.draft={name:'',scope:'TENANT',ownerKey:'',expiresAt:'',metadata:'{}'};this.modal.set('session');}
-  editSession(s:SessionInfo){this.draft={...s,expiresAt:s.expiresAt?new Date(s.expiresAt).toISOString().slice(0,16):'',metadata:this.json(s.metadata)};this.modal.set('session');}
-  async saveSession(){await this.run(async()=>{const body={name:this.draft.name||null,scope:this.draft.scope,ownerKey:this.draft.ownerKey||null,expiresAt:this.draft.expiresAt?new Date(this.draft.expiresAt).toISOString():null,metadata:JSON.parse(this.draft.metadata||'{}')};if(this.draft.id)await this.api.updateSession(this.draft.id,body);else await this.api.createSession(body);this.sessions.set(await this.api.sessions());this.closeModal();});}
-  async closeSessionItem(s:SessionInfo){if(confirm(`Close session ${s.name||s.id}?`))await this.run(async()=>{await this.api.closeSession(s.id);this.sessions.set(await this.api.sessions());if(this.selectedSession()?.id===s.id)this.selectedSession.set(null);});}
-  async inspectSession(s:SessionInfo){await this.run(async()=>{const [ctx,execs]=await Promise.all([this.api.sessionContext(s.id),this.api.sessionExecutions(s.id)]);this.selectedSession.set(s);this.sessionContext.set(ctx);this.sessionExecutions.set(execs);this.modal.set('session-inspect');});}
-
-  async loadMemory(){try{const [m,p,a]=await Promise.all([this.api.memories(),this.api.memoryPolicy(),this.api.memoryPolicyAudit()]);this.memories.set(m);this.memoryPolicy.set(p);this.memoryAudit.set(a);}catch(e:any){this.error.set(this.message(e));}}
-  openCreateMemory(){this.draft={scopeType:'TENANT',scopeId:'',memoryType:'FACT',key:'',content:'',importance:0.5,expiresAt:''};this.modal.set('memory');}
-  async saveMemory(){await this.run(async()=>{await this.api.createMemory({scopeType:this.draft.scopeType,scopeId:this.draft.scopeId,memoryType:this.draft.memoryType,key:this.draft.key||null,content:this.draft.content,importance:Number(this.draft.importance||0.5),expiresAt:this.draft.expiresAt?new Date(this.draft.expiresAt).toISOString():null});this.memories.set(await this.api.memories());this.closeModal();});}
-  async revokeMemoryItem(m:MemoryInfo){if(confirm('Revoke this memory?'))await this.run(async()=>{await this.api.revokeMemory(m.id);this.memories.set(await this.api.memories());});}
-  async searchMemory(){if(!this.memoryQuery||!this.memoryScopeId)return;await this.run(async()=>{this.memoryHits.set(await this.api.retrieveMemories(this.memoryQuery,[{scopeType:this.memoryScopeType,scopeId:this.memoryScopeId}],this.memoryTopK));});}
+  async loadGovernance(){ return governanceActions.loadGovernance.apply(this, arguments as any); }
+  editGovernancePolicy(x?:GovernancePolicy){ return governanceActions.editGovernancePolicy.apply(this, arguments as any); }
+  async saveGovernancePolicy(){ return governanceActions.saveGovernancePolicy.apply(this, arguments as any); }
+  async deleteGovernancePolicy(x:GovernancePolicy){ return governanceActions.deleteGovernancePolicy.apply(this, arguments as any); }
+  editGovernanceBudget(x?:GovernanceBudget){ return governanceActions.editGovernanceBudget.apply(this, arguments as any); }
+  async saveGovernanceBudget(){ return governanceActions.saveGovernanceBudget.apply(this, arguments as any); }
+  async deleteGovernanceBudget(x:GovernanceBudget){ return governanceActions.deleteGovernanceBudget.apply(this, arguments as any); }
+  async loadEvals(){ return evalsActions.loadEvals.apply(this, arguments as any); }
+  editEvalDataset(x?:EvalDataset){ return evalsActions.editEvalDataset.apply(this, arguments as any); }
+  async saveEvalDataset(){ return evalsActions.saveEvalDataset.apply(this, arguments as any); }
+  async deleteEvalDataset(x:EvalDataset){ return evalsActions.deleteEvalDataset.apply(this, arguments as any); }
+  editEvalDefinition(x?:EvalDefinition){ return evalsActions.editEvalDefinition.apply(this, arguments as any); }
+  toggleEvalMetric(name:string,checked:boolean){ return evalsActions.toggleEvalMetric.apply(this, arguments as any); }
+  async saveEvalDefinition(){ return evalsActions.saveEvalDefinition.apply(this, arguments as any); }
+  async deleteEvalDefinition(x:EvalDefinition){ return evalsActions.deleteEvalDefinition.apply(this, arguments as any); }
+  async runEval(x:EvalDefinition){ return evalsActions.runEval.apply(this, arguments as any); }
+  async inspectEvalRun(x:EvalRun){ return evalsActions.inspectEvalRun.apply(this, arguments as any); }
+  async loadRuntime(){ return executionsActions.loadRuntime.apply(this, arguments as any); }
+  filteredExecutions(){ return executionsActions.filteredExecutions.apply(this, arguments as any); }
+  async filterExecutions(){ return executionsActions.filterExecutions.apply(this, arguments as any); }
+  async openExecution(id:string,show=true){ return executionsActions.openExecution.apply(this, arguments as any); }
+  cancelModal(){ return executionsActions.cancelModal.apply(this, arguments as any); }
+  closeModal(){ return executionsActions.closeModal.apply(this, arguments as any); }
+  statusClass(s:string){ return executionsActions.statusClass.apply(this, arguments as any); }
+  tokens(v:any){ return executionsActions.tokens.apply(this, arguments as any); }
+  runningEvalCount(){ return executionsActions.runningEvalCount.apply(this, arguments as any); }
+  regressionEvalCount(){ return executionsActions.regressionEvalCount.apply(this, arguments as any); }
+  date(v:any){ return executionsActions.date.apply(this, arguments as any); }
+  json(v:any){ return executionsActions.json.apply(this, arguments as any); }
+  short(v:string,n=80){ return executionsActions.short.apply(this, arguments as any); }
+  executionLevels(){ return executionsActions.executionLevels.apply(this, arguments as any); }
+  canPause(){ return executionsActions.canPause.apply(this, arguments as any); }
+  canResume(){ return executionsActions.canResume.apply(this, arguments as any); }
+  canRetry(){ return executionsActions.canRetry.apply(this, arguments as any); }
+  async execAction(kind:'pause'|'resume'|'retry'|'cancel'){ return executionsActions.execAction.apply(this, arguments as any); }
+  async decide(executionId:string,stepId:string,approved:boolean){ return executionsActions.decide.apply(this, arguments as any); }
+  openCreateExecution(){ return executionsActions.openCreateExecution.apply(this, arguments as any); }
+  async saveExecution(){ return executionsActions.saveExecution.apply(this, arguments as any); }
+  async loadSessions(){ return sessionsActions.loadSessions.apply(this, arguments as any); }
+  openCreateSession(){ return sessionsActions.openCreateSession.apply(this, arguments as any); }
+  editSession(s:SessionInfo){ return sessionsActions.editSession.apply(this, arguments as any); }
+  async saveSession(){ return sessionsActions.saveSession.apply(this, arguments as any); }
+  async closeSessionItem(s:SessionInfo){ return sessionsActions.closeSessionItem.apply(this, arguments as any); }
+  async inspectSession(s:SessionInfo){ return sessionsActions.inspectSession.apply(this, arguments as any); }
+  async loadMemory(){ return memoryActions.loadMemory.apply(this, arguments as any); }
+  openCreateMemory(){ return memoryActions.openCreateMemory.apply(this, arguments as any); }
+  async saveMemory(){ return memoryActions.saveMemory.apply(this, arguments as any); }
+  async revokeMemoryItem(m:MemoryInfo){ return memoryActions.revokeMemoryItem.apply(this, arguments as any); }
+  async searchMemory(){ return memoryActions.searchMemory.apply(this, arguments as any); }
 
   editSkill(x?:Skill){ return resourceActions.editSkill.apply(this, arguments as any); }
   async saveSkill(){ return resourceActions.saveSkill.apply(this, arguments as any); }
