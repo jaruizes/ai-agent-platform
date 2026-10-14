@@ -1,0 +1,190 @@
+<div class="modal-backdrop" *ngIf="modal() && modal()!=='execution'">
+  <section class="modal" [class.wide]="modal()==='prompt'||modal()==='tool'||modal()==='agent'||modal()==='process-designer'||modal()==='process-instance'||modal()==='artifact'"><header><div><span class="eyebrow">CONTROL PLANE EDITOR</span><h2>{{modal()==='process-instance' ? processDefinitionName(selectedProcessInstance()) : (modal()|titlecase)}}</h2></div><button class="icon-btn" (click)="cancelModal()">×</button></header>
+  <div class="modal-body">
+    <ng-container *ngIf="modal()==='artifact' && selectedArtifact() as a">
+      <div class="execution-summary"><span class="status-pill">{{a.type}}</span><strong>{{a.title}}</strong><span>v{{a.version}} · {{a.schema}}</span><span>{{a.sizeBytes}} bytes</span></div>
+      <p *ngIf="artifactSummary(a)">{{artifactSummary(a)}}</p>
+      <section class="artifact-human" *ngIf="artifactMarkdown(a)">
+        <ng-container *ngFor="let b of artifactDisplayBlocks(a)">
+          <h1 *ngIf="b.kind==='h1'">{{b.text}}</h1>
+          <h2 *ngIf="b.kind==='h2'">{{b.text}}</h2>
+          <h3 *ngIf="b.kind==='h3'">{{b.text}}</h3>
+          <p *ngIf="b.kind==='p'">{{b.text}}</p>
+          <div class="artifact-bullet" *ngIf="b.kind==='li'">• {{b.text}}</div>
+        </ng-container>
+      </section>
+      <details class="json-details"><summary>Structured content · technical</summary><pre>{{json(a.content)}}</pre></details>
+      <details class="json-details"><summary>Artifact metadata</summary><pre>{{json(a.metadata)}}</pre></details>
+    </ng-container>
+    <ng-container *ngIf="modal()==='create-execution'"><label>Name<input [(ngModel)]="draft.name"></label><label>Session<select [(ngModel)]="draft.sessionId"><option value="">No session</option><option *ngFor="let s of sessions()" [value]="s.id" [disabled]="s.status!=='ACTIVE'">{{s.name||s.id}} · {{s.scope}}</option></select></label><label>Intent<textarea rows="4" [(ngModel)]="draft.intent"></textarea></label><label>Input JSON<textarea rows="5" class="mono" [(ngModel)]="draft.input"></textarea></label><label>Context JSON<textarea rows="3" class="mono" [(ngModel)]="draft.context"></textarea></label><label>Instructions · one per line<textarea rows="3" [(ngModel)]="draft.instructions"></textarea></label></ng-container>
+    <ng-container *ngIf="modal()==='session'"><label>Name<input [(ngModel)]="draft.name"></label><div class="form-grid two"><label>Scope<select [(ngModel)]="draft.scope"><option>USER</option><option>TEAM</option><option>TENANT</option></select></label><label>Owner key<input [(ngModel)]="draft.ownerKey" placeholder="required for USER/TEAM; useful for TENANT"></label></div><label>Expires at<input type="datetime-local" [(ngModel)]="draft.expiresAt"></label><label>Metadata JSON<textarea rows="5" class="mono" [(ngModel)]="draft.metadata"></textarea></label></ng-container>
+    <ng-container *ngIf="modal()==='session-inspect' && selectedSession() as s"><div class="execution-summary"><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span><span>{{s.name||s.id}}</span><span>{{s.scope}} · {{s.ownerKey||'—'}}</span></div><h3>Executions</h3><div class="doc-list"><article *ngFor="let x of sessionExecutions()"><div><strong>{{x.command_name||x.commandName||'execution'}}</strong><small class="mono">{{x.id}}</small></div><span class="status-pill" [ngClass]="statusClass(x.status)">{{x.status}}</span></article></div><details class="json-details" open><summary>Working Context · {{sessionContext().length}} entries</summary><pre>{{json(sessionContext())}}</pre></details></ng-container>
+    <ng-container *ngIf="modal()==='memory'"><div class="form-grid two"><label>Scope<select [(ngModel)]="draft.scopeType"><option>SESSION</option><option>USER</option><option>TEAM</option><option>TENANT</option><option>AGENT</option></select></label><label>Scope id<input [(ngModel)]="draft.scopeId"></label><label>Type<select [(ngModel)]="draft.memoryType"><option>FACT</option><option>PREFERENCE</option><option>DECISION</option><option>CONSTRAINT</option><option>SUMMARY</option><option>LEARNED_CONTEXT</option></select></label><label>Key<input [(ngModel)]="draft.key"></label><label>Importance<input type="number" min="0" max="1" step="0.1" [(ngModel)]="draft.importance"></label><label>Expires at<input type="datetime-local" [(ngModel)]="draft.expiresAt"></label></div><label>Content<textarea rows="8" [(ngModel)]="draft.content"></textarea></label></ng-container>
+    <ng-container *ngIf="modal()==='skill'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Instructions<textarea rows="12" [(ngModel)]="draft.instructions"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='agent'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Instructions<textarea rows="10" [(ngModel)]="draft.instructions"></textarea></label><div class="checkbox-grid"><label class="check" *ngFor="let s of skills()"><input type="checkbox" [checked]="draft.skills?.includes(s.name)" (change)="toggleSkill(s.name,$any($event.target).checked)"> {{s.name}}</label></div><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='agent-knowledge'"><p>Knowledge assigned to <strong>{{draft.name}}</strong>. Choose usage mode or “Not assigned”.</p><div class="assignment-list"><label *ngFor="let kb of knowledgeBases()"><span>{{kb.name}}</span><select [ngModel]="knowledgeDraft[kb.name]||''" (ngModelChange)="setKbAssignment(kb.name,$event)"><option value="">Not assigned</option><option value="REFERENCE">REFERENCE</option><option value="GUARDRAIL">GUARDRAIL</option></select></label></div></ng-container>
+    <ng-container *ngIf="modal()==='prompt'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Version<input type="number" [(ngModel)]="draft.version"></label><label>Content<textarea rows="20" class="mono" [(ngModel)]="draft.content"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='tool'"><div class="form-grid two"><label>Name<input [(ngModel)]="draft.name"></label><label>Implementation<select [(ngModel)]="draft.implementationType"><option>MCP</option><option>GOOGLE_DRIVE_READ</option><option>GOOGLE_DOCS_ARTIFACT_WRITE</option></select></label><label>Side effect<select [(ngModel)]="draft.sideEffect"><option>NONE</option><option>READ</option><option>WRITE</option><option>EXTERNAL_ACTION</option></select></label><label>Approval policy<select [(ngModel)]="draft.approvalPolicy"><option>NEVER</option><option>OPTIONAL</option><option>REQUIRED</option></select></label></div><label>Description<input [(ngModel)]="draft.description"></label><label>Instructions<textarea rows="5" [(ngModel)]="draft.instructions"></textarea></label><label>Configuration JSON<textarea rows="6" class="mono" [(ngModel)]="draft.configuration"></textarea></label><label>Input Schema JSON<textarea rows="8" class="mono" [(ngModel)]="draft.inputSchema"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='mcp'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Command<input [(ngModel)]="draft.command"></label><label>Args JSON<textarea rows="3" class="mono" [(ngModel)]="draft.args"></textarea></label><label>CWD<input [(ngModel)]="draft.cwd"></label><label>Environment JSON<textarea rows="5" class="mono" [(ngModel)]="draft.environment"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='kb'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><div class="form-grid two"><label>Scope<select [(ngModel)]="draft.scope"><option>TENANT</option><option>GLOBAL</option><option>EXECUTION</option></select></label><label>Retention<select [(ngModel)]="draft.retentionPolicy"><option>PERSISTENT</option><option>EPHEMERAL</option></select></label><label>Chunk strategy<select [(ngModel)]="draft.chunkingPolicy.strategy"><option>PARAGRAPH</option><option>FIXED</option><option>HEADING</option><option>PAGE</option><option>HIERARCHICAL</option></select></label><label>Chunk size<input type="number" [(ngModel)]="draft.chunkingPolicy.chunkSize"></label></div><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+
+
+    <ng-container *ngIf="modal()==='process-service'">
+      <div class="form-grid two"><label>Service key<input [(ngModel)]="draft.serviceKey" [disabled]="!!draft.id"></label><label>Version<input type="number" min="1" [(ngModel)]="draft.version" [disabled]="!!draft.id"></label><label>Name<input [(ngModel)]="draft.name"></label><label>Implementation<select [(ngModel)]="draft.implementationKey"><option value="http">HTTP</option><option value="google-drive-folder">Google Drive folder</option><option value="echo">Echo / test</option></select></label></div>
+      <label>Description<input [(ngModel)]="draft.description"></label>
+      <label>Adapter configuration JSON<textarea rows="7" class="mono" [(ngModel)]="draft.configuration"></textarea></label>
+      <div class="form-grid two"><label>Input schema<textarea rows="7" class="mono" [(ngModel)]="draft.inputSchema"></textarea></label><label>Output schema<textarea rows="7" class="mono" [(ngModel)]="draft.outputSchema"></textarea></label></div>
+    </ng-container>
+
+    <ng-container *ngIf="modal()==='process-designer' && processDesigner() as p">
+      <div class="process-designer-head">
+        <div class="form-grid two">
+          <label>Definition key<input [(ngModel)]="p.definitionKey" [disabled]="!!p.id"></label>
+          <label>Version<input type="number" min="1" [(ngModel)]="p.version" [disabled]="!!p.id"></label>
+          <label>Name<input [(ngModel)]="p.name" [disabled]="p.status!=='DRAFT'"></label>
+          <label>Status<input [value]="p.status" disabled></label>
+        </div>
+        <label>Description<input [(ngModel)]="p.description" [disabled]="p.status!=='DRAFT'"></label>
+      </div>
+      <div class="designer-toolbar" *ngIf="p.status==='DRAFT'">
+        <span>Add step</span>
+        <button class="ghost small" (click)="addProcessStep('SERVICE')">↗ Service</button>
+        <button class="ghost small" (click)="addProcessStep('AGENTIC_EXECUTION')">◎ Agentic</button>
+        <button class="ghost small" (click)="addProcessStep('DECISION')">◇ Decision</button>
+        <button class="ghost small" (click)="addProcessStep('HUMAN')">♙ Human</button>
+        <button class="ghost small" (click)="addProcessStep('WAIT_EVENT')">◷ Wait event</button>
+      </div>
+      <div class="process-canvas" *ngIf="p.steps.length;else emptyDesigner">
+        <div class="process-canvas-level" *ngFor="let level of processDefinitionLevels(p);let li=index">
+          <article class="process-node" *ngFor="let s of level" [attr.data-type]="s.type">
+            <div class="process-node-top"><span class="node-icon">{{processStepIcon(s.type)}}</span><span>{{s.type}}</span></div>
+            <strong>{{s.name||s.stepKey}}</strong><small>{{s.stepKey}}</small>
+            <p *ngIf="s.type==='SERVICE'">{{processServiceName(s)}}</p>
+            <p *ngIf="s.type==='AGENTIC_EXECUTION'">{{short(s.configuration?.intent,65)}}</p>
+            <p *ngIf="s.type==='DECISION'">{{s.configuration?.path}} {{s.configuration?.operator}} {{s.configuration?.value}}</p>
+            <p *ngIf="s.type==='HUMAN'">{{s.configuration?.title}}</p>
+            <p *ngIf="s.type==='WAIT_EVENT'">{{s.configuration?.eventType}}</p>
+            <div class="node-deps" *ngIf="s.dependsOn?.length">after {{s.dependsOn.join(', ')}}</div>
+            <div class="actions"><button class="ghost small" *ngIf="p.status==='DRAFT'" (click)="editProcessStep(s)">Configure</button><button class="icon-danger" *ngIf="p.status==='DRAFT'" (click)="removeProcessStep(s)">×</button></div>
+          </article>
+          <div class="canvas-arrow" *ngIf="li<processDefinitionLevels(p).length-1">→</div>
+        </div>
+      </div>
+      <ng-template #emptyDesigner><div class="empty big">Add the first step to start the process DAG.</div></ng-template>
+      <details class="json-details process-contracts"><summary>Process I/O contracts</summary><div class="form-grid two"><label>Input schema<textarea rows="7" class="mono" [(ngModel)]="p.inputSchema" [disabled]="p.status!=='DRAFT'"></textarea></label><label>Output schema<textarea rows="7" class="mono" [(ngModel)]="p.outputSchema" [disabled]="p.status!=='DRAFT'"></textarea></label></div></details>
+    </ng-container>
+
+    <ng-container *ngIf="modal()==='process-step' && processStepDraft() as s">
+      <div class="form-grid two"><label>Step key<input [(ngModel)]="s.stepKey"></label><label>Name<input [(ngModel)]="s.name"></label></div>
+      <label>Description<input [(ngModel)]="s.description"></label>
+      <div class="step-editor-type"><span>{{processStepIcon(s.type)}}</span><strong>{{s.type}}</strong></div>
+
+      <ng-container *ngIf="s.type==='SERVICE'">
+        <label>Service version<select [ngModel]="processServiceSelection(s)" (ngModelChange)="selectProcessService(s,$event)"><option value="">Select an ACTIVE service</option><option *ngFor="let svc of activeProcessServiceVersions()" [value]="svc.serviceKey+'::'+svc.version">{{svc.name}} · {{svc.serviceKey}} · v{{svc.version}}</option></select></label>
+        <p class="muted">The selected ACTIVE service version is persisted in the ProcessDefinition when it is activated.</p>
+      </ng-container>
+      <ng-container *ngIf="s.type==='AGENTIC_EXECUTION'">
+        <label>Intent<textarea rows="5" [(ngModel)]="s.configuration.intent" placeholder="What objective should Agent Platform solve?"></textarea></label>
+        <label>Instructions · one per line<textarea rows="4" [(ngModel)]="s.instructions"></textarea></label>
+        <label>Metadata JSON<textarea rows="4" class="mono" [(ngModel)]="s.metadata"></textarea></label>
+        <label class="check"><input type="checkbox" [(ngModel)]="s.artifactEnabled"> Typed artifact output: human report + machine data + compact agent handoff</label>
+        <div class="review-config" *ngIf="s.artifactEnabled">
+          <div class="form-grid two">
+            <label>Machine schema<input [(ngModel)]="s.artifactSchema" placeholder="proposal-qualification/v1"></label>
+            <label>Human artifact title<input [(ngModel)]="s.artifactHumanTitle"></label>
+            <label>Human artifact type<select [(ngModel)]="s.artifactHumanType"><option>HUMAN_DOCUMENT</option><option>FINAL_DELIVERABLE</option></select></label>
+            <label>Capture only agents<input [(ngModel)]="s.artifactAgentNames" placeholder="business-analyst, solution-architect"></label>
+            <label>Max output tokens<input type="number" min="1000" step="1000" [(ngModel)]="s.artifactMaxOutputTokens"></label>
+          </div>
+          <p class="muted">The agent always produces managed internal artifacts. HUMAN_DOCUMENT is for people; MACHINE_DATA / AGENT_HANDOFF / evidence are optimized for downstream agents.</p>
+          <div class="review-config">
+            <label class="check"><input type="checkbox" [(ngModel)]="s.materializationEnabled"> Materialize/publish output externally</label>
+            <label *ngIf="s.materializationEnabled">Allowed WRITE tools<input [(ngModel)]="s.materializationAllowedTools" placeholder="google-docs-create-from-artifact"></label>
+            <p class="muted" *ngIf="s.materializationEnabled">External output is opt-in. Use this only when the process explicitly requires a Google Doc, presentation, sheet, file, email or another external side effect.</p>
+          </div>
+        </div>
+      </ng-container>
+      <ng-container *ngIf="s.type==='DECISION'">
+        <div class="form-grid two"><label>Path<input [(ngModel)]="s.configuration.path" placeholder="processInput.score"></label><label>Operator<select [(ngModel)]="s.configuration.operator"><option *ngFor="let op of ['EQ','NE','GT','GTE','LT','LTE','EXISTS','IN']">{{op}}</option></select></label><label>Value JSON<input class="mono" [(ngModel)]="s.decisionValue" placeholder='true, 80, "HIGH", ["A","B"]'></label><label>True outcome<input [(ngModel)]="s.configuration.onTrue"></label><label>False outcome<input [(ngModel)]="s.configuration.onFalse"></label></div>
+      </ng-container>
+      <ng-container *ngIf="s.type==='HUMAN'">
+        <label>Task title<input [(ngModel)]="s.configuration.title"></label>
+        <label>Task description<textarea rows="4" [(ngModel)]="s.configuration.description"></textarea></label>
+        <label class="check"><input type="checkbox" [(ngModel)]="s.reviewEnabled"> Review loop: allow this human task to request changes from a producer step</label>
+        <div class="review-config" *ngIf="s.reviewEnabled">
+          <div class="form-grid two">
+            <label>Repeat producer<select [ngModel]="s.reviewRepeatStep" (ngModelChange)="selectReviewProducer(s,$event)"><option value="">Select producer</option><option *ngFor="let producer of reviewableProducerSteps(s.stepKey)" [value]="producer.stepKey">{{producer.stepKey}} · {{producer.type}}</option></select></label>
+            <label>Maximum iterations<input type="number" min="1" [(ngModel)]="s.reviewMaxIterations"></label>
+            <label>Approve decision<input [(ngModel)]="s.reviewApproveDecision"></label>
+            <label>Repeat decision<input [(ngModel)]="s.reviewRepeatDecision"></label>
+          </div>
+          <p class="muted">The review step must directly depend on the selected producer. REQUEST_CHANGES re-runs that producer with the previous output and review feedback available in process context.</p>
+        </div>
+      </ng-container>
+      <ng-container *ngIf="s.type==='WAIT_EVENT'">
+        <div class="form-grid two"><label>Event type<input [(ngModel)]="s.configuration.eventType" placeholder="contract.signed"></label><label>Correlation override<input [(ngModel)]="s.configuration.correlationId" placeholder="empty = ProcessInstance correlation"></label></div>
+      </ng-container>
+
+      <h3>Dependencies</h3>
+      <div class="checkbox-grid"><label class="check" *ngFor="let other of processDesigner()?.steps||[]" [class.disabled]="other.stepKey===s.stepKey"><input type="checkbox" [disabled]="other.stepKey===s.stepKey" [checked]="s.dependsOn?.includes(other.stepKey)" (change)="toggleProcessDependency(other.stepKey,$any($event.target).checked)"> {{other.stepKey}}</label></div>
+
+      <h3>Conditional branch</h3>
+      <div class="form-grid two"><label>Decision step<select [(ngModel)]="s.whenDecisionStep"><option value="">Always execute</option><option *ngFor="let d of processDesigner()?.steps||[]" [value]="d.stepKey" [disabled]="d.type!=='DECISION'">{{d.stepKey}}</option></select></label><label>Expected outcome<input [(ngModel)]="s.whenEquals" [disabled]="!s.whenDecisionStep"></label></div>
+
+      <h3>Runtime policy</h3>
+      <div class="form-grid two"><ng-container *ngIf="s.type==='SERVICE'||s.type==='AGENTIC_EXECUTION'||s.type==='DECISION'"><label>Max attempts<input type="number" min="1" [(ngModel)]="s.retryMaxAttempts"></label><label>Backoff ms<input type="number" min="0" [(ngModel)]="s.retryBackoffMs"></label></ng-container><label>Timeout seconds<input type="number" min="1" [(ngModel)]="s.timeoutSeconds"></label></div>
+
+      <details class="json-details"><summary>Step I/O contracts</summary><div class="form-grid two"><label>Input schema<textarea rows="7" class="mono" [(ngModel)]="s.inputSchema"></textarea></label><label>Output schema<textarea rows="7" class="mono" [(ngModel)]="s.outputSchema"></textarea></label></div></details>
+    </ng-container>
+
+    <ng-container *ngIf="modal()==='process-instance-create'">
+      <label>Process version<select [ngModel]="draft.definitionSelection" (ngModelChange)="selectProcessDefinitionForNewInstance($event)"><option value="">Select an ACTIVE definition</option><option *ngFor="let d of activeProcessDefinitions()" [value]="d.definitionKey+'::'+d.version">{{d.name}} · {{d.definitionKey}} · v{{d.version}}</option></select></label>
+      <label>Correlation ID<input class="mono" [(ngModel)]="draft.correlationId"></label>
+      <div class="form-grid two"><label>Input JSON<textarea rows="8" class="mono" [(ngModel)]="draft.input"></textarea></label><label>Initial context JSON<textarea rows="8" class="mono" [(ngModel)]="draft.context"></textarea></label></div>
+      <label class="check"><input type="checkbox" [(ngModel)]="draft.start"> Start immediately</label>
+    </ng-container>
+
+    <ng-container *ngIf="modal()==='process-event'">
+      <label>Event type<input [(ngModel)]="processSignalEventType" placeholder="contract.signed"></label>
+      <label>Correlation ID<input class="mono" [(ngModel)]="processSignalCorrelation"></label>
+      <label>Payload JSON<textarea rows="8" class="mono" [(ngModel)]="processSignalPayload"></textarea></label>
+    </ng-container>
+
+    <ng-container *ngIf="modal()==='process-instance' && selectedProcessInstance() as x">
+      <div class="process-instance-summary">
+        <div><span class="status-pill" [ngClass]="statusClass(x.status)">{{processStatusLabel(x.status)}}</span><h2>{{processDefinitionName(x)}} · v{{x.definitionVersion}}</h2><p class="mono">{{x.id}}</p></div>
+        <div class="process-instance-actions">
+          <button class="primary" *ngIf="x.status==='CREATED'" (click)="processInstanceAction('start')">Start</button>
+          <button class="ghost" *ngIf="x.status==='RUNNING'||x.status==='WAITING'" (click)="processInstanceAction('pause')">Pause</button>
+          <button class="primary" *ngIf="x.status==='PAUSED'" (click)="processInstanceAction('resume')">Resume</button>
+          <button class="danger" *ngIf="!['COMPLETED','FAILED','CANCELLED'].includes(x.status)" (click)="processInstanceAction('cancel')">Cancel</button>
+          <button class="ghost" (click)="openSignalProcessEvent(x)">Signal event</button>
+        </div>
+      </div>
+      <div class="detail-grid"><article><span>Correlation</span><strong class="small-text">{{x.correlationId}}</strong></article><article><span>Completed</span><strong>{{processCompletedSteps(x)}} / {{x.steps.length}}</strong></article><article><span>Waiting</span><strong>{{processWaitingSteps(x)}}</strong></article><article><span>Updated</span><strong>{{date(x.updatedAt)}}</strong></article></div>
+      <div class="process-canvas instance-canvas">
+        <div class="process-canvas-level" *ngFor="let level of processInstanceLevels(x);let li=index">
+          <article class="process-node runtime-node" *ngFor="let s of level" [attr.data-type]="s.type" [ngClass]="statusClass(s.status)">
+            <div class="process-node-top"><span class="node-icon">{{processStepIcon(s.type)}}</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{processStatusLabel(s.status,s.type)}}</span></div>
+            <strong>{{processStepName(x,s.stepKey)}}</strong><small class="technical-id">{{s.stepKey}} · {{s.type}} · attempt {{s.attemptCount}}</small>
+            <div class="node-runtime-meta"><span *ngIf="s.startedAt">started {{date(s.startedAt)}}</span><span *ngIf="s.deadlineAt">deadline {{date(s.deadlineAt)}}</span></div>
+            <button class="ghost small" *ngIf="s.delegatedExecutionId" (click)="closeModal();openExecution(s.delegatedExecutionId)">Inspect agent execution ↗</button>
+            <div class="step-error" *ngIf="s.error?.code||s.error?.message">{{s.error?.code}} {{s.error?.message}}</div>
+            <details class="json-details"><summary>I/O</summary><pre>{{json({input:s.input,output:s.output})}}</pre></details>
+          </article>
+          <div class="canvas-arrow" *ngIf="li<processInstanceLevels(x).length-1">→</div>
+        </div>
+      </div>
+      <details class="json-details"><summary>Process input / context</summary><pre>{{json({input:x.input,context:x.context})}}</pre></details>
+    </ng-container>
+
+    <ng-container *ngIf="modal()==='governance-policy'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><div class="form-grid two"><label>Policy type<select [(ngModel)]="draft.policyType"><option>RESOURCE_ACCESS</option><option>SIDE_EFFECT</option><option>MODEL_ACCESS</option><option>KNOWLEDGE_ACCESS</option><option>MEMORY_ACCESS</option></select></label><label>Effect<select [(ngModel)]="draft.effect"><option>ALLOW</option><option>DENY</option><option>REQUIRE_APPROVAL</option></select></label><label>Resource type<select [(ngModel)]="draft.resourceType"><option>TOOL</option><option>AGENT</option><option>KNOWLEDGE</option><option>MODEL</option><option>MEMORY_SCOPE</option></select></label><label>Resource pattern<input [(ngModel)]="draft.resourcePattern"></label><label>Subject type<select [(ngModel)]="draft.subjectType"><option>GLOBAL</option><option>TENANT</option><option>TEAM</option><option>USER</option><option>AGENT</option></select></label><label>Subject pattern<input [(ngModel)]="draft.subjectPattern"></label><label>Priority<input type="number" [(ngModel)]="draft.priority"></label></div><label>Conditions JSON<textarea rows="5" class="mono" [(ngModel)]="draft.conditions"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='governance-budget'"><label>Name<input [(ngModel)]="draft.name"></label><div class="form-grid two"><label>Scope<select [(ngModel)]="draft.scopeType"><option>GLOBAL</option><option>EXECUTION</option><option>TENANT</option><option>TEAM</option><option>USER</option><option>AGENT</option></select></label><label>Scope id<input [(ngModel)]="draft.scopeId"></label><label>Period<select [(ngModel)]="draft.period"><option>EXECUTION</option><option>DAILY</option><option>MONTHLY</option></select></label><label>Action<select [(ngModel)]="draft.action"><option>DENY</option><option>DEGRADE</option></select></label><label>Max prompt tokens<input type="number" [(ngModel)]="draft.maxPromptTokens"></label><label>Max completion tokens<input type="number" [(ngModel)]="draft.maxCompletionTokens"></label><label>Max total tokens<input type="number" [(ngModel)]="draft.maxTotalTokens"></label><label>Max cost USD<input type="number" step="0.000001" [(ngModel)]="draft.maxCostUsd"></label><label *ngIf="draft.action==='DEGRADE'">Degrade model profile<input [(ngModel)]="draft.degradeModelProfile"></label></div><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='eval-dataset'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><div class="form-grid two"><label>Version<input type="number" min="1" [(ngModel)]="draft.version"></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></div><label>Cases JSON<textarea rows="20" class="mono" [(ngModel)]="draft.items"></textarea></label><p class="muted">Each case contains command, optional expectedOutput, assertions (CONTAINS, NOT_CONTAINS, REGEX, MIN_LENGTH, MAX_LENGTH) and tags.</p></ng-container>
+    <ng-container *ngIf="modal()==='eval-definition'"><label>Name<input [(ngModel)]="draft.name"></label><label>Description<input [(ngModel)]="draft.description"></label><label>Dataset<select [(ngModel)]="draft.datasetId"><option *ngFor="let d of evalDatasets()" [value]="d.id">{{d.name}} · v{{d.version}}</option></select></label><div class="checkbox-grid"><label class="check" *ngFor="let m of ['relevance','completeness','groundedness','coherence','instruction_adherence']"><input type="checkbox" [checked]="draft.metrics?.includes(m)" (change)="toggleEvalMetric(m,$any($event.target).checked)"> {{m}}</label></div><label *ngIf="draft.metrics?.length">Judge model profile<input [(ngModel)]="draft.judgeModelProfile"></label><label>Thresholds JSON<textarea rows="6" class="mono" [(ngModel)]="draft.thresholds"></textarea></label><label class="check"><input type="checkbox" [(ngModel)]="draft.enabled"> Enabled</label></ng-container>
+    <ng-container *ngIf="modal()==='eval-run' && selectedEvalRun() as r"><div class="execution-summary"><span class="status-pill" [ngClass]="statusClass(r.status)">{{r.status}}</span><span>Pass {{((r.aggregateScores?.['passRate']||0)*100)|number:'1.0-1'}}%</span><span>{{tokens(r.totalTokens)}} tokens · USD {{r.totalCostUsd|number:'1.4-6'}}</span></div><div class="metric-strip"><span *ngFor="let m of r.aggregateScores|keyvalue"><b>{{m.value|number:'1.3-3'}}</b> {{m.key}}</span></div><div class="error-banner" *ngIf="r.regression?.regressed">Regression detected against baseline or thresholds.</div><div class="table-wrap"><table><thead><tr><th>Case</th><th>Pass</th><th>Scores</th><th>Checks</th><th>Latency</th><th>Execution</th></tr></thead><tbody><tr *ngFor="let x of r.results"><td><strong>{{x.itemName}}</strong></td><td>{{x.passed?'PASS':'FAIL'}}</td><td><span *ngFor="let s of x.scores|keyvalue" class="block">{{s.key}} {{s.value|number:'1.2-2'}}</span></td><td>{{x.checks.length}}</td><td>{{x.latencyMs}} ms</td><td><button class="ghost small" *ngIf="x.executionId" (click)="closeModal();openExecution(x.executionId)">Inspect</button></td></tr></tbody></table></div><details class="json-details"><summary>Regression detail</summary><pre>{{json(r.regression)}}</pre></details></ng-container>
+    <ng-container *ngIf="modal()==='google-doc'"><label>Source type<select [(ngModel)]="draft.sourceType"><option>GOOGLE_DOCS</option><option>GOOGLE_SLIDES</option><option>GOOGLE_SHEETS</option></select></label><label>Google resource ID<input [(ngModel)]="draft.sourceId"></label><label>Name<input [(ngModel)]="draft.name"></label><label>Source URI<input [(ngModel)]="draft.sourceUri"></label></ng-container>
+  </div>
+  <footer><button class="ghost" (click)="cancelModal()">Cancel</button><button class="primary" *ngIf="modal()==='create-execution'" (click)="saveExecution()">Start</button><button class="primary" *ngIf="modal()==='session'" (click)="saveSession()">{{draft.id?'Save':'Create'}}</button><button class="primary" *ngIf="modal()==='memory'" (click)="saveMemory()">Persist</button><button class="primary" *ngIf="modal()==='skill'" (click)="saveSkill()">Save</button><button class="primary" *ngIf="modal()==='agent'" (click)="saveAgent()">Save</button><button class="primary" *ngIf="modal()==='agent-knowledge'" (click)="saveAgentKnowledge()">Save assignments</button><button class="primary" *ngIf="modal()==='prompt'" (click)="savePrompt()">Save</button><button class="primary" *ngIf="modal()==='tool'" (click)="saveTool()">Save</button><button class="primary" *ngIf="modal()==='mcp'" (click)="saveMcp()">Save</button><button class="primary" *ngIf="modal()==='kb'" (click)="saveKb()">Save</button><button class="primary" *ngIf="modal()==='google-doc'" (click)="saveGoogle()">Add document</button><button class="primary" *ngIf="modal()==='governance-policy'" (click)="saveGovernancePolicy()">Save</button><button class="primary" *ngIf="modal()==='governance-budget'" (click)="saveGovernanceBudget()">Save</button><button class="primary" *ngIf="modal()==='eval-dataset'" (click)="saveEvalDataset()">Save dataset</button><button class="primary" *ngIf="modal()==='eval-definition'" (click)="saveEvalDefinition()">Save eval</button><button class="primary" *ngIf="modal()==='process-service'" (click)="saveProcessService()">Save service</button><button class="primary" *ngIf="modal()==='process-designer' && processDesigner()?.status==='DRAFT'" (click)="saveProcessDefinition()">Save definition</button><button class="primary" *ngIf="modal()==='process-step'" (click)="saveProcessStep()">Apply step</button><button class="primary" *ngIf="modal()==='process-instance-create'" (click)="saveProcessInstance()">Create instance</button><button class="primary" *ngIf="modal()==='process-event'" (click)="signalProcessEvent()">Signal event</button></footer>
+  </section>
+</div>
