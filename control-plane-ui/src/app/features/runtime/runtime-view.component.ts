@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component } from '@angular/core';
+import { Component, Input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ControlPlaneViewBase } from '../../shared/control-plane-view.base';
+import type { AppComponent } from '../../app.component';
 
 @Component({
   selector: 'app-runtime-view',
@@ -10,4 +10,4 @@ import { ControlPlaneViewBase } from '../../shared/control-plane-view.base';
   templateUrl: './runtime-view.component.html',
   styles: [':host { display: contents; }'],
 })
-export class RuntimeViewComponent extends ControlPlaneViewBase {}
+export class RuntimeViewComponent { @Input({ required: true }) host!: AppComponent; }
