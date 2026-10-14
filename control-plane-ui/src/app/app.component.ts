@@ -4,8 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from './api.service';
 import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionArtifact, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, ProcessDefinition, ProcessHumanTask, ProcessInstance, ProcessServiceDefinition, ProcessStepDefinition, ProcessStepType, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
 
-type View='dashboard'|'executions'|'approvals'|'processes'|'sessions'|'memory'|'agents'|'skills'|'prompts'|'tools'|'mcp'|'knowledge'|'governance'|'evals'|'runtime';
-type ProcessTab='definitions'|'instances'|'services'|'human';
+type View='dashboard'|'executions'|'approvals'|'processes'|'services'|'sessions'|'memory'|'agents'|'skills'|'prompts'|'tools'|'mcp'|'knowledge'|'governance'|'evals'|'runtime';
+type ProcessTab='definitions'|'instances'|'human';
 
 @Component({selector:'app-root',standalone:true,imports:[CommonModule,FormsModule],templateUrl:'./app.component.html'})
 export class AppComponent implements OnInit,OnDestroy {
@@ -47,8 +47,8 @@ export class AppComponent implements OnInit,OnDestroy {
   async ngOnInit(){await this.refreshAll();this.poller=setInterval(()=>this.refreshLive(),3000);}
   ngOnDestroy(){if(this.poller)clearInterval(this.poller);}
   async refreshAll(){await this.run(async()=>{const [o,r,e,a,ag,sk,pr,to,mc,kb,se,me,mp,ma,gp,gb,gd,bd,ed,ef,er]=await Promise.all([this.api.overview(),this.api.runtime(),this.api.executions(),this.api.approvals(),this.api.agents(),this.api.skills(),this.api.prompts(),this.api.tools(),this.api.mcpServers(),this.api.knowledgeBases(),this.api.sessions(),this.api.memories(),this.api.memoryPolicy(),this.api.memoryPolicyAudit(),this.api.governancePolicies(),this.api.governanceBudgets(),this.api.governanceDecisions(),this.api.budgetDecisions(),this.api.evalDatasets(),this.api.evalDefinitions(),this.api.evalRuns()]);this.overview.set(o);this.runtime.set(r);this.executions.set(e);this.approvals.set(a);this.agents.set(ag);this.skills.set(sk);this.prompts.set(pr);this.tools.set(to);this.mcpServers.set(mc);this.knowledgeBases.set(kb);this.sessions.set(se);this.memories.set(me);this.memoryPolicy.set(mp);this.memoryAudit.set(ma);this.governancePolicies.set(gp);this.governanceBudgets.set(gb);this.governanceDecisions.set(gd);this.budgetDecisions.set(bd);this.evalDatasets.set(ed);this.evalDefinitions.set(ef);this.evalRuns.set(er);});}
-  async refreshLive(){try{this.overview.set(await this.api.overview());this.executions.set(await this.api.executions(this.executionStatus));this.approvals.set(await this.api.approvals());if(this.selectedExecution())await this.openExecution(this.selectedExecution()!.executionId,false);if(this.view()==='processes')await this.refreshProcessesLive();}catch{}}
-  setView(v:View){this.view.set(v);if(v==='runtime')this.loadRuntime();if(v==='sessions')this.loadSessions();if(v==='memory')this.loadMemory();if(v==='governance')this.loadGovernance();if(v==='evals')this.loadEvals();if(v==='processes')this.loadProcesses();}
+  async refreshLive(){try{this.overview.set(await this.api.overview());this.executions.set(await this.api.executions(this.executionStatus));this.approvals.set(await this.api.approvals());if(this.selectedExecution())await this.openExecution(this.selectedExecution()!.executionId,false);if(this.view()==='processes'||this.view()==='services')await this.refreshProcessesLive();}catch{}}
+  setView(v:View){this.view.set(v);if(v==='runtime')this.loadRuntime();if(v==='sessions')this.loadSessions();if(v==='memory')this.loadMemory();if(v==='governance')this.loadGovernance();if(v==='evals')this.loadEvals();if(v==='processes'||v==='services')this.loadProcesses();}
 
   async loadGovernance(){try{const [p,b,d,bd]=await Promise.all([this.api.governancePolicies(),this.api.governanceBudgets(),this.api.governanceDecisions(),this.api.budgetDecisions()]);this.governancePolicies.set(p);this.governanceBudgets.set(b);this.governanceDecisions.set(d);this.budgetDecisions.set(bd);}catch(e:any){this.error.set(this.message(e));}}
   editGovernancePolicy(x?:GovernancePolicy){this.draft=x?{...x,conditions:this.json(x.conditions)}:{name:'',description:'',policyType:'RESOURCE_ACCESS',effect:'ALLOW',resourceType:'MODEL',resourcePattern:'*',subjectType:'GLOBAL',subjectPattern:'*',conditions:'{}',priority:100,enabled:true};this.modal.set('governance-policy');}
@@ -507,6 +507,52 @@ export class AppComponent implements OnInit,OnDestroy {
     });
   }
 
+  processStatusLabel(status:string,type?:ProcessStepType){
+    if(status!=='WAITING')return status;
+    if(type==='HUMAN')return 'WAITING REVIEW';
+    if(type==='WAIT_EVENT')return 'WAITING EVENT';
+    return 'IN PROCESS';
+  }
+
+  processDefinitionName(instance?:ProcessInstance|null){
+    if(!instance)return '';
+    const definition=this.processDefinitions().find(d=>d.id===instance.definitionId)
+      ||this.processDefinitions().find(d=>d.definitionKey===instance.definitionKey&&d.version===instance.definitionVersion);
+    return definition?.name||instance.definitionKey;
+  }
+
+  processStepName(instance:ProcessInstance|null|undefined,stepKey:string){
+    if(!instance)return stepKey;
+    const definition=this.processDefinitions().find(d=>d.id===instance.definitionId)
+      ||this.processDefinitions().find(d=>d.definitionKey===instance.definitionKey&&d.version===instance.definitionVersion);
+    return definition?.steps.find(s=>s.stepKey===stepKey)?.name||stepKey;
+  }
+
+  humanTaskProcessName(task:ProcessHumanTask){
+    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
+    return instance?this.processDefinitionName(instance):task.processInstanceId;
+  }
+
+  humanTaskStepName(task:ProcessHumanTask){
+    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
+    return this.processStepName(instance,task.stepKey);
+  }
+
+  agentDisplayName(ref?:string|null){
+    if(!ref)return '';
+    const agent=this.agents().find(a=>a.id===ref||a.name===ref);
+    return agent?.name||this.humanizeIdentifier(ref);
+  }
+
+  stepDisplayName(step:any){
+    if(step?.description?.trim())return step.description;
+    return this.humanizeIdentifier(step?.id||'Step');
+  }
+
+  humanizeIdentifier(value?:string|null){
+    return String(value||'').replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  }
+
   processStepLabel(type:ProcessStepType){
     return ({SERVICE:'Service',AGENTIC_EXECUTION:'Agentic execution',DECISION:'Decision',HUMAN:'Human task',WAIT_EVENT:'Wait event',SUBPROCESS:'Subprocess'} as any)[type]||type;
   }
@@ -573,6 +619,11 @@ export class AppComponent implements OnInit,OnDestroy {
     return key?task.payload?.dependencies?.[key]:null;
   }
 
+  humanTaskProducerName(task:ProcessHumanTask){
+    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
+    return this.processStepName(instance,this.humanTaskProducerStep(task));
+  }
+
   humanTaskLegacyReviewText(task:ProcessHumanTask){
     if(this.taskReviewArtifacts(task).length)return '';
     const result:any=this.humanTaskProducerResult(task);
@@ -605,8 +656,108 @@ export class AppComponent implements OnInit,OnDestroy {
     return blocks;
   }
 
+  private unwrapStructuredText(rawValue:string){
+    const raw=String(rawValue||'').trim();
+    return raw.replace(/^\s*```(?:json|markdown|md)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+  }
+
+  private extractJsonStringField(rawValue:string,field:string){
+    const raw=this.unwrapStructuredText(rawValue);
+    const token=`"${field}"`;
+    const keyIndex=raw.indexOf(token);
+    if(keyIndex<0)return '';
+    const colon=raw.indexOf(':',keyIndex+token.length);
+    if(colon<0)return '';
+    const quote=raw.indexOf('"',colon+1);
+    if(quote<0)return '';
+    let escaped=false;
+    for(let i=quote+1;i<raw.length;i++){
+      const ch=raw[i];
+      if(ch==='"'&&!escaped){
+        const literal=raw.slice(quote,i+1);
+        try{return JSON.parse(literal);}catch{return raw.slice(quote+1,i);}
+      }
+      escaped=ch==='\\'&&!escaped;
+      if(ch!=='\\')escaped=false;
+    }
+    return '';
+  }
+
+  private markdownFrom(value:any,depth=0):string{
+    if(value==null||depth>7)return '';
+    if(typeof value==='object'){
+      const human=value.humanDocument||value.human_document;
+      if(typeof human?.markdown==='string'&&human.markdown.trim())return human.markdown.trim();
+      if(typeof value.markdown==='string'&&value.markdown.trim()){
+        const nested=this.markdownFrom(value.markdown,depth+1);
+        if(nested)return nested;
+      }
+      for(const key of ['content','data','output','result','document']){
+        if(value[key]!=null){
+          const nested=this.markdownFrom(value[key],depth+1);
+          if(nested)return nested;
+        }
+      }
+      return '';
+    }
+    if(typeof value!=='string')return '';
+    const raw=this.unwrapStructuredText(value);
+    if((raw.startsWith('{')&&raw.endsWith('}'))||(raw.startsWith('[')&&raw.endsWith(']'))){
+      try{
+        const parsed=JSON.parse(raw);
+        const nested=this.markdownFrom(parsed,depth+1);
+        if(nested)return nested;
+      }catch{
+        const markdown=this.extractJsonStringField(raw,'markdown');
+        if(markdown)return markdown;
+      }
+    }
+    const embeddedMarkdown=this.extractJsonStringField(raw,'markdown');
+    if(embeddedMarkdown)return embeddedMarkdown;
+    return raw;
+  }
+
+  private summaryFrom(value:any,depth=0):string{
+    if(value==null||depth>6)return '';
+    if(typeof value==='object'){
+      if(typeof value.summary==='string'&&value.summary.trim())return this.summaryFrom(value.summary,depth+1);
+      for(const key of ['content','data','output','result']){
+        if(value[key]!=null){
+          const nested=this.summaryFrom(value[key],depth+1);
+          if(nested)return nested;
+        }
+      }
+      return '';
+    }
+    if(typeof value!=='string')return '';
+    const raw=this.unwrapStructuredText(value);
+    if(raw.startsWith('{')||raw.startsWith('[')){
+      try{
+        const parsed=JSON.parse(raw);
+        const nested=this.summaryFrom(parsed,depth+1);
+        if(nested)return nested;
+      }catch{
+        const summary=this.extractJsonStringField(raw,'summary');
+        if(summary)return summary;
+      }
+    }
+    const embedded=this.extractJsonStringField(raw,'summary');
+    return embedded||raw;
+  }
+
+  artifactMarkdown(a:ExecutionArtifact){
+    return this.markdownFrom(a.content);
+  }
+
+  artifactSummary(a:any){
+    const parsed=this.summaryFrom(a?.summary);
+    if(parsed&&parsed!==a?.summary)return parsed;
+    const fromContent=this.summaryFrom(a?.content);
+    return fromContent||parsed||'';
+  }
+
   artifactDisplayBlocks(a:ExecutionArtifact){
-    return this.textDisplayBlocks(String(a.content?.markdown||''));
+    return this.textDisplayBlocks(this.artifactMarkdown(a));
   }
 
   toggleHumanTaskTechnical(task:ProcessHumanTask){
