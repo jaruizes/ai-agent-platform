@@ -187,63 +187,63 @@ export class AppComponent implements OnInit,OnDestroy {
   async activateProcessDefinition(x:ProcessDefinition){ return definitionActions.activateProcessDefinition.apply(this, arguments as any); }
   async retireProcessDefinition(x:ProcessDefinition){ return definitionActions.retireProcessDefinition.apply(this, arguments as any); }
   async nextProcessDefinitionVersion(x:ProcessDefinition){ return definitionActions.nextProcessDefinitionVersion.apply(this, arguments as any); }
-  openCreateProcessService(){ return definitionActions.openCreateProcessService.apply(this, arguments as any); }
-  editProcessService(x:ProcessServiceDefinition){ return definitionActions.editProcessService.apply(this, arguments as any); }
-  async saveProcessService(){ return definitionActions.saveProcessService.apply(this, arguments as any); }
-  async activateProcessService(x:ProcessServiceDefinition){ return definitionActions.activateProcessService.apply(this, arguments as any); }
-  async retireProcessService(x:ProcessServiceDefinition){ return definitionActions.retireProcessService.apply(this, arguments as any); }
-  async nextProcessServiceVersion(x:ProcessServiceDefinition){ return definitionActions.nextProcessServiceVersion.apply(this, arguments as any); }
-  openCreateProcessInstance(x?:ProcessDefinition){ return definitionActions.openCreateProcessInstance.apply(this, arguments as any); }
-  selectProcessDefinitionForNewInstance(value:string){ return definitionActions.selectProcessDefinitionForNewInstance.apply(this, arguments as any); }
-  activeProcessDefinitions(){ return definitionActions.activeProcessDefinitions.apply(this, arguments as any); }
-  async saveProcessInstance(){ return definitionActions.saveProcessInstance.apply(this, arguments as any); }
-  async openProcessInstance(id:string){ return definitionActions.openProcessInstance.apply(this, arguments as any); }
-  async processInstanceAction(kind:'start'|'pause'|'resume'|'cancel'){ return definitionActions.processInstanceAction.apply(this, arguments as any); }
-  async completeHumanTask(x:ProcessHumanTask,explicitDecision?:string){ return definitionActions.completeHumanTask.apply(this, arguments as any); }
-  openSignalProcessEvent(x?:ProcessInstance){ return definitionActions.openSignalProcessEvent.apply(this, arguments as any); }
-  async signalProcessEvent(){ return definitionActions.signalProcessEvent.apply(this, arguments as any); }
-  processStatusLabel(status:string,type?:ProcessStepType){ return definitionActions.processStatusLabel.apply(this, arguments as any); }
-  processDefinitionName(instance?:ProcessInstance|null){ return definitionActions.processDefinitionName.apply(this, arguments as any); }
-  processStepName(instance:ProcessInstance|null|undefined,stepKey:string){ return definitionActions.processStepName.apply(this, arguments as any); }
-  humanTaskProcessName(task:ProcessHumanTask){ return definitionActions.humanTaskProcessName.apply(this, arguments as any); }
-  humanTaskStepName(task:ProcessHumanTask){ return definitionActions.humanTaskStepName.apply(this, arguments as any); }
-  agentDisplayName(ref?:string|null){ return definitionActions.agentDisplayName.apply(this, arguments as any); }
-  stepDisplayName(step:any){ return definitionActions.stepDisplayName.apply(this, arguments as any); }
-  humanizeIdentifier(value?:string|null){ return definitionActions.humanizeIdentifier.apply(this, arguments as any); }
-  processStepLabel(type:ProcessStepType){ return definitionActions.processStepLabel.apply(this, arguments as any); }
-  processStepIcon(type:ProcessStepType){ return definitionActions.processStepIcon.apply(this, arguments as any); }
-  defaultProcessStepConfiguration(type:ProcessStepType){ return definitionActions.defaultProcessStepConfiguration.apply(this, arguments as any); }
-  selectReviewProducer(step:any,key:string){ return definitionActions.selectReviewProducer.apply(this, arguments as any); }
-  reviewableProducerSteps(currentStepKey:string){ return definitionActions.reviewableProducerSteps.apply(this, arguments as any); }
-  taskArtifactRefs(task:ProcessHumanTask){ return definitionActions.taskArtifactRefs.apply(this, arguments as any); }
-  taskReviewArtifacts(task:ProcessHumanTask){ return definitionActions.taskReviewArtifacts.apply(this, arguments as any); }
-  humanTaskProducerStep(task:ProcessHumanTask){ return definitionActions.humanTaskProducerStep.apply(this, arguments as any); }
-  humanTaskProducerResult(task:ProcessHumanTask){ return definitionActions.humanTaskProducerResult.apply(this, arguments as any); }
-  humanTaskProducerName(task:ProcessHumanTask){ return definitionActions.humanTaskProducerName.apply(this, arguments as any); }
-  humanTaskLegacyReviewText(task:ProcessHumanTask){ return definitionActions.humanTaskLegacyReviewText.apply(this, arguments as any); }
-  textDisplayBlocks(rawValue:string){ return definitionActions.textDisplayBlocks.apply(this, arguments as any); }
-  unwrapStructuredText(rawValue:string){ return definitionActions.unwrapStructuredText.apply(this, arguments as any); }
-  extractJsonStringField(rawValue:string,field:string){ return definitionActions.extractJsonStringField.apply(this, arguments as any); }
-  markdownFrom(value:any,depth=0):string{ return definitionActions.markdownFrom.apply(this, arguments as any); }
-  summaryFrom(value:any,depth=0):string{ return definitionActions.summaryFrom.apply(this, arguments as any); }
-  artifactMarkdown(a:ExecutionArtifact){ return definitionActions.artifactMarkdown.apply(this, arguments as any); }
-  artifactSummary(a:any){ return definitionActions.artifactSummary.apply(this, arguments as any); }
-  artifactDisplayBlocks(a:ExecutionArtifact){ return definitionActions.artifactDisplayBlocks.apply(this, arguments as any); }
-  toggleHumanTaskTechnical(task:ProcessHumanTask){ return definitionActions.toggleHumanTaskTechnical.apply(this, arguments as any); }
-  isHumanTaskTechnicalOpen(task:ProcessHumanTask){ return definitionActions.isHumanTaskTechnicalOpen.apply(this, arguments as any); }
-  trackByHumanTaskId(_index:number,task:ProcessHumanTask){ return definitionActions.trackByHumanTaskId.apply(this, arguments as any); }
-  async openArtifact(ref:any){ return definitionActions.openArtifact.apply(this, arguments as any); }
-  humanTaskReviewPolicy(task:ProcessHumanTask){ return definitionActions.humanTaskReviewPolicy.apply(this, arguments as any); }
-  pendingProcessHumanTasks(){ return definitionActions.pendingProcessHumanTasks.apply(this, arguments as any); }
-  activeProcessServices(){ return definitionActions.activeProcessServices.apply(this, arguments as any); }
-  processProgress(x:ProcessInstance){ return definitionActions.processProgress.apply(this, arguments as any); }
-  processCompletedSteps(x:ProcessInstance){ return definitionActions.processCompletedSteps.apply(this, arguments as any); }
-  processWaitingSteps(x:ProcessInstance){ return definitionActions.processWaitingSteps.apply(this, arguments as any); }
-  processServiceSelection(step:any){ return definitionActions.processServiceSelection.apply(this, arguments as any); }
-  selectProcessService(step:any,value:string){ return definitionActions.selectProcessService.apply(this, arguments as any); }
-  activeProcessServiceVersions(){ return definitionActions.activeProcessServiceVersions.apply(this, arguments as any); }
-  processServiceName(step:any){ return definitionActions.processServiceName.apply(this, arguments as any); }
-  selectedProcessDefinitionForInstance(){ return definitionActions.selectedProcessDefinitionForInstance.apply(this, arguments as any); }
+  openCreateProcessService(){ return serviceActions.openCreateProcessService.apply(this, arguments as any); }
+  editProcessService(x:ProcessServiceDefinition){ return serviceActions.editProcessService.apply(this, arguments as any); }
+  async saveProcessService(){ return serviceActions.saveProcessService.apply(this, arguments as any); }
+  async activateProcessService(x:ProcessServiceDefinition){ return serviceActions.activateProcessService.apply(this, arguments as any); }
+  async retireProcessService(x:ProcessServiceDefinition){ return serviceActions.retireProcessService.apply(this, arguments as any); }
+  async nextProcessServiceVersion(x:ProcessServiceDefinition){ return serviceActions.nextProcessServiceVersion.apply(this, arguments as any); }
+  openCreateProcessInstance(x?:ProcessDefinition){ return instanceActions.openCreateProcessInstance.apply(this, arguments as any); }
+  selectProcessDefinitionForNewInstance(value:string){ return instanceActions.selectProcessDefinitionForNewInstance.apply(this, arguments as any); }
+  activeProcessDefinitions(){ return instanceActions.activeProcessDefinitions.apply(this, arguments as any); }
+  async saveProcessInstance(){ return instanceActions.saveProcessInstance.apply(this, arguments as any); }
+  async openProcessInstance(id:string){ return instanceActions.openProcessInstance.apply(this, arguments as any); }
+  async processInstanceAction(kind:'start'|'pause'|'resume'|'cancel'){ return instanceActions.processInstanceAction.apply(this, arguments as any); }
+  async completeHumanTask(x:ProcessHumanTask,explicitDecision?:string){ return instanceActions.completeHumanTask.apply(this, arguments as any); }
+  openSignalProcessEvent(x?:ProcessInstance){ return instanceActions.openSignalProcessEvent.apply(this, arguments as any); }
+  async signalProcessEvent(){ return instanceActions.signalProcessEvent.apply(this, arguments as any); }
+  processStatusLabel(status:string,type?:ProcessStepType){ return presentationActions.processStatusLabel.apply(this, arguments as any); }
+  processDefinitionName(instance?:ProcessInstance|null){ return presentationActions.processDefinitionName.apply(this, arguments as any); }
+  processStepName(instance:ProcessInstance|null|undefined,stepKey:string){ return presentationActions.processStepName.apply(this, arguments as any); }
+  humanTaskProcessName(task:ProcessHumanTask){ return presentationActions.humanTaskProcessName.apply(this, arguments as any); }
+  humanTaskStepName(task:ProcessHumanTask){ return presentationActions.humanTaskStepName.apply(this, arguments as any); }
+  agentDisplayName(ref?:string|null){ return presentationActions.agentDisplayName.apply(this, arguments as any); }
+  stepDisplayName(step:any){ return presentationActions.stepDisplayName.apply(this, arguments as any); }
+  humanizeIdentifier(value?:string|null){ return presentationActions.humanizeIdentifier.apply(this, arguments as any); }
+  processStepLabel(type:ProcessStepType){ return presentationActions.processStepLabel.apply(this, arguments as any); }
+  processStepIcon(type:ProcessStepType){ return presentationActions.processStepIcon.apply(this, arguments as any); }
+  defaultProcessStepConfiguration(type:ProcessStepType){ return presentationActions.defaultProcessStepConfiguration.apply(this, arguments as any); }
+  selectReviewProducer(step:any,key:string){ return presentationActions.selectReviewProducer.apply(this, arguments as any); }
+  reviewableProducerSteps(currentStepKey:string){ return presentationActions.reviewableProducerSteps.apply(this, arguments as any); }
+  taskArtifactRefs(task:ProcessHumanTask){ return presentationActions.taskArtifactRefs.apply(this, arguments as any); }
+  taskReviewArtifacts(task:ProcessHumanTask){ return presentationActions.taskReviewArtifacts.apply(this, arguments as any); }
+  humanTaskProducerStep(task:ProcessHumanTask){ return presentationActions.humanTaskProducerStep.apply(this, arguments as any); }
+  humanTaskProducerResult(task:ProcessHumanTask){ return presentationActions.humanTaskProducerResult.apply(this, arguments as any); }
+  humanTaskProducerName(task:ProcessHumanTask){ return presentationActions.humanTaskProducerName.apply(this, arguments as any); }
+  humanTaskLegacyReviewText(task:ProcessHumanTask){ return presentationActions.humanTaskLegacyReviewText.apply(this, arguments as any); }
+  textDisplayBlocks(rawValue:string){ return presentationActions.textDisplayBlocks.apply(this, arguments as any); }
+  unwrapStructuredText(rawValue:string){ return presentationActions.unwrapStructuredText.apply(this, arguments as any); }
+  extractJsonStringField(rawValue:string,field:string){ return presentationActions.extractJsonStringField.apply(this, arguments as any); }
+  markdownFrom(value:any,depth=0):string{ return presentationActions.markdownFrom.apply(this, arguments as any); }
+  summaryFrom(value:any,depth=0):string{ return presentationActions.summaryFrom.apply(this, arguments as any); }
+  artifactMarkdown(a:ExecutionArtifact){ return presentationActions.artifactMarkdown.apply(this, arguments as any); }
+  artifactSummary(a:any){ return presentationActions.artifactSummary.apply(this, arguments as any); }
+  artifactDisplayBlocks(a:ExecutionArtifact){ return presentationActions.artifactDisplayBlocks.apply(this, arguments as any); }
+  toggleHumanTaskTechnical(task:ProcessHumanTask){ return presentationActions.toggleHumanTaskTechnical.apply(this, arguments as any); }
+  isHumanTaskTechnicalOpen(task:ProcessHumanTask){ return presentationActions.isHumanTaskTechnicalOpen.apply(this, arguments as any); }
+  trackByHumanTaskId(_index:number,task:ProcessHumanTask){ return presentationActions.trackByHumanTaskId.apply(this, arguments as any); }
+  async openArtifact(ref:any){ return presentationActions.openArtifact.apply(this, arguments as any); }
+  humanTaskReviewPolicy(task:ProcessHumanTask){ return presentationActions.humanTaskReviewPolicy.apply(this, arguments as any); }
+  pendingProcessHumanTasks(){ return presentationActions.pendingProcessHumanTasks.apply(this, arguments as any); }
+  activeProcessServices(){ return presentationActions.activeProcessServices.apply(this, arguments as any); }
+  processProgress(x:ProcessInstance){ return presentationActions.processProgress.apply(this, arguments as any); }
+  processCompletedSteps(x:ProcessInstance){ return presentationActions.processCompletedSteps.apply(this, arguments as any); }
+  processWaitingSteps(x:ProcessInstance){ return presentationActions.processWaitingSteps.apply(this, arguments as any); }
+  processServiceSelection(step:any){ return presentationActions.processServiceSelection.apply(this, arguments as any); }
+  selectProcessService(step:any,value:string){ return presentationActions.selectProcessService.apply(this, arguments as any); }
+  activeProcessServiceVersions(){ return presentationActions.activeProcessServiceVersions.apply(this, arguments as any); }
+  processServiceName(step:any){ return presentationActions.processServiceName.apply(this, arguments as any); }
+  selectedProcessDefinitionForInstance(){ return presentationActions.selectedProcessDefinitionForInstance.apply(this, arguments as any); }
 
 
 
