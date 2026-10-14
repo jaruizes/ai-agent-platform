@@ -1,3 +1,4 @@
+import * as resourceActions from './features/resources/resource.actions';
 import { DashboardViewComponent } from './features/dashboard/dashboard-view.component';
 import { ExecutionsViewComponent } from './features/executions/executions-view.component';
 import { ApprovalsViewComponent } from './features/approvals/approvals-view.component';
@@ -134,40 +135,35 @@ export class AppComponent implements OnInit,OnDestroy {
   async revokeMemoryItem(m:MemoryInfo){if(confirm('Revoke this memory?'))await this.run(async()=>{await this.api.revokeMemory(m.id);this.memories.set(await this.api.memories());});}
   async searchMemory(){if(!this.memoryQuery||!this.memoryScopeId)return;await this.run(async()=>{this.memoryHits.set(await this.api.retrieveMemories(this.memoryQuery,[{scopeType:this.memoryScopeType,scopeId:this.memoryScopeId}],this.memoryTopK));});}
 
-  editSkill(x?:Skill){this.draft=x?{...x}:{name:'',description:'',instructions:'',enabled:true};this.modal.set('skill');}
-  async saveSkill(){await this.run(async()=>{await this.api.saveSkill(this.draft);this.skills.set(await this.api.skills());this.closeModal();});}
-  async deleteSkill(x:Skill){if(confirm(`Eliminar skill ${x.name}?`))await this.run(async()=>{await this.api.deleteSkill(x.id);this.skills.set(await this.api.skills());});}
-  editAgent(x?:Agent){this.draft=x?{...x,skills:x.skills.map(s=>s.name)}:{name:'',description:'',instructions:'',skills:[],enabled:true};this.modal.set('agent');}
-  toggleSkill(name:string,checked:boolean){const set=new Set<string>(this.draft.skills||[]);checked?set.add(name):set.delete(name);this.draft.skills=[...set];}
-  async saveAgent(){await this.run(async()=>{await this.api.saveAgent(this.draft);this.agents.set(await this.api.agents());this.closeModal();});}
-  async deleteAgent(x:Agent){if(confirm(`Eliminar agente ${x.name}?`))await this.run(async()=>{await this.api.deleteAgent(x.id);this.agents.set(await this.api.agents());});}
-  async editAgentKnowledge(x:Agent){this.draft={...x};const assigned=await this.api.agentKnowledge(x.id);this.agentKnowledge.set(assigned);this.knowledgeDraft={};for(const a of assigned)this.knowledgeDraft[a.name]=a.usageMode;this.modal.set('agent-knowledge');}
-  setKbAssignment(name:string,value:string){if(value)this.knowledgeDraft[name]=value;else delete this.knowledgeDraft[name];}
-  async saveAgentKnowledge(){await this.run(async()=>{const items=Object.entries(this.knowledgeDraft).map(([name,usageMode])=>({name,usageMode}));await this.api.saveAgentKnowledge(this.draft.id,items);this.closeModal();});}
-
-  editPrompt(x?:Prompt){this.draft=x?{...x}:{name:'',description:'',content:'',version:1,enabled:true};this.modal.set('prompt');}
-  async savePrompt(){await this.run(async()=>{await this.api.savePrompt(this.draft);this.prompts.set(await this.api.prompts());this.closeModal();});}
-  async deletePrompt(x:Prompt){if(confirm(`Eliminar prompt ${x.name}?`))await this.run(async()=>{await this.api.deletePrompt(x.id);this.prompts.set(await this.api.prompts());});}
-
-  editTool(x?:Tool){this.draft=x?{...x,configuration:this.json(x.configuration),inputSchema:this.json(x.inputSchema)}:{name:'',description:'',instructions:'',implementationType:'MCP',configuration:'{}',inputSchema:'{}',sideEffect:'READ',approvalPolicy:'NEVER',enabled:true};this.modal.set('tool');}
-  async saveTool(){await this.run(async()=>{await this.api.saveTool(this.draft);this.tools.set(await this.api.tools());this.closeModal();});}
-  async deleteTool(x:Tool){if(confirm(`Eliminar tool ${x.name}?`))await this.run(async()=>{await this.api.deleteTool(x.id);this.tools.set(await this.api.tools());});}
-
-  editMcp(x?:McpServer){this.draft=x?{...x,args:this.json(x.args),environment:this.json(x.environment)}:{name:'',description:'',command:'',args:'[]',cwd:'',environment:'{}',enabled:true};this.modal.set('mcp');}
-  async saveMcp(){await this.run(async()=>{await this.api.saveMcp(this.draft);this.mcpServers.set(await this.api.mcpServers());this.closeModal();});}
-  async deleteMcp(x:McpServer){if(confirm(`Eliminar MCP server ${x.name}?`))await this.run(async()=>{await this.api.deleteMcp(x.id);this.mcpServers.set(await this.api.mcpServers());});}
-
-  editKb(x?:KnowledgeBase){this.draft=x?{...x}:{name:'',description:'',scope:'TENANT',retentionPolicy:'PERSISTENT',enabled:true,chunkingPolicy:{strategy:'PARAGRAPH',chunkSize:1600,overlap:200,parentSize:6000,childSize:1600,childOverlap:200},metadata:{}};this.modal.set('kb');}
-  async saveKb(){await this.run(async()=>{await this.api.saveKnowledgeBase(this.draft);this.knowledgeBases.set(await this.api.knowledgeBases());this.closeModal();});}
-  async deleteKb(x:KnowledgeBase){if(confirm(`Eliminar knowledge base ${x.name}?`))await this.run(async()=>{await this.api.deleteKnowledgeBase(x.id);this.knowledgeBases.set(await this.api.knowledgeBases());if(this.selectedKb()?.id===x.id)this.selectedKb.set(null);});}
-  async selectKb(x:KnowledgeBase){this.selectedKb.set(x);this.documents.set(await this.api.documents(x.id));this.retrievalHits.set([]);}
-  async uploadFile(event:Event){const file=(event.target as HTMLInputElement).files?.[0],kb=this.selectedKb();if(!file||!kb)return;await this.run(async()=>{await this.api.upload(kb.id,file);this.documents.set(await this.api.documents(kb.id));});}
-  addGoogle(){this.draft={sourceType:'GOOGLE_DOCS',sourceId:'',name:'',sourceUri:'',metadata:{}};this.modal.set('google-doc');}
-  async saveGoogle(){const kb=this.selectedKb();if(!kb)return;await this.run(async()=>{await this.api.addGoogleDocument(kb.id,this.draft);this.documents.set(await this.api.documents(kb.id));this.closeModal();});}
-  async reindex(d:KnowledgeDocument){await this.run(async()=>{await this.api.reindexDocument(d.id);if(this.selectedKb())this.documents.set(await this.api.documents(this.selectedKb()!.id));});}
-  async deleteDocument(d:KnowledgeDocument){if(confirm(`Eliminar documento ${d.name}?`))await this.run(async()=>{await this.api.deleteDocument(d.id);if(this.selectedKb())this.documents.set(await this.api.documents(this.selectedKb()!.id));});}
-  async retrieve(){const kb=this.selectedKb();if(!kb||!this.retrievalQuery)return;await this.run(async()=>this.retrievalHits.set(await this.api.retrieve(this.retrievalQuery,[kb.name],this.retrievalTopK)));}
-
+  editSkill(x?:Skill){ return resourceActions.editSkill.apply(this, arguments as any); }
+  async saveSkill(){ return resourceActions.saveSkill.apply(this, arguments as any); }
+  async deleteSkill(x:Skill){ return resourceActions.deleteSkill.apply(this, arguments as any); }
+  editAgent(x?:Agent){ return resourceActions.editAgent.apply(this, arguments as any); }
+  toggleSkill(name:string,checked:boolean){ return resourceActions.toggleSkill.apply(this, arguments as any); }
+  async saveAgent(){ return resourceActions.saveAgent.apply(this, arguments as any); }
+  async deleteAgent(x:Agent){ return resourceActions.deleteAgent.apply(this, arguments as any); }
+  async editAgentKnowledge(x:Agent){ return resourceActions.editAgentKnowledge.apply(this, arguments as any); }
+  setKbAssignment(name:string,value:string){ return resourceActions.setKbAssignment.apply(this, arguments as any); }
+  async saveAgentKnowledge(){ return resourceActions.saveAgentKnowledge.apply(this, arguments as any); }
+  editPrompt(x?:Prompt){ return resourceActions.editPrompt.apply(this, arguments as any); }
+  async savePrompt(){ return resourceActions.savePrompt.apply(this, arguments as any); }
+  async deletePrompt(x:Prompt){ return resourceActions.deletePrompt.apply(this, arguments as any); }
+  editTool(x?:Tool){ return resourceActions.editTool.apply(this, arguments as any); }
+  async saveTool(){ return resourceActions.saveTool.apply(this, arguments as any); }
+  async deleteTool(x:Tool){ return resourceActions.deleteTool.apply(this, arguments as any); }
+  editMcp(x?:McpServer){ return resourceActions.editMcp.apply(this, arguments as any); }
+  async saveMcp(){ return resourceActions.saveMcp.apply(this, arguments as any); }
+  async deleteMcp(x:McpServer){ return resourceActions.deleteMcp.apply(this, arguments as any); }
+  editKb(x?:KnowledgeBase){ return resourceActions.editKb.apply(this, arguments as any); }
+  async saveKb(){ return resourceActions.saveKb.apply(this, arguments as any); }
+  async deleteKb(x:KnowledgeBase){ return resourceActions.deleteKb.apply(this, arguments as any); }
+  async selectKb(x:KnowledgeBase){ return resourceActions.selectKb.apply(this, arguments as any); }
+  async uploadFile(event:Event){ return resourceActions.uploadFile.apply(this, arguments as any); }
+  addGoogle(){ return resourceActions.addGoogle.apply(this, arguments as any); }
+  async saveGoogle(){ return resourceActions.saveGoogle.apply(this, arguments as any); }
+  async reindex(d:KnowledgeDocument){ return resourceActions.reindex.apply(this, arguments as any); }
+  async deleteDocument(d:KnowledgeDocument){ return resourceActions.deleteDocument.apply(this, arguments as any); }
+  async retrieve(){ return resourceActions.retrieve.apply(this, arguments as any); }
 
   async loadProcesses(){
     await this.run(async()=>{
@@ -836,6 +832,6 @@ export class AppComponent implements OnInit,OnDestroy {
     return x?this.processDefinitions().find(d=>d.id===x.definitionId)||null:null;
   }
 
-  private async run(fn:()=>Promise<any>){this.busy.set(true);this.error.set('');try{await fn();}catch(e:any){this.error.set(this.message(e));}finally{this.busy.set(false);}}
-  private message(e:any){return e?.error?.detail||e?.message||'Error inesperado';}
+  async run(fn:()=>Promise<any>){this.busy.set(true);this.error.set('');try{await fn();}catch(e:any){this.error.set(this.message(e));}finally{this.busy.set(false);}}
+  message(e:any){return e?.error?.detail||e?.message||'Error inesperado';}
 }
