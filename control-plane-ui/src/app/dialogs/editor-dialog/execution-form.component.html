@@ -1,0 +1,17 @@
+<ng-container *ngIf="host.modal()==='artifact' && host.selectedArtifact() as a">
+      <div class="execution-summary"><span class="status-pill">{{a.type}}</span><strong>{{a.title}}</strong><span>v{{a.version}} · {{a.schema}}</span><span>{{a.sizeBytes}} bytes</span></div>
+      <p *ngIf="host.artifactSummary(a)">{{host.artifactSummary(a)}}</p>
+      <section class="artifact-human" *ngIf="host.artifactMarkdown(a)">
+        <ng-container *ngFor="let b of host.artifactDisplayBlocks(a)">
+          <h1 *ngIf="b.kind==='h1'">{{b.text}}</h1>
+          <h2 *ngIf="b.kind==='h2'">{{b.text}}</h2>
+          <h3 *ngIf="b.kind==='h3'">{{b.text}}</h3>
+          <p *ngIf="b.kind==='p'">{{b.text}}</p>
+          <div class="artifact-bullet" *ngIf="b.kind==='li'">• {{b.text}}</div>
+        </ng-container>
+      </section>
+      <details class="json-details"><summary>Structured content · technical</summary><pre>{{host.json(a.content)}}</pre></details>
+      <details class="json-details"><summary>Artifact metadata</summary><pre>{{host.json(a.metadata)}}</pre></details>
+    </ng-container>
+
+<ng-container *ngIf="host.modal()==='create-execution'"><label>Name<input [(ngModel)]="host.draft.name"></label><label>Session<select [(ngModel)]="host.draft.sessionId"><option value="">No session</option><option *ngFor="let s of host.sessions()" [value]="s.id" [disabled]="s.status!=='ACTIVE'">{{s.name||s.id}} · {{s.scope}}</option></select></label><label>Intent<textarea rows="4" [(ngModel)]="host.draft.intent"></textarea></label><label>Input JSON<textarea rows="5" class="mono" [(ngModel)]="host.draft.input"></textarea></label><label>Context JSON<textarea rows="3" class="mono" [(ngModel)]="host.draft.context"></textarea></label><label>Instructions · one per line<textarea rows="3" [(ngModel)]="host.draft.instructions"></textarea></label></ng-container>
