@@ -1,0 +1,15 @@
+<section class="knowledge-layout">
+        <aside class="panel kb-list"><div class="panel-head"><div><h2>Knowledge</h2><p>Managed RAG assets.</p></div><button class="primary small" (click)="host.editKb()">＋</button></div>
+          <button class="kb-item" *ngFor="let kb of host.knowledgeBases()" [class.active]="host.selectedKb()?.id===kb.id" (click)="host.selectKb(kb)"><strong>{{kb.name}}</strong><small>{{kb.chunkingPolicy?.strategy}} · {{kb.retentionPolicy}}</small></button>
+        </aside>
+        <div class="knowledge-main">
+          <section class="panel" *ngIf="host.selectedKb() as kb; else selectKnowledge">
+            <div class="panel-head"><div><h2>{{kb.name}}</h2><p>{{kb.description}}</p></div><div class="actions"><button class="ghost" (click)="host.editKb(kb)">Edit</button><button class="danger" (click)="host.deleteKb(kb)">Delete</button></div></div>
+            <div class="metric-strip"><span><b>{{host.documents().length}}</b> documents</span><span><b>{{kb.chunkingPolicy?.strategy}}</b> chunking</span><span><b>{{kb.scope}}</b> scope</span></div>
+            <div class="section-row"><h3>Documents</h3><div class="actions"><label class="upload">Upload<input type="file" (change)="host.uploadFile($event)"></label><button class="ghost" (click)="host.addGoogle()">＋ Google document</button></div></div>
+            <div class="doc-list"><article *ngFor="let d of host.documents()"><div><strong>{{d.name}}</strong><small>{{d.sourceType}} · v{{d.version}} · {{d.mimeType||'—'}}</small></div><div class="actions"><span class="status-pill" [ngClass]="host.statusClass(d.status)">{{d.status}}</span><button class="ghost small" (click)="host.reindex(d)">Reindex</button><button class="icon-danger" (click)="host.deleteDocument(d)">×</button></div></article><div class="empty" *ngIf="!host.documents().length">No documents yet.</div></div>
+          </section>
+          <section class="panel" *ngIf="host.selectedKb()"><div class="panel-head"><div><h2>Retrieval playground</h2><p>Inspect hybrid retrieval results against this Knowledge Base.</p></div></div><div class="retrieval"><input [(ngModel)]="host.retrievalQuery" placeholder="Ask something..." (keyup.enter)="host.retrieve()"><input type="number" min="1" max="50" [(ngModel)]="host.retrievalTopK"><button class="primary" (click)="host.retrieve()">Retrieve</button></div><article class="hit" *ngFor="let h of host.retrievalHits()"><header><strong>{{h.documentName}}</strong><span>{{h.score|number:'1.3-3'}}</span></header><p>{{h.content}}</p></article></section>
+          <ng-template #selectKnowledge><section class="panel empty big">Select a Knowledge Base to inspect documents and retrieval.</section></ng-template>
+        </div>
+      </section>

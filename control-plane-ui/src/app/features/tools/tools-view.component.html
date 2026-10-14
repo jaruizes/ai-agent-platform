@@ -1,0 +1,4 @@
+<section class="panel"><div class="panel-head"><div><h2>Tool Registry</h2><p>Executable capabilities and deterministic side-effect policies.</p></div><button class="primary" (click)="host.editTool()">＋ Tool</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Tool</th><th>Implementation</th><th>Side effect</th><th>Approval policy</th><th>Status</th><th></th></tr></thead><tbody>
+        <tr *ngFor="let x of host.tools()"><td><strong>{{x.name}}</strong><small class="block muted">{{host.short(x.description,70)}}</small></td><td>{{x.implementationType}}</td><td><span class="risk">{{x.sideEffect}}</span></td><td><span class="policy" [class.required]="x.approvalPolicy==='REQUIRED'">{{x.approvalPolicy}}</span></td><td>{{x.enabled?'Enabled':'Disabled'}}</td><td><button class="ghost small" (click)="host.editTool(x)">Edit</button> <button class="icon-danger" (click)="host.deleteTool(x)">×</button></td></tr>
+      </tbody></table></div></section>

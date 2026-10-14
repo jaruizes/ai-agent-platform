@@ -1,0 +1,39 @@
+<div class="modal-backdrop" *ngIf="host.modal() && host.modal()!=='execution'">
+  <section class="modal" [class.wide]="host.modal()==='prompt'||host.modal()==='tool'||host.modal()==='agent'||host.modal()==='process-designer'||host.modal()==='process-instance'||host.modal()==='artifact'"><header><div><span class="eyebrow">CONTROL PLANE EDITOR</span><h2>{{host.modal()==='process-instance' ? host.processDefinitionName(host.selectedProcessInstance()) : (host.modal()|titlecase)}}</h2></div><button class="icon-btn" (click)="host.cancelModal()">×</button></header>
+  <div class="modal-body">
+    <app-execution-form [host]="host"></app-execution-form>
+    
+    <app-context-form [host]="host"></app-context-form>
+    
+    
+    <app-resources-form [host]="host"></app-resources-form>
+    
+    
+    
+    
+    
+    
+
+
+    <app-process-design-form [host]="host"></app-process-design-form>
+
+    
+
+    <app-process-step-form [host]="host"></app-process-step-form>
+
+    <app-process-instance-form [host]="host"></app-process-instance-form>
+
+    
+
+    
+
+    <app-governance-form [host]="host"></app-governance-form>
+    
+    <app-evals-form [host]="host"></app-evals-form>
+    
+    
+    
+  </div>
+  <footer><button class="ghost" (click)="host.cancelModal()">Cancel</button><button class="primary" *ngIf="host.modal()==='create-execution'" (click)="host.saveExecution()">Start</button><button class="primary" *ngIf="host.modal()==='session'" (click)="host.saveSession()">{{host.draft.id?'Save':'Create'}}</button><button class="primary" *ngIf="host.modal()==='memory'" (click)="host.saveMemory()">Persist</button><button class="primary" *ngIf="host.modal()==='skill'" (click)="host.saveSkill()">Save</button><button class="primary" *ngIf="host.modal()==='agent'" (click)="host.saveAgent()">Save</button><button class="primary" *ngIf="host.modal()==='agent-knowledge'" (click)="host.saveAgentKnowledge()">Save assignments</button><button class="primary" *ngIf="host.modal()==='prompt'" (click)="host.savePrompt()">Save</button><button class="primary" *ngIf="host.modal()==='tool'" (click)="host.saveTool()">Save</button><button class="primary" *ngIf="host.modal()==='mcp'" (click)="host.saveMcp()">Save</button><button class="primary" *ngIf="host.modal()==='kb'" (click)="host.saveKb()">Save</button><button class="primary" *ngIf="host.modal()==='google-doc'" (click)="host.saveGoogle()">Add document</button><button class="primary" *ngIf="host.modal()==='governance-policy'" (click)="host.saveGovernancePolicy()">Save</button><button class="primary" *ngIf="host.modal()==='governance-budget'" (click)="host.saveGovernanceBudget()">Save</button><button class="primary" *ngIf="host.modal()==='eval-dataset'" (click)="host.saveEvalDataset()">Save dataset</button><button class="primary" *ngIf="host.modal()==='eval-definition'" (click)="host.saveEvalDefinition()">Save eval</button><button class="primary" *ngIf="host.modal()==='process-service'" (click)="host.saveProcessService()">Save service</button><button class="primary" *ngIf="host.modal()==='process-designer' && host.processDesigner()?.status==='DRAFT'" (click)="host.saveProcessDefinition()">Save definition</button><button class="primary" *ngIf="host.modal()==='process-step'" (click)="host.saveProcessStep()">Apply step</button><button class="primary" *ngIf="host.modal()==='process-instance-create'" (click)="host.saveProcessInstance()">Create instance</button><button class="primary" *ngIf="host.modal()==='process-event'" (click)="host.signalProcessEvent()">Signal event</button></footer>
+  </section>
+</div>

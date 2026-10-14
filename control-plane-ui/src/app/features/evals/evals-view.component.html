@@ -1,0 +1,26 @@
+<section class="stat-grid">
+        <article class="stat-card"><span>DATASETS</span><strong>{{host.evalDatasets().length}}</strong><small>versioned regression cases</small></article>
+        <article class="stat-card"><span>EVAL DEFINITIONS</span><strong>{{host.evalDefinitions().length}}</strong><small>metrics, judge and thresholds</small></article>
+        <article class="stat-card"><span>RUNS</span><strong>{{host.evalRuns().length}}</strong><small>{{host.runningEvalCount()}} running</small></article>
+        <article class="stat-card"><span>REGRESSIONS</span><strong>{{host.regressionEvalCount()}}</strong><small>threshold/baseline failures</small></article>
+      </section>
+      <section class="two-col">
+        <article class="panel">
+          <div class="panel-head"><div><h2>Regression datasets</h2><p>Reusable input cases, expected output and deterministic assertions.</p></div><button class="primary" (click)="host.editEvalDataset()">＋ Dataset</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Version</th><th>Cases</th><th>Status</th><th></th></tr></thead><tbody>
+            <tr *ngFor="let d of host.evalDatasets()"><td><strong>{{d.name}}</strong><small class="block muted">{{d.description}}</small></td><td>v{{d.version}}</td><td>{{d.items.length}}</td><td>{{d.enabled?'Enabled':'Disabled'}}</td><td><button class="ghost small" (click)="host.editEvalDataset(d)">Edit</button> <button class="icon-danger" (click)="host.deleteEvalDataset(d)">×</button></td></tr>
+          </tbody></table></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><div><h2>Eval definitions</h2><p>Scoring metrics, thresholds and optional LLM-as-judge.</p></div><button class="primary" (click)="host.editEvalDefinition()">＋ Eval</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Dataset</th><th>Metrics</th><th>Judge</th><th></th></tr></thead><tbody>
+            <tr *ngFor="let d of host.evalDefinitions()"><td><strong>{{d.name}}</strong></td><td>{{d.datasetName}}</td><td>{{d.metrics.join(', ')||'assertions only'}}</td><td>{{d.judgeModelProfile||'—'}}</td><td><button class="primary small" (click)="host.runEval(d)">Run</button> <button class="ghost small" (click)="host.editEvalDefinition(d)">Edit</button> <button class="icon-danger" (click)="host.deleteEvalDefinition(d)">×</button></td></tr>
+          </tbody></table></div>
+        </article>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><h2>Eval runs</h2><p>Durable runs with pass rate, quality metrics, cost and regression against the previous completed run.</p></div><button class="ghost" (click)="host.loadEvals()">↻ Refresh</button></div>
+        <div class="table-wrap"><table><thead><tr><th>Status</th><th>Eval</th><th>Pass rate</th><th>Cases</th><th>Tokens</th><th>Cost</th><th>Regression</th><th>Created</th></tr></thead><tbody>
+          <tr *ngFor="let r of host.evalRuns()" (click)="host.inspectEvalRun(r)"><td><span class="status-pill" [ngClass]="host.statusClass(r.status)">{{r.status}}</span></td><td class="mono">{{host.short(r.definitionId,12)}}</td><td>{{((r.aggregateScores?.['passRate']||0)*100)|number:'1.0-1'}}%</td><td>{{r.passedCases}} / {{r.totalCases}}</td><td>{{host.tokens(r.totalTokens)}}</td><td>{{r.totalCostUsd|number:'1.4-6'}}</td><td><span [class.warn]="r.regression?.regressed">{{r.regression?.regressed?'REGRESSION':'—'}}</span></td><td>{{host.date(r.createdAt)}}</td></tr>
+        </tbody></table></div>
+      </section>

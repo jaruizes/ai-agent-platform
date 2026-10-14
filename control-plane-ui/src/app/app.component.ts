@@ -1,3 +1,31 @@
+import * as governanceActions from './features/governance/governance.actions';
+import * as evalsActions from './features/evals/evals.actions';
+import * as executionsActions from './features/executions/executions.actions';
+import * as sessionsActions from './features/sessions/sessions.actions';
+import * as memoryActions from './features/memory/memory.actions';
+import * as definitionActions from './features/processes/process-definitions.actions';
+import * as serviceActions from './features/processes/process-services.actions';
+import * as instanceActions from './features/processes/process-instances.actions';
+import * as presentationActions from './features/processes/process-presentation.actions';
+import * as resourceActions from './features/resources/resource.actions';
+import { DashboardViewComponent } from './features/dashboard/dashboard-view.component';
+import { ExecutionsViewComponent } from './features/executions/executions-view.component';
+import { ApprovalsViewComponent } from './features/approvals/approvals-view.component';
+import { ProcessesViewComponent } from './features/processes/processes-view.component';
+import { ServicesViewComponent } from './features/services/services-view.component';
+import { SessionsViewComponent } from './features/sessions/sessions-view.component';
+import { MemoryViewComponent } from './features/memory/memory-view.component';
+import { AgentsViewComponent } from './features/agents/agents-view.component';
+import { SkillsViewComponent } from './features/skills/skills-view.component';
+import { PromptsViewComponent } from './features/prompts/prompts-view.component';
+import { ToolsViewComponent } from './features/tools/tools-view.component';
+import { McpViewComponent } from './features/mcp/mcp-view.component';
+import { KnowledgeViewComponent } from './features/knowledge/knowledge-view.component';
+import { GovernanceViewComponent } from './features/governance/governance-view.component';
+import { EvalsViewComponent } from './features/evals/evals-view.component';
+import { RuntimeViewComponent } from './features/runtime/runtime-view.component';
+import { ExecutionDialogComponent } from './dialogs/execution-dialog/execution-dialog.component';
+import { EditorDialogComponent } from './dialogs/editor-dialog/editor-dialog.component';
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -5,9 +33,9 @@ import { ApiService } from './api.service';
 import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, EvalRun, ExecutionArtifact, ExecutionDetail, ExecutionSummary, GovernanceBudget, GovernanceDecision, GovernancePolicy, KnowledgeBase, KnowledgeDocument, McpServer, MemoryInfo, Orchestration, Overview, PendingApproval, ProcessDefinition, ProcessHumanTask, ProcessInstance, ProcessServiceDefinition, ProcessStepDefinition, ProcessStepType, Prompt, RetrievalHit, RuntimeInfo, SessionInfo, Skill, Tool } from './models';
 
 type View='dashboard'|'executions'|'approvals'|'processes'|'services'|'sessions'|'memory'|'agents'|'skills'|'prompts'|'tools'|'mcp'|'knowledge'|'governance'|'evals'|'runtime';
-type ProcessTab='definitions'|'instances'|'human';
+export type ProcessTab='definitions'|'instances'|'human';
 
-@Component({selector:'app-root',standalone:true,imports:[CommonModule,FormsModule],templateUrl:'./app.component.html'})
+@Component({selector:'app-root',standalone:true,imports:[CommonModule,FormsModule,DashboardViewComponent,ExecutionsViewComponent,ApprovalsViewComponent,ProcessesViewComponent,ServicesViewComponent,SessionsViewComponent,MemoryViewComponent,AgentsViewComponent,SkillsViewComponent,PromptsViewComponent,ToolsViewComponent,McpViewComponent,KnowledgeViewComponent,GovernanceViewComponent,EvalsViewComponent,RuntimeViewComponent,ExecutionDialogComponent,EditorDialogComponent],templateUrl:'./app.component.html'})
 export class AppComponent implements OnInit,OnDestroy {
   view=signal<View>('dashboard'); busy=signal(false); error=signal('');
   overview=signal<Overview|null>(null); runtime=signal<RuntimeInfo|null>(null);
@@ -50,774 +78,165 @@ export class AppComponent implements OnInit,OnDestroy {
   async refreshLive(){try{this.overview.set(await this.api.overview());this.executions.set(await this.api.executions(this.executionStatus));this.approvals.set(await this.api.approvals());if(this.selectedExecution())await this.openExecution(this.selectedExecution()!.executionId,false);if(this.view()==='processes'||this.view()==='services')await this.refreshProcessesLive();}catch{}}
   setView(v:View){this.view.set(v);if(v==='runtime')this.loadRuntime();if(v==='sessions')this.loadSessions();if(v==='memory')this.loadMemory();if(v==='governance')this.loadGovernance();if(v==='evals')this.loadEvals();if(v==='processes'||v==='services')this.loadProcesses();}
 
-  async loadGovernance(){try{const [p,b,d,bd]=await Promise.all([this.api.governancePolicies(),this.api.governanceBudgets(),this.api.governanceDecisions(),this.api.budgetDecisions()]);this.governancePolicies.set(p);this.governanceBudgets.set(b);this.governanceDecisions.set(d);this.budgetDecisions.set(bd);}catch(e:any){this.error.set(this.message(e));}}
-  editGovernancePolicy(x?:GovernancePolicy){this.draft=x?{...x,conditions:this.json(x.conditions)}:{name:'',description:'',policyType:'RESOURCE_ACCESS',effect:'ALLOW',resourceType:'MODEL',resourcePattern:'*',subjectType:'GLOBAL',subjectPattern:'*',conditions:'{}',priority:100,enabled:true};this.modal.set('governance-policy');}
-  async saveGovernancePolicy(){await this.run(async()=>{await this.api.saveGovernancePolicy(this.draft);this.governancePolicies.set(await this.api.governancePolicies());this.closeModal();});}
-  async deleteGovernancePolicy(x:GovernancePolicy){if(confirm(`Delete policy ${x.name}?`))await this.run(async()=>{await this.api.deleteGovernancePolicy(x.id);this.governancePolicies.set(await this.api.governancePolicies());});}
-  editGovernanceBudget(x?:GovernanceBudget){this.draft=x?{...x}:{name:'',scopeType:'GLOBAL',scopeId:'*',period:'EXECUTION',maxPromptTokens:null,maxCompletionTokens:null,maxTotalTokens:null,maxCostUsd:null,action:'DENY',degradeModelProfile:'',enabled:true};this.modal.set('governance-budget');}
-  async saveGovernanceBudget(){await this.run(async()=>{await this.api.saveGovernanceBudget(this.draft);this.governanceBudgets.set(await this.api.governanceBudgets());this.closeModal();});}
-  async deleteGovernanceBudget(x:GovernanceBudget){if(confirm(`Delete budget ${x.name}?`))await this.run(async()=>{await this.api.deleteGovernanceBudget(x.id);this.governanceBudgets.set(await this.api.governanceBudgets());});}
-
-  async loadEvals(){try{const [d,f,r]=await Promise.all([this.api.evalDatasets(),this.api.evalDefinitions(),this.api.evalRuns()]);this.evalDatasets.set(d);this.evalDefinitions.set(f);this.evalRuns.set(r);}catch(e:any){this.error.set(this.message(e));}}
-  editEvalDataset(x?:EvalDataset){this.draft=x?{...x,items:this.json(x.items)}:{name:'',description:'',version:1,enabled:true,items:'[{"name":"case-1","command":{"name":"eval-case","intent":"Explain briefly what an API Gateway is.","input":{},"context":{},"instructions":[]},"expectedOutput":"An API Gateway is an entry point for APIs.","assertions":[{"type":"CONTAINS","value":"API"}],"tags":["smoke"]}]'};this.modal.set('eval-dataset');}
-  async saveEvalDataset(){await this.run(async()=>{const items=typeof this.draft.items==='string'?JSON.parse(this.draft.items):this.draft.items;await this.api.saveEvalDataset({name:this.draft.name,description:this.draft.description||'',version:Number(this.draft.version||1),enabled:this.draft.enabled!==false,items});this.evalDatasets.set(await this.api.evalDatasets());this.closeModal();});}
-  async deleteEvalDataset(x:EvalDataset){if(confirm(`Delete dataset ${x.name}?`))await this.run(async()=>{await this.api.deleteEvalDataset(x.id);this.evalDatasets.set(await this.api.evalDatasets());});}
-  editEvalDefinition(x?:EvalDefinition){this.draft=x?{...x,metrics:[...(x.metrics||[])],thresholds:this.json(x.thresholds)}:{name:'',description:'',datasetId:this.evalDatasets()[0]?.id||'',metrics:['relevance','instruction_adherence'],thresholds:'{"passRate":0.8,"relevance":0.7}',judgeModelProfile:'router-fast',enabled:true};this.modal.set('eval-definition');}
-  toggleEvalMetric(name:string,checked:boolean){const set=new Set<string>(this.draft.metrics||[]);checked?set.add(name):set.delete(name);this.draft.metrics=[...set];}
-  async saveEvalDefinition(){await this.run(async()=>{await this.api.saveEvalDefinition({name:this.draft.name,description:this.draft.description||'',datasetId:this.draft.datasetId,metrics:this.draft.metrics||[],thresholds:typeof this.draft.thresholds==='string'?JSON.parse(this.draft.thresholds):this.draft.thresholds,judgeModelProfile:this.draft.metrics?.length?this.draft.judgeModelProfile:null,enabled:this.draft.enabled!==false});this.evalDefinitions.set(await this.api.evalDefinitions());this.closeModal();});}
-  async deleteEvalDefinition(x:EvalDefinition){if(confirm(`Delete eval ${x.name}?`))await this.run(async()=>{await this.api.deleteEvalDefinition(x.id);this.evalDefinitions.set(await this.api.evalDefinitions());});}
-  async runEval(x:EvalDefinition){await this.run(async()=>{const previous=this.evalRuns().find(r=>r.definitionId===x.id&&r.status==='COMPLETED');await this.api.createEvalRun(x.id,previous?.id);this.evalRuns.set(await this.api.evalRuns());});}
-  async inspectEvalRun(x:EvalRun){await this.run(async()=>{this.selectedEvalRun.set(await this.api.evalRun(x.id));this.modal.set('eval-run');});}
-
-  async loadRuntime(){try{this.runtime.set(await this.api.runtime());}catch(e:any){this.error.set(this.message(e));}}
-  filteredExecutions(){const q=this.search.toLowerCase();return this.executions().filter(x=>(!q||[x.executionId,x.commandName,x.intent,x.objective].some(v=>(v||'').toLowerCase().includes(q)))&&(!this.executionStatus||x.status===this.executionStatus));}
-  async filterExecutions(){this.executions.set(await this.api.executions(this.executionStatus));}
-  async openExecution(id:string,show=true){try{const [d,o,s,c,a]=await Promise.all([this.api.execution(id),this.api.orchestration(id),this.api.contextSnapshots(id),this.api.executionContext(id),this.api.executionArtifacts(id)]);this.selectedExecution.set(d);this.orchestration.set(o);this.contextSnapshots.set(s);this.executionContext.set(c);this.executionArtifacts.set(a);if(show)this.modal.set('execution');}catch(e:any){this.error.set(this.message(e));}}
-  cancelModal(){
-    if(this.modal()==='process-step'){
-      this.processStepDraft.set(null);
-      this.modal.set('process-designer');
-      return;
-    }
-    if(this.modal()==='process-designer'){
-      this.processDesigner.set(null);
-      this.processStepDraft.set(null);
-    }
-    this.closeModal();
-  }
-  closeModal(){this.modal.set(null);this.draft={};this.approvalComment='';}
-  statusClass(s:string){return (s||'').toLowerCase().replaceAll('_','-');}
-  tokens(v:any){return new Intl.NumberFormat('es-ES').format(Number(v||0));}
-  runningEvalCount(){return this.evalRuns().filter(r=>r.status==='RUNNING').length;}
-  regressionEvalCount(){return this.evalRuns().filter(r=>r.regression?.regressed).length;}
-  date(v:any){return v?new Date(v).toLocaleString('es-ES'):'—';}
-  json(v:any){return JSON.stringify(v??{},null,2);}
-  short(v:string,n=80){return !v?'—':v.length>n?v.slice(0,n)+'…':v;}
-  executionLevels(){const steps=this.orchestration()?.steps||[];const level=new Map<string,number>();let changed=true;while(changed){changed=false;for(const s of steps){const l=s.dependsOn?.length?Math.max(...s.dependsOn.map(d=>level.get(d)??0))+1:0;if(level.get(s.id)!==l){level.set(s.id,l);changed=true;}}}return [...new Set([...level.values()])].sort((a,b)=>a-b).map(l=>steps.filter(s=>level.get(s.id)===l));}
-  canPause(){return ['RUNNING','RETRYING','ACCEPTED'].includes(this.selectedExecution()?.status||'');}
-  canResume(){return this.selectedExecution()?.status==='PAUSED';}
-  canRetry(){return this.selectedExecution()?.status==='FAILED';}
-  async execAction(kind:'pause'|'resume'|'retry'|'cancel'){const id=this.selectedExecution()?.executionId;if(!id)return;await this.run(async()=>{if(kind==='pause')await this.api.pause(id);if(kind==='resume')await this.api.resume(id);if(kind==='retry')await this.api.retry(id);if(kind==='cancel')await this.api.cancel(id);await this.openExecution(id,false);});}
-  async decide(executionId:string,stepId:string,approved:boolean){await this.run(async()=>{await this.api.approval(executionId,stepId,approved,this.actor,this.approvalComment|| (approved?'Approved from Control Plane':'Rejected from Control Plane'));this.approvals.set(await this.api.approvals());if(this.selectedExecution()?.executionId===executionId)await this.openExecution(executionId,false);this.approvalComment='';});}
-
-  openCreateExecution(){this.draft={name:'control-plane-request',intent:'',sessionId:'',input:'{}',context:'{}',instructions:''};this.modal.set('create-execution');}
-  async saveExecution(){await this.run(async()=>{const body={correlationId:crypto.randomUUID(),sessionId:this.draft.sessionId||null,command:{name:this.draft.name||null,intent:this.draft.intent,input:JSON.parse(this.draft.input||'{}'),context:JSON.parse(this.draft.context||'{}'),instructions:(this.draft.instructions||'').split('\n').filter(Boolean)}};const r=await this.api.createExecution(body);this.closeModal();await this.refreshAll();await this.openExecution(r.executionId);});}
-
-  async loadSessions(){try{this.sessions.set(await this.api.sessions());}catch(e:any){this.error.set(this.message(e));}}
-  openCreateSession(){this.draft={name:'',scope:'TENANT',ownerKey:'',expiresAt:'',metadata:'{}'};this.modal.set('session');}
-  editSession(s:SessionInfo){this.draft={...s,expiresAt:s.expiresAt?new Date(s.expiresAt).toISOString().slice(0,16):'',metadata:this.json(s.metadata)};this.modal.set('session');}
-  async saveSession(){await this.run(async()=>{const body={name:this.draft.name||null,scope:this.draft.scope,ownerKey:this.draft.ownerKey||null,expiresAt:this.draft.expiresAt?new Date(this.draft.expiresAt).toISOString():null,metadata:JSON.parse(this.draft.metadata||'{}')};if(this.draft.id)await this.api.updateSession(this.draft.id,body);else await this.api.createSession(body);this.sessions.set(await this.api.sessions());this.closeModal();});}
-  async closeSessionItem(s:SessionInfo){if(confirm(`Close session ${s.name||s.id}?`))await this.run(async()=>{await this.api.closeSession(s.id);this.sessions.set(await this.api.sessions());if(this.selectedSession()?.id===s.id)this.selectedSession.set(null);});}
-  async inspectSession(s:SessionInfo){await this.run(async()=>{const [ctx,execs]=await Promise.all([this.api.sessionContext(s.id),this.api.sessionExecutions(s.id)]);this.selectedSession.set(s);this.sessionContext.set(ctx);this.sessionExecutions.set(execs);this.modal.set('session-inspect');});}
-
-  async loadMemory(){try{const [m,p,a]=await Promise.all([this.api.memories(),this.api.memoryPolicy(),this.api.memoryPolicyAudit()]);this.memories.set(m);this.memoryPolicy.set(p);this.memoryAudit.set(a);}catch(e:any){this.error.set(this.message(e));}}
-  openCreateMemory(){this.draft={scopeType:'TENANT',scopeId:'',memoryType:'FACT',key:'',content:'',importance:0.5,expiresAt:''};this.modal.set('memory');}
-  async saveMemory(){await this.run(async()=>{await this.api.createMemory({scopeType:this.draft.scopeType,scopeId:this.draft.scopeId,memoryType:this.draft.memoryType,key:this.draft.key||null,content:this.draft.content,importance:Number(this.draft.importance||0.5),expiresAt:this.draft.expiresAt?new Date(this.draft.expiresAt).toISOString():null});this.memories.set(await this.api.memories());this.closeModal();});}
-  async revokeMemoryItem(m:MemoryInfo){if(confirm('Revoke this memory?'))await this.run(async()=>{await this.api.revokeMemory(m.id);this.memories.set(await this.api.memories());});}
-  async searchMemory(){if(!this.memoryQuery||!this.memoryScopeId)return;await this.run(async()=>{this.memoryHits.set(await this.api.retrieveMemories(this.memoryQuery,[{scopeType:this.memoryScopeType,scopeId:this.memoryScopeId}],this.memoryTopK));});}
-
-  editSkill(x?:Skill){this.draft=x?{...x}:{name:'',description:'',instructions:'',enabled:true};this.modal.set('skill');}
-  async saveSkill(){await this.run(async()=>{await this.api.saveSkill(this.draft);this.skills.set(await this.api.skills());this.closeModal();});}
-  async deleteSkill(x:Skill){if(confirm(`Eliminar skill ${x.name}?`))await this.run(async()=>{await this.api.deleteSkill(x.id);this.skills.set(await this.api.skills());});}
-  editAgent(x?:Agent){this.draft=x?{...x,skills:x.skills.map(s=>s.name)}:{name:'',description:'',instructions:'',skills:[],enabled:true};this.modal.set('agent');}
-  toggleSkill(name:string,checked:boolean){const set=new Set<string>(this.draft.skills||[]);checked?set.add(name):set.delete(name);this.draft.skills=[...set];}
-  async saveAgent(){await this.run(async()=>{await this.api.saveAgent(this.draft);this.agents.set(await this.api.agents());this.closeModal();});}
-  async deleteAgent(x:Agent){if(confirm(`Eliminar agente ${x.name}?`))await this.run(async()=>{await this.api.deleteAgent(x.id);this.agents.set(await this.api.agents());});}
-  async editAgentKnowledge(x:Agent){this.draft={...x};const assigned=await this.api.agentKnowledge(x.id);this.agentKnowledge.set(assigned);this.knowledgeDraft={};for(const a of assigned)this.knowledgeDraft[a.name]=a.usageMode;this.modal.set('agent-knowledge');}
-  setKbAssignment(name:string,value:string){if(value)this.knowledgeDraft[name]=value;else delete this.knowledgeDraft[name];}
-  async saveAgentKnowledge(){await this.run(async()=>{const items=Object.entries(this.knowledgeDraft).map(([name,usageMode])=>({name,usageMode}));await this.api.saveAgentKnowledge(this.draft.id,items);this.closeModal();});}
-
-  editPrompt(x?:Prompt){this.draft=x?{...x}:{name:'',description:'',content:'',version:1,enabled:true};this.modal.set('prompt');}
-  async savePrompt(){await this.run(async()=>{await this.api.savePrompt(this.draft);this.prompts.set(await this.api.prompts());this.closeModal();});}
-  async deletePrompt(x:Prompt){if(confirm(`Eliminar prompt ${x.name}?`))await this.run(async()=>{await this.api.deletePrompt(x.id);this.prompts.set(await this.api.prompts());});}
-
-  editTool(x?:Tool){this.draft=x?{...x,configuration:this.json(x.configuration),inputSchema:this.json(x.inputSchema)}:{name:'',description:'',instructions:'',implementationType:'MCP',configuration:'{}',inputSchema:'{}',sideEffect:'READ',approvalPolicy:'NEVER',enabled:true};this.modal.set('tool');}
-  async saveTool(){await this.run(async()=>{await this.api.saveTool(this.draft);this.tools.set(await this.api.tools());this.closeModal();});}
-  async deleteTool(x:Tool){if(confirm(`Eliminar tool ${x.name}?`))await this.run(async()=>{await this.api.deleteTool(x.id);this.tools.set(await this.api.tools());});}
-
-  editMcp(x?:McpServer){this.draft=x?{...x,args:this.json(x.args),environment:this.json(x.environment)}:{name:'',description:'',command:'',args:'[]',cwd:'',environment:'{}',enabled:true};this.modal.set('mcp');}
-  async saveMcp(){await this.run(async()=>{await this.api.saveMcp(this.draft);this.mcpServers.set(await this.api.mcpServers());this.closeModal();});}
-  async deleteMcp(x:McpServer){if(confirm(`Eliminar MCP server ${x.name}?`))await this.run(async()=>{await this.api.deleteMcp(x.id);this.mcpServers.set(await this.api.mcpServers());});}
-
-  editKb(x?:KnowledgeBase){this.draft=x?{...x}:{name:'',description:'',scope:'TENANT',retentionPolicy:'PERSISTENT',enabled:true,chunkingPolicy:{strategy:'PARAGRAPH',chunkSize:1600,overlap:200,parentSize:6000,childSize:1600,childOverlap:200},metadata:{}};this.modal.set('kb');}
-  async saveKb(){await this.run(async()=>{await this.api.saveKnowledgeBase(this.draft);this.knowledgeBases.set(await this.api.knowledgeBases());this.closeModal();});}
-  async deleteKb(x:KnowledgeBase){if(confirm(`Eliminar knowledge base ${x.name}?`))await this.run(async()=>{await this.api.deleteKnowledgeBase(x.id);this.knowledgeBases.set(await this.api.knowledgeBases());if(this.selectedKb()?.id===x.id)this.selectedKb.set(null);});}
-  async selectKb(x:KnowledgeBase){this.selectedKb.set(x);this.documents.set(await this.api.documents(x.id));this.retrievalHits.set([]);}
-  async uploadFile(event:Event){const file=(event.target as HTMLInputElement).files?.[0],kb=this.selectedKb();if(!file||!kb)return;await this.run(async()=>{await this.api.upload(kb.id,file);this.documents.set(await this.api.documents(kb.id));});}
-  addGoogle(){this.draft={sourceType:'GOOGLE_DOCS',sourceId:'',name:'',sourceUri:'',metadata:{}};this.modal.set('google-doc');}
-  async saveGoogle(){const kb=this.selectedKb();if(!kb)return;await this.run(async()=>{await this.api.addGoogleDocument(kb.id,this.draft);this.documents.set(await this.api.documents(kb.id));this.closeModal();});}
-  async reindex(d:KnowledgeDocument){await this.run(async()=>{await this.api.reindexDocument(d.id);if(this.selectedKb())this.documents.set(await this.api.documents(this.selectedKb()!.id));});}
-  async deleteDocument(d:KnowledgeDocument){if(confirm(`Eliminar documento ${d.name}?`))await this.run(async()=>{await this.api.deleteDocument(d.id);if(this.selectedKb())this.documents.set(await this.api.documents(this.selectedKb()!.id));});}
-  async retrieve(){const kb=this.selectedKb();if(!kb||!this.retrievalQuery)return;await this.run(async()=>this.retrievalHits.set(await this.api.retrieve(this.retrievalQuery,[kb.name],this.retrievalTopK)));}
-
-
-  async loadProcesses(){
-    await this.run(async()=>{
-      const [definitions,services,instances,human]=await Promise.all([
-        this.api.processDefinitions(),
-        this.api.processServices(),
-        this.api.processInstances(),
-        this.api.processHumanTasks()
-      ]);
-      this.processDefinitions.set(definitions);
-      this.processServices.set(services);
-      this.processInstances.set(instances);
-      this.processHumanTasks.set(human);
-    });
-  }
-
-  async refreshProcessesLive(){
-    const [instances,human]=await Promise.all([
-      this.api.processInstances(),
-      this.api.processHumanTasks()
-    ]);
-    this.processInstances.set(instances);
-    this.processHumanTasks.set(human);
-    if(this.selectedProcessInstance()){
-      const updated=await this.api.processInstance(this.selectedProcessInstance()!.id);
-      this.selectedProcessInstance.set(updated);
-    }
-  }
-
-  setProcessTab(tab:ProcessTab){this.processTab.set(tab);}
-
-  filteredProcessDefinitions(){
-    const q=this.processDefinitionSearch.toLowerCase();
-    return this.processDefinitions().filter(x=>!q||[x.definitionKey,x.name,x.description].some(v=>(v||'').toLowerCase().includes(q)));
-  }
-
-  filteredProcessInstances(){
-    const q=this.processInstanceSearch.toLowerCase();
-    return this.processInstances().filter(x=>!q||[x.id,x.definitionKey,x.correlationId,x.status].some(v=>(v||'').toLowerCase().includes(q)));
-  }
-
-  processDefinitionLevels(definition?:ProcessDefinition|null){
-    const steps=definition?.steps||[];
-    const level=new Map<string,number>();
-    let changed=true,guard=0;
-    while(changed&&guard++<steps.length+2){
-      changed=false;
-      for(const s of steps){
-        const l=s.dependsOn?.length?Math.max(...s.dependsOn.map(d=>level.get(d)??0))+1:0;
-        if(level.get(s.stepKey)!==l){level.set(s.stepKey,l);changed=true;}
-      }
-    }
-    return [...new Set([...level.values()])].sort((a,b)=>a-b).map(l=>steps.filter(s=>level.get(s.stepKey)===l));
-  }
-
-  processInstanceLevels(instance?:ProcessInstance|null){
-    const steps=instance?.steps||[];
-    const definition=this.processDefinitions().find(d=>d.id===instance?.definitionId);
-    const defs=new Map((definition?.steps||[]).map(s=>[s.stepKey,s]));
-    const level=new Map<string,number>();
-    let changed=true,guard=0;
-    while(changed&&guard++<steps.length+2){
-      changed=false;
-      for(const s of steps){
-        const deps=defs.get(s.stepKey)?.dependsOn||[];
-        const l=deps.length?Math.max(...deps.map(d=>level.get(d)??0))+1:0;
-        if(level.get(s.stepKey)!==l){level.set(s.stepKey,l);changed=true;}
-      }
-    }
-    return [...new Set([...level.values()])].sort((a,b)=>a-b).map(l=>steps.filter(s=>level.get(s.stepKey)===l));
-  }
-
-  openCreateProcessDefinition(){
-    this.processDesigner.set({
-      id:null,definitionKey:'',name:'',description:'',version:1,status:'DRAFT',
-      inputSchema:'{"type":"object"}',outputSchema:'{"type":"object"}',steps:[]
-    });
-    this.selectedProcessDefinition.set(null);
-    this.modal.set('process-designer');
-  }
-
-  editProcessDefinition(x:ProcessDefinition){
-    this.selectedProcessDefinition.set(x);
-    this.processDesigner.set({
-      ...x,
-      inputSchema:this.json(x.inputSchema),
-      outputSchema:this.json(x.outputSchema),
-      steps:x.steps.map(s=>({...s,inputSchema:this.json(s.inputSchema),outputSchema:this.json(s.outputSchema),configuration:{...(s.configuration||{})}}))
-    });
-    this.modal.set('process-designer');
-  }
-
-  addProcessStep(type:ProcessStepType){
-    const d=this.processDesigner();if(!d)return;
-    const index=(d.steps?.length||0)+1;
-    const step:any={
-      stepKey:`${type.toLowerCase()}-${index}`,
-      name:this.processStepLabel(type),
-      description:'',
-      type,
-      dependsOn:[],
-      inputSchema:'{"type":"object"}',
-      outputSchema:'{"type":"object"}',
-      configuration:this.defaultProcessStepConfiguration(type)
-    };
-    this.editProcessStep(step);
-  }
-
-  editProcessStep(step:any){
-    this.processStepDraft.set({
-      ...step,
-      originalStepKey:step.stepKey,
-      dependsOn:[...(step.dependsOn||[])],
-      configuration:{...(step.configuration||{})},
-      inputSchema:typeof step.inputSchema==='string'?step.inputSchema:this.json(step.inputSchema),
-      outputSchema:typeof step.outputSchema==='string'?step.outputSchema:this.json(step.outputSchema),
-      instructions:Array.isArray(step.configuration?.instructions)?step.configuration.instructions.join('\n'):'',
-      metadata:this.json(step.configuration?.metadata||{}),
-      decisionValue:this.json(step.configuration?.value),
-      whenDecisionStep:step.configuration?.when?.decisionStep||'',
-      whenEquals:step.configuration?.when?.equals??'',
-      retryMaxAttempts:step.configuration?.retry?.maxAttempts||1,
-      retryBackoffMs:step.configuration?.retry?.backoffMs||0,
-      timeoutSeconds:step.configuration?.timeoutSeconds||null,
-      reviewEnabled:!!step.configuration?.review,
-      reviewRepeatStep:step.configuration?.review?.repeatStep||'',
-      reviewApproveDecision:step.configuration?.review?.approveDecision||'APPROVE',
-      reviewRepeatDecision:step.configuration?.review?.repeatDecision||'REQUEST_CHANGES',
-      reviewMaxIterations:step.configuration?.review?.maxIterations||5,
-      artifactEnabled:!!step.configuration?.artifactPolicy?.enabled,
-      artifactSchema:step.configuration?.artifactPolicy?.schema||'generic-agent-output/v1',
-      artifactHumanTitle:step.configuration?.artifactPolicy?.humanTitle||step.name||step.stepKey,
-      artifactHumanType:step.configuration?.artifactPolicy?.humanArtifactType||'HUMAN_DOCUMENT',
-      artifactAgentNames:(step.configuration?.artifactPolicy?.agentNames||[]).join(', '),
-      artifactMaxOutputTokens:step.configuration?.artifactPolicy?.maxOutputTokens||8000,
-      materializationEnabled:!!step.configuration?.materializationPolicy?.enabled,
-      materializationAllowedTools:(step.configuration?.materializationPolicy?.allowedTools||[]).join(', ')
-    });
-    this.modal.set('process-step');
-  }
-
-  saveProcessStep(){
-    try{
-      const d=this.processDesigner(),s=this.processStepDraft();if(!d||!s)return;
-      const config:any={...(s.configuration||{})};
-      delete config.when;delete config.retry;delete config.timeoutSeconds;
-      if(s.type==='AGENTIC_EXECUTION'){
-        config.intent=s.configuration?.intent||'';
-        config.instructions=(s.instructions||'').split('\n').map((x:string)=>x.trim()).filter(Boolean);
-        config.metadata=JSON.parse(s.metadata||'{}');
-        delete config.artifactPolicy;
-        delete config.materializationPolicy;
-        if(s.artifactEnabled){
-          config.artifactPolicy={
-            enabled:true,
-            schema:s.artifactSchema||'generic-agent-output/v1',
-            humanTitle:s.artifactHumanTitle||s.name||s.stepKey,
-            humanArtifactType:s.artifactHumanType||'HUMAN_DOCUMENT',
-            agentNames:String(s.artifactAgentNames||'').split(',').map((x:string)=>x.trim()).filter(Boolean),
-            maxOutputTokens:Number(s.artifactMaxOutputTokens||8000)
-          };
-        }
-        if(s.materializationEnabled){
-          config.materializationPolicy={
-            enabled:true,
-            allowedTools:String(s.materializationAllowedTools||'').split(',').map((x:string)=>x.trim()).filter(Boolean)
-          };
-        }
-      }
-      if(s.type==='DECISION'){
-        config.value=s.decisionValue===''||s.decisionValue==null?null:JSON.parse(s.decisionValue);
-      }
-      if(s.type==='HUMAN'){
-        delete config.review;
-        if(s.reviewEnabled){
-          config.review={
-            repeatStep:s.reviewRepeatStep,
-            approveDecision:s.reviewApproveDecision||'APPROVE',
-            repeatDecision:s.reviewRepeatDecision||'REQUEST_CHANGES',
-            maxIterations:Number(s.reviewMaxIterations||5)
-          };
-        }
-      }
-      if(s.whenDecisionStep)config.when={decisionStep:s.whenDecisionStep,equals:s.whenEquals};
-      if(Number(s.retryMaxAttempts)>1||Number(s.retryBackoffMs)>0)config.retry={maxAttempts:Number(s.retryMaxAttempts||1),backoffMs:Number(s.retryBackoffMs||0)};
-      if(s.timeoutSeconds)config.timeoutSeconds=Number(s.timeoutSeconds);
-
-      const normalized={
-        ...s,
-        dependsOn:[...(s.dependsOn||[])],
-        inputSchema:s.inputSchema||'{}',
-        outputSchema:s.outputSchema||'{}',
-        configuration:config
-      };
-      let steps=[...(d.steps||[])];
-      const original=s.originalStepKey||s.stepKey;
-      const existingIndex=steps.findIndex((x:any)=>(x.id&&s.id&&x.id===s.id)||x.stepKey===original);
-      if(existingIndex>=0)steps[existingIndex]=normalized;else steps.push(normalized);
-      if(original!==s.stepKey){
-        steps=steps.map((x:any)=>{
-          if(x.stepKey===s.stepKey)return x;
-          const configuration={...(x.configuration||{})};
-          if(configuration.when?.decisionStep===original){
-            configuration.when={...configuration.when,decisionStep:s.stepKey};
-          }
-          return {...x,dependsOn:(x.dependsOn||[]).map((k:string)=>k===original?s.stepKey:k),configuration};
-        });
-      }
-      d.steps=steps;
-      this.processDesigner.set({...d});
-      this.processStepDraft.set(null);
-      this.modal.set('process-designer');
-    }catch(e:any){
-      this.error.set(this.message(e));
-    }
-  }
-
-  removeProcessStep(step:any){
-    const d=this.processDesigner();if(!d||d.status!=='DRAFT')return;
-    if(!confirm(`Remove step ${step.stepKey}?`))return;
-    d.steps=(d.steps||[]).filter((x:any)=>x.stepKey!==step.stepKey)
-      .map((x:any)=>({...x,dependsOn:(x.dependsOn||[]).filter((k:string)=>k!==step.stepKey)}));
-    this.processDesigner.set({...d});
-  }
-
-  toggleProcessDependency(key:string,checked:boolean){
-    const s=this.processStepDraft();if(!s)return;
-    const deps=new Set<string>(s.dependsOn||[]);
-    checked?deps.add(key):deps.delete(key);
-    s.dependsOn=[...deps];
-    this.processStepDraft.set({...s});
-  }
-
-  async saveProcessDefinition(){
-    const d=this.processDesigner();if(!d)return;
-    await this.run(async()=>{
-      const body={
-        ...d,
-        inputSchema:JSON.parse(d.inputSchema||'{}'),
-        outputSchema:JSON.parse(d.outputSchema||'{}'),
-        steps:(d.steps||[]).map((s:any)=>({
-          id:s.id||null,stepKey:s.stepKey,name:s.name,description:s.description||'',type:s.type,
-          dependsOn:s.dependsOn||[],
-          inputSchema:typeof s.inputSchema==='string'?JSON.parse(s.inputSchema||'{}'):s.inputSchema,
-          outputSchema:typeof s.outputSchema==='string'?JSON.parse(s.outputSchema||'{}'):s.outputSchema,
-          configuration:s.configuration||{}
-        }))
-      };
-      const saved=await this.api.saveProcessDefinition(body);
-      this.processDefinitions.set(await this.api.processDefinitions());
-      this.processDesigner.set(null);this.selectedProcessDefinition.set(saved);this.closeModal();
-    });
-  }
-
-  async activateProcessDefinition(x:ProcessDefinition){
-    if(!confirm(`Activate ${x.definitionKey} v${x.version}? The version becomes immutable.`))return;
-    await this.run(async()=>{const saved=await this.api.activateProcessDefinition(x.id);this.processDefinitions.set(await this.api.processDefinitions());this.selectedProcessDefinition.set(saved);});
-  }
-  async retireProcessDefinition(x:ProcessDefinition){await this.run(async()=>{await this.api.retireProcessDefinition(x.id);this.processDefinitions.set(await this.api.processDefinitions());});}
-  async nextProcessDefinitionVersion(x:ProcessDefinition){await this.run(async()=>{const v=await this.api.nextProcessDefinitionVersion(x.id);this.processDefinitions.set(await this.api.processDefinitions());this.editProcessDefinition(v);});}
-
-  openCreateProcessService(){
-    this.draft={serviceKey:'',name:'',description:'',version:1,implementationKey:'http',configuration:'{"url":"http://service:8080/api","method":"POST"}',inputSchema:'{"type":"object"}',outputSchema:'{"type":"object"}'};
-    this.modal.set('process-service');
-  }
-  editProcessService(x:ProcessServiceDefinition){
-    this.draft={...x,configuration:this.json(x.configuration),inputSchema:this.json(x.inputSchema),outputSchema:this.json(x.outputSchema)};
-    this.modal.set('process-service');
-  }
-  async saveProcessService(){await this.run(async()=>{await this.api.saveProcessService(this.draft);this.processServices.set(await this.api.processServices());this.closeModal();});}
-  async activateProcessService(x:ProcessServiceDefinition){await this.run(async()=>{await this.api.activateProcessService(x.id);this.processServices.set(await this.api.processServices());});}
-  async retireProcessService(x:ProcessServiceDefinition){await this.run(async()=>{await this.api.retireProcessService(x.id);this.processServices.set(await this.api.processServices());});}
-  async nextProcessServiceVersion(x:ProcessServiceDefinition){await this.run(async()=>{const v=await this.api.nextProcessServiceVersion(x.id);this.processServices.set(await this.api.processServices());this.editProcessService(v);});}
-
-  openCreateProcessInstance(x?:ProcessDefinition){
-    const active=x||(this.processDefinitions().find(d=>d.status==='ACTIVE'));
-    this.draft={
-      definitionSelection:active?`${active.definitionKey}::${active.version}`:'',
-      definitionKey:active?.definitionKey||'',
-      version:active?.version||null,
-      correlationId:crypto.randomUUID(),input:'{}',context:'{}',start:true
-    };
-    this.modal.set('process-instance-create');
-  }
-
-  selectProcessDefinitionForNewInstance(value:string){
-    const [definitionKey,version]=String(value||'').split('::');
-    this.draft.definitionSelection=value;
-    this.draft.definitionKey=definitionKey||'';
-    this.draft.version=version?Number(version):null;
-  }
-
-  activeProcessDefinitions(){
-    return this.processDefinitions()
-      .filter(d=>d.status==='ACTIVE')
-      .sort((a,b)=>a.definitionKey.localeCompare(b.definitionKey)||b.version-a.version);
-  }
-  async saveProcessInstance(){
-    await this.run(async()=>{
-      const body={definitionKey:this.draft.definitionKey,version:this.draft.version?Number(this.draft.version):null,correlationId:this.draft.correlationId||crypto.randomUUID(),input:JSON.parse(this.draft.input||'{}'),context:JSON.parse(this.draft.context||'{}')};
-      const created=await this.api.createProcessInstance(body);
-      if(this.draft.start!==false)await this.api.startProcessInstance(created.id);
-      this.processInstances.set(await this.api.processInstances());
-      this.closeModal();
-      await this.openProcessInstance(created.id);
-    });
-  }
-
-  async openProcessInstance(id:string){
-    await this.run(async()=>{const x=await this.api.processInstance(id);this.selectedProcessInstance.set(x);this.modal.set('process-instance');});
-  }
-  async processInstanceAction(kind:'start'|'pause'|'resume'|'cancel'){
-    const x=this.selectedProcessInstance();if(!x)return;
-    await this.run(async()=>{
-      if(kind==='start')await this.api.startProcessInstance(x.id);
-      if(kind==='pause')await this.api.pauseProcessInstance(x.id);
-      if(kind==='resume')await this.api.resumeProcessInstance(x.id);
-      if(kind==='cancel')await this.api.cancelProcessInstance(x.id);
-      this.selectedProcessInstance.set(await this.api.processInstance(x.id));
-      this.processInstances.set(await this.api.processInstances());
-    });
-  }
-
-  async completeHumanTask(x:ProcessHumanTask,explicitDecision?:string){
-    await this.run(async()=>{
-      const review=this.humanTaskReviewPolicy(x);
-      const allowed=review?[review.approveDecision||'APPROVE',review.repeatDecision||'REQUEST_CHANGES']:[];
-      const decision=explicitDecision||(review&&!allowed.includes(this.processHumanDecision)
-        ? (review.approveDecision||'APPROVE')
-        : this.processHumanDecision);
-      await this.api.completeProcessHumanTask(x.id,decision,JSON.parse(this.processHumanResult||'{}'));
-      this.processHumanTasks.set(await this.api.processHumanTasks());
-      this.processInstances.set(await this.api.processInstances());
-      this.processHumanResult='{}';
-    });
-  }
-
-  openSignalProcessEvent(x?:ProcessInstance){
-    let eventType='';
-    if(x){
-      const waiting=x.steps.find(s=>s.type==='WAIT_EVENT'&&s.status==='WAITING');
-      const definition=this.processDefinitions().find(d=>d.id===x.definitionId);
-      eventType=definition?.steps.find(s=>s.stepKey===waiting?.stepKey)?.configuration?.eventType||'';
-    }
-    this.processSignalEventType=eventType;
-    this.processSignalCorrelation=x?.correlationId||'';
-    this.processSignalPayload='{}';
-    this.modal.set('process-event');
-  }
-  async signalProcessEvent(){
-    await this.run(async()=>{
-      await this.api.signalProcessEvent(this.processSignalEventType,this.processSignalCorrelation,JSON.parse(this.processSignalPayload||'{}'));
-      this.closeModal();
-      await this.refreshProcessesLive();
-    });
-  }
-
-  processStatusLabel(status:string,type?:ProcessStepType){
-    if(status!=='WAITING')return status;
-    if(type==='HUMAN')return 'WAITING REVIEW';
-    if(type==='WAIT_EVENT')return 'WAITING EVENT';
-    return 'IN PROCESS';
-  }
-
-  processDefinitionName(instance?:ProcessInstance|null){
-    if(!instance)return '';
-    const definition=this.processDefinitions().find(d=>d.id===instance.definitionId)
-      ||this.processDefinitions().find(d=>d.definitionKey===instance.definitionKey&&d.version===instance.definitionVersion);
-    return definition?.name||instance.definitionKey;
-  }
-
-  processStepName(instance:ProcessInstance|null|undefined,stepKey:string){
-    if(!instance)return stepKey;
-    const definition=this.processDefinitions().find(d=>d.id===instance.definitionId)
-      ||this.processDefinitions().find(d=>d.definitionKey===instance.definitionKey&&d.version===instance.definitionVersion);
-    return definition?.steps.find(s=>s.stepKey===stepKey)?.name||stepKey;
-  }
-
-  humanTaskProcessName(task:ProcessHumanTask){
-    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
-    return instance?this.processDefinitionName(instance):task.processInstanceId;
-  }
-
-  humanTaskStepName(task:ProcessHumanTask){
-    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
-    return this.processStepName(instance,task.stepKey);
-  }
-
-  agentDisplayName(ref?:string|null){
-    if(!ref)return '';
-    const agent=this.agents().find(a=>a.id===ref||a.name===ref);
-    return agent?.name||this.humanizeIdentifier(ref);
-  }
-
-  stepDisplayName(step:any){
-    if(step?.description?.trim())return step.description;
-    return this.humanizeIdentifier(step?.id||'Step');
-  }
-
-  humanizeIdentifier(value?:string|null){
-    return String(value||'').replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-  }
-
-  processStepLabel(type:ProcessStepType){
-    return ({SERVICE:'Service',AGENTIC_EXECUTION:'Agentic execution',DECISION:'Decision',HUMAN:'Human task',WAIT_EVENT:'Wait event',SUBPROCESS:'Subprocess'} as any)[type]||type;
-  }
-
-  processStepIcon(type:ProcessStepType){
-    return ({SERVICE:'↗',AGENTIC_EXECUTION:'◎',DECISION:'◇',HUMAN:'♙',WAIT_EVENT:'◷',SUBPROCESS:'▣'} as any)[type]||'•';
-  }
-
-  defaultProcessStepConfiguration(type:ProcessStepType){
-    if(type==='SERVICE'){
-      const svc=this.processServices().filter(s=>s.status==='ACTIVE').sort((a,b)=>b.version-a.version)[0];
-      return {serviceKey:svc?.serviceKey||'',serviceVersion:svc?.version||null};
-    }
-    if(type==='AGENTIC_EXECUTION')return {intent:'',instructions:[],metadata:{}};
-    if(type==='DECISION')return {path:'processInput.value',operator:'EQ',value:true,onTrue:'TRUE',onFalse:'FALSE'};
-    if(type==='HUMAN')return {title:'Human approval',description:''};
-    if(type==='WAIT_EVENT')return {eventType:'event.received'};
-    return {};
-  }
-
-
-  selectReviewProducer(step:any,key:string){
-    const previous=step.reviewRepeatStep;
-    const deps=new Set<string>(step.dependsOn||[]);
-    if(previous)deps.delete(previous);
-    if(key)deps.add(key);
-    step.reviewRepeatStep=key;
-    step.dependsOn=[...deps];
-    this.processStepDraft.set({...step});
-  }
-
-  reviewableProducerSteps(currentStepKey:string){
-    return (this.processDesigner()?.steps||[]).filter((s:any)=>
-      s.stepKey!==currentStepKey
-      && (s.type==='SERVICE'||s.type==='AGENTIC_EXECUTION'));
-  }
-
-  taskArtifactRefs(task:ProcessHumanTask){
-    const refs:any[]=[];
-    const visit=(value:any)=>{
-      if(Array.isArray(value)){value.forEach(visit);return;}
-      if(value&&typeof value==='object'){
-        if(value.artifactId&&value.type)refs.push(value);
-        Object.values(value).forEach(visit);
-      }
-    };
-    visit(task.payload);
-    return refs.filter((x,index,arr)=>arr.findIndex(y=>y.artifactId===x.artifactId)===index);
-  }
-
-  taskReviewArtifacts(task:ProcessHumanTask){
-    return this.taskArtifactRefs(task).filter((a:any)=>
-      a.type==='HUMAN_DOCUMENT'||a.type==='FINAL_DELIVERABLE'
-    );
-  }
-
-  humanTaskProducerStep(task:ProcessHumanTask){
-    const review=this.humanTaskReviewPolicy(task);
-    return review?.repeatStep||Object.keys(task.payload?.dependencies||{})[0]||'';
-  }
-
-  humanTaskProducerResult(task:ProcessHumanTask){
-    const key=this.humanTaskProducerStep(task);
-    return key?task.payload?.dependencies?.[key]:null;
-  }
-
-  humanTaskProducerName(task:ProcessHumanTask){
-    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
-    return this.processStepName(instance,this.humanTaskProducerStep(task));
-  }
-
-  humanTaskLegacyReviewText(task:ProcessHumanTask){
-    if(this.taskReviewArtifacts(task).length)return '';
-    const result:any=this.humanTaskProducerResult(task);
-    if(!result)return '';
-    const candidates=[
-      result?.data?.finalStep?.output?.content,
-      result?.data?.finalStep?.summary,
-      result?.output?.content,
-      result?.summary,
-      result?.content
-    ];
-    return String(candidates.find(x=>typeof x==='string'&&x.trim())||'');
-  }
-
-  textDisplayBlocks(rawValue:string){
-    const raw=String(rawValue||'');
-    const blocks:any[]=[];
-    let paragraph:string[]=[];
-    const flush=()=>{if(paragraph.length){blocks.push({kind:'p',text:paragraph.join(' ')});paragraph=[];}};
-    for(const sourceLine of raw.split('\n')){
-      const line=sourceLine.trim();
-      if(!line){flush();continue;}
-      const heading=line.match(/^(#{1,3})\s+(.+)$/);
-      if(heading){flush();blocks.push({kind:'h'+heading[1].length,text:heading[2]});continue;}
-      const bullet=line.match(/^[-*]\s+(.+)$/);
-      if(bullet){flush();blocks.push({kind:'li',text:bullet[1]});continue;}
-      paragraph.push(line);
-    }
-    flush();
-    return blocks;
-  }
-
-  private unwrapStructuredText(rawValue:string){
-    const raw=String(rawValue||'').trim();
-    return raw.replace(/^\s*```(?:json|markdown|md)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
-  }
-
-  private extractJsonStringField(rawValue:string,field:string){
-    const raw=this.unwrapStructuredText(rawValue);
-    const token=`"${field}"`;
-    const keyIndex=raw.indexOf(token);
-    if(keyIndex<0)return '';
-    const colon=raw.indexOf(':',keyIndex+token.length);
-    if(colon<0)return '';
-    const quote=raw.indexOf('"',colon+1);
-    if(quote<0)return '';
-    let escaped=false;
-    for(let i=quote+1;i<raw.length;i++){
-      const ch=raw[i];
-      if(ch==='"'&&!escaped){
-        const literal=raw.slice(quote,i+1);
-        try{return JSON.parse(literal);}catch{return raw.slice(quote+1,i);}
-      }
-      escaped=ch==='\\'&&!escaped;
-      if(ch!=='\\')escaped=false;
-    }
-    return '';
-  }
-
-  private markdownFrom(value:any,depth=0):string{
-    if(value==null||depth>7)return '';
-    if(typeof value==='object'){
-      const human=value.humanDocument||value.human_document;
-      if(typeof human?.markdown==='string'&&human.markdown.trim())return human.markdown.trim();
-      if(typeof value.markdown==='string'&&value.markdown.trim()){
-        const nested=this.markdownFrom(value.markdown,depth+1);
-        if(nested)return nested;
-      }
-      for(const key of ['content','data','output','result','document']){
-        if(value[key]!=null){
-          const nested=this.markdownFrom(value[key],depth+1);
-          if(nested)return nested;
-        }
-      }
-      return '';
-    }
-    if(typeof value!=='string')return '';
-    const raw=this.unwrapStructuredText(value);
-    if((raw.startsWith('{')&&raw.endsWith('}'))||(raw.startsWith('[')&&raw.endsWith(']'))){
-      try{
-        const parsed=JSON.parse(raw);
-        const nested=this.markdownFrom(parsed,depth+1);
-        if(nested)return nested;
-      }catch{
-        const markdown=this.extractJsonStringField(raw,'markdown');
-        if(markdown)return markdown;
-      }
-    }
-    const embeddedMarkdown=this.extractJsonStringField(raw,'markdown');
-    if(embeddedMarkdown)return embeddedMarkdown;
-    return raw;
-  }
-
-  private summaryFrom(value:any,depth=0):string{
-    if(value==null||depth>6)return '';
-    if(typeof value==='object'){
-      if(typeof value.summary==='string'&&value.summary.trim())return this.summaryFrom(value.summary,depth+1);
-      for(const key of ['content','data','output','result']){
-        if(value[key]!=null){
-          const nested=this.summaryFrom(value[key],depth+1);
-          if(nested)return nested;
-        }
-      }
-      return '';
-    }
-    if(typeof value!=='string')return '';
-    const raw=this.unwrapStructuredText(value);
-    if(raw.startsWith('{')||raw.startsWith('[')){
-      try{
-        const parsed=JSON.parse(raw);
-        const nested=this.summaryFrom(parsed,depth+1);
-        if(nested)return nested;
-      }catch{
-        const summary=this.extractJsonStringField(raw,'summary');
-        if(summary)return summary;
-      }
-    }
-    const embedded=this.extractJsonStringField(raw,'summary');
-    return embedded||raw;
-  }
-
-  artifactMarkdown(a:ExecutionArtifact){
-    return this.markdownFrom(a.content);
-  }
-
-  artifactSummary(a:any){
-    const parsed=this.summaryFrom(a?.summary);
-    if(parsed&&parsed!==a?.summary)return parsed;
-    const fromContent=this.summaryFrom(a?.content);
-    return fromContent||parsed||'';
-  }
-
-  artifactDisplayBlocks(a:ExecutionArtifact){
-    return this.textDisplayBlocks(this.artifactMarkdown(a));
-  }
-
-  toggleHumanTaskTechnical(task:ProcessHumanTask){
-    this.humanTaskTechnicalOpen[task.id]=!this.humanTaskTechnicalOpen[task.id];
-  }
-
-  isHumanTaskTechnicalOpen(task:ProcessHumanTask){
-    return !!this.humanTaskTechnicalOpen[task.id];
-  }
-
-  trackByHumanTaskId(_index:number,task:ProcessHumanTask){
-    return task.id;
-  }
-
-  async openArtifact(ref:any){
-    await this.run(async()=>{
-      this.selectedArtifact.set(await this.api.artifact(ref.artifactId||ref.id));
-      this.modal.set('artifact');
-    });
-  }
-
-  humanTaskReviewPolicy(task:ProcessHumanTask){
-    const instance=this.processInstances().find(x=>x.id===task.processInstanceId);
-    const definition=this.processDefinitions().find(d=>d.id===instance?.definitionId);
-    return definition?.steps.find(s=>s.stepKey===task.stepKey)?.configuration?.review||null;
-  }
-
-  pendingProcessHumanTasks(){return this.processHumanTasks().filter(x=>x.status==='PENDING').length;}
-  activeProcessServices(){return this.processServices().filter(x=>x.status==='ACTIVE').length;}
-  processProgress(x:ProcessInstance){return x.steps.filter(s=>s.status==='COMPLETED'||s.status==='SKIPPED').length;}
-  processCompletedSteps(x:ProcessInstance){return x.steps.filter(s=>s.status==='COMPLETED').length;}
-  processWaitingSteps(x:ProcessInstance){return x.steps.filter(s=>s.status==='WAITING').length;}
-
-  processServiceSelection(step:any){
-    const key=step.configuration?.serviceKey,version=step.configuration?.serviceVersion;
-    return key&&version?`${key}::${version}`:'';
-  }
-  selectProcessService(step:any,value:string){
-    const [key,version]=String(value||'').split('::');
-    step.configuration.serviceKey=key||'';
-    step.configuration.serviceVersion=version?Number(version):null;
-  }
-  activeProcessServiceVersions(){
-    return this.processServices()
-      .filter(s=>s.status==='ACTIVE')
-      .sort((a,b)=>a.serviceKey.localeCompare(b.serviceKey)||b.version-a.version);
-  }
-
-  processServiceName(step:any){
-    if(step.type!=='SERVICE')return '';
-    const key=step.configuration?.serviceKey,version=step.configuration?.serviceVersion;
-    const svc=this.processServices().find(s=>s.serviceKey===key&&(!version||s.version===version));
-    return svc?`${svc.name} · v${svc.version}`:key||'No service selected';
-  }
-
-  selectedProcessDefinitionForInstance(){
-    const x=this.selectedProcessInstance();
-    return x?this.processDefinitions().find(d=>d.id===x.definitionId)||null:null;
-  }
-
-  private async run(fn:()=>Promise<any>){this.busy.set(true);this.error.set('');try{await fn();}catch(e:any){this.error.set(this.message(e));}finally{this.busy.set(false);}}
-  private message(e:any){return e?.error?.detail||e?.message||'Error inesperado';}
+  async loadGovernance(){ return governanceActions.loadGovernance.apply(this, arguments as any); }
+  editGovernancePolicy(x?:GovernancePolicy){ return governanceActions.editGovernancePolicy.apply(this, arguments as any); }
+  async saveGovernancePolicy(){ return governanceActions.saveGovernancePolicy.apply(this, arguments as any); }
+  async deleteGovernancePolicy(x:GovernancePolicy){ return governanceActions.deleteGovernancePolicy.apply(this, arguments as any); }
+  editGovernanceBudget(x?:GovernanceBudget){ return governanceActions.editGovernanceBudget.apply(this, arguments as any); }
+  async saveGovernanceBudget(){ return governanceActions.saveGovernanceBudget.apply(this, arguments as any); }
+  async deleteGovernanceBudget(x:GovernanceBudget){ return governanceActions.deleteGovernanceBudget.apply(this, arguments as any); }
+  async loadEvals(){ return evalsActions.loadEvals.apply(this, arguments as any); }
+  editEvalDataset(x?:EvalDataset){ return evalsActions.editEvalDataset.apply(this, arguments as any); }
+  async saveEvalDataset(){ return evalsActions.saveEvalDataset.apply(this, arguments as any); }
+  async deleteEvalDataset(x:EvalDataset){ return evalsActions.deleteEvalDataset.apply(this, arguments as any); }
+  editEvalDefinition(x?:EvalDefinition){ return evalsActions.editEvalDefinition.apply(this, arguments as any); }
+  toggleEvalMetric(name:string,checked:boolean){ return evalsActions.toggleEvalMetric.apply(this, arguments as any); }
+  async saveEvalDefinition(){ return evalsActions.saveEvalDefinition.apply(this, arguments as any); }
+  async deleteEvalDefinition(x:EvalDefinition){ return evalsActions.deleteEvalDefinition.apply(this, arguments as any); }
+  async runEval(x:EvalDefinition){ return evalsActions.runEval.apply(this, arguments as any); }
+  async inspectEvalRun(x:EvalRun){ return evalsActions.inspectEvalRun.apply(this, arguments as any); }
+  async loadRuntime(){ return executionsActions.loadRuntime.apply(this, arguments as any); }
+  filteredExecutions(){ return executionsActions.filteredExecutions.apply(this, arguments as any); }
+  async filterExecutions(){ return executionsActions.filterExecutions.apply(this, arguments as any); }
+  async openExecution(id:string,show=true){ return executionsActions.openExecution.apply(this, arguments as any); }
+  cancelModal(){ return executionsActions.cancelModal.apply(this, arguments as any); }
+  closeModal(){ return executionsActions.closeModal.apply(this, arguments as any); }
+  statusClass(s:string){ return executionsActions.statusClass.apply(this, arguments as any); }
+  tokens(v:any){ return executionsActions.tokens.apply(this, arguments as any); }
+  runningEvalCount(){ return executionsActions.runningEvalCount.apply(this, arguments as any); }
+  regressionEvalCount(){ return executionsActions.regressionEvalCount.apply(this, arguments as any); }
+  date(v:any){ return executionsActions.date.apply(this, arguments as any); }
+  json(v:any){ return executionsActions.json.apply(this, arguments as any); }
+  short(v:string,n=80){ return executionsActions.short.apply(this, arguments as any); }
+  executionLevels(){ return executionsActions.executionLevels.apply(this, arguments as any); }
+  canPause(){ return executionsActions.canPause.apply(this, arguments as any); }
+  canResume(){ return executionsActions.canResume.apply(this, arguments as any); }
+  canRetry(){ return executionsActions.canRetry.apply(this, arguments as any); }
+  async execAction(kind:'pause'|'resume'|'retry'|'cancel'){ return executionsActions.execAction.apply(this, arguments as any); }
+  async decide(executionId:string,stepId:string,approved:boolean){ return executionsActions.decide.apply(this, arguments as any); }
+  openCreateExecution(){ return executionsActions.openCreateExecution.apply(this, arguments as any); }
+  async saveExecution(){ return executionsActions.saveExecution.apply(this, arguments as any); }
+  async loadSessions(){ return sessionsActions.loadSessions.apply(this, arguments as any); }
+  openCreateSession(){ return sessionsActions.openCreateSession.apply(this, arguments as any); }
+  editSession(s:SessionInfo){ return sessionsActions.editSession.apply(this, arguments as any); }
+  async saveSession(){ return sessionsActions.saveSession.apply(this, arguments as any); }
+  async closeSessionItem(s:SessionInfo){ return sessionsActions.closeSessionItem.apply(this, arguments as any); }
+  async inspectSession(s:SessionInfo){ return sessionsActions.inspectSession.apply(this, arguments as any); }
+  async loadMemory(){ return memoryActions.loadMemory.apply(this, arguments as any); }
+  openCreateMemory(){ return memoryActions.openCreateMemory.apply(this, arguments as any); }
+  async saveMemory(){ return memoryActions.saveMemory.apply(this, arguments as any); }
+  async revokeMemoryItem(m:MemoryInfo){ return memoryActions.revokeMemoryItem.apply(this, arguments as any); }
+  async searchMemory(){ return memoryActions.searchMemory.apply(this, arguments as any); }
+
+  editSkill(x?:Skill){ return resourceActions.editSkill.apply(this, arguments as any); }
+  async saveSkill(){ return resourceActions.saveSkill.apply(this, arguments as any); }
+  async deleteSkill(x:Skill){ return resourceActions.deleteSkill.apply(this, arguments as any); }
+  editAgent(x?:Agent){ return resourceActions.editAgent.apply(this, arguments as any); }
+  toggleSkill(name:string,checked:boolean){ return resourceActions.toggleSkill.apply(this, arguments as any); }
+  async saveAgent(){ return resourceActions.saveAgent.apply(this, arguments as any); }
+  async deleteAgent(x:Agent){ return resourceActions.deleteAgent.apply(this, arguments as any); }
+  async editAgentKnowledge(x:Agent){ return resourceActions.editAgentKnowledge.apply(this, arguments as any); }
+  setKbAssignment(name:string,value:string){ return resourceActions.setKbAssignment.apply(this, arguments as any); }
+  async saveAgentKnowledge(){ return resourceActions.saveAgentKnowledge.apply(this, arguments as any); }
+  editPrompt(x?:Prompt){ return resourceActions.editPrompt.apply(this, arguments as any); }
+  async savePrompt(){ return resourceActions.savePrompt.apply(this, arguments as any); }
+  async deletePrompt(x:Prompt){ return resourceActions.deletePrompt.apply(this, arguments as any); }
+  editTool(x?:Tool){ return resourceActions.editTool.apply(this, arguments as any); }
+  async saveTool(){ return resourceActions.saveTool.apply(this, arguments as any); }
+  async deleteTool(x:Tool){ return resourceActions.deleteTool.apply(this, arguments as any); }
+  editMcp(x?:McpServer){ return resourceActions.editMcp.apply(this, arguments as any); }
+  async saveMcp(){ return resourceActions.saveMcp.apply(this, arguments as any); }
+  async deleteMcp(x:McpServer){ return resourceActions.deleteMcp.apply(this, arguments as any); }
+  editKb(x?:KnowledgeBase){ return resourceActions.editKb.apply(this, arguments as any); }
+  async saveKb(){ return resourceActions.saveKb.apply(this, arguments as any); }
+  async deleteKb(x:KnowledgeBase){ return resourceActions.deleteKb.apply(this, arguments as any); }
+  async selectKb(x:KnowledgeBase){ return resourceActions.selectKb.apply(this, arguments as any); }
+  async uploadFile(event:Event){ return resourceActions.uploadFile.apply(this, arguments as any); }
+  addGoogle(){ return resourceActions.addGoogle.apply(this, arguments as any); }
+  async saveGoogle(){ return resourceActions.saveGoogle.apply(this, arguments as any); }
+  async reindex(d:KnowledgeDocument){ return resourceActions.reindex.apply(this, arguments as any); }
+  async deleteDocument(d:KnowledgeDocument){ return resourceActions.deleteDocument.apply(this, arguments as any); }
+  async retrieve(){ return resourceActions.retrieve.apply(this, arguments as any); }
+
+  async loadProcesses(){ return definitionActions.loadProcesses.apply(this, arguments as any); }
+  async refreshProcessesLive(){ return definitionActions.refreshProcessesLive.apply(this, arguments as any); }
+  setProcessTab(tab:ProcessTab){ return definitionActions.setProcessTab.apply(this, arguments as any); }
+  filteredProcessDefinitions(){ return definitionActions.filteredProcessDefinitions.apply(this, arguments as any); }
+  filteredProcessInstances(){ return definitionActions.filteredProcessInstances.apply(this, arguments as any); }
+  processDefinitionLevels(definition?:ProcessDefinition|null){ return definitionActions.processDefinitionLevels.apply(this, arguments as any); }
+  processInstanceLevels(instance?:ProcessInstance|null){ return definitionActions.processInstanceLevels.apply(this, arguments as any); }
+  openCreateProcessDefinition(){ return definitionActions.openCreateProcessDefinition.apply(this, arguments as any); }
+  editProcessDefinition(x:ProcessDefinition){ return definitionActions.editProcessDefinition.apply(this, arguments as any); }
+  addProcessStep(type:ProcessStepType){ return definitionActions.addProcessStep.apply(this, arguments as any); }
+  editProcessStep(step:any){ return definitionActions.editProcessStep.apply(this, arguments as any); }
+  saveProcessStep(){ return definitionActions.saveProcessStep.apply(this, arguments as any); }
+  removeProcessStep(step:any){ return definitionActions.removeProcessStep.apply(this, arguments as any); }
+  toggleProcessDependency(key:string,checked:boolean){ return definitionActions.toggleProcessDependency.apply(this, arguments as any); }
+  async saveProcessDefinition(){ return definitionActions.saveProcessDefinition.apply(this, arguments as any); }
+  async activateProcessDefinition(x:ProcessDefinition){ return definitionActions.activateProcessDefinition.apply(this, arguments as any); }
+  async retireProcessDefinition(x:ProcessDefinition){ return definitionActions.retireProcessDefinition.apply(this, arguments as any); }
+  async nextProcessDefinitionVersion(x:ProcessDefinition){ return definitionActions.nextProcessDefinitionVersion.apply(this, arguments as any); }
+  openCreateProcessService(){ return serviceActions.openCreateProcessService.apply(this, arguments as any); }
+  editProcessService(x:ProcessServiceDefinition){ return serviceActions.editProcessService.apply(this, arguments as any); }
+  async saveProcessService(){ return serviceActions.saveProcessService.apply(this, arguments as any); }
+  async activateProcessService(x:ProcessServiceDefinition){ return serviceActions.activateProcessService.apply(this, arguments as any); }
+  async retireProcessService(x:ProcessServiceDefinition){ return serviceActions.retireProcessService.apply(this, arguments as any); }
+  async nextProcessServiceVersion(x:ProcessServiceDefinition){ return serviceActions.nextProcessServiceVersion.apply(this, arguments as any); }
+  openCreateProcessInstance(x?:ProcessDefinition){ return instanceActions.openCreateProcessInstance.apply(this, arguments as any); }
+  selectProcessDefinitionForNewInstance(value:string){ return instanceActions.selectProcessDefinitionForNewInstance.apply(this, arguments as any); }
+  activeProcessDefinitions(){ return instanceActions.activeProcessDefinitions.apply(this, arguments as any); }
+  async saveProcessInstance(){ return instanceActions.saveProcessInstance.apply(this, arguments as any); }
+  async openProcessInstance(id:string){ return instanceActions.openProcessInstance.apply(this, arguments as any); }
+  async processInstanceAction(kind:'start'|'pause'|'resume'|'cancel'){ return instanceActions.processInstanceAction.apply(this, arguments as any); }
+  async completeHumanTask(x:ProcessHumanTask,explicitDecision?:string){ return instanceActions.completeHumanTask.apply(this, arguments as any); }
+  openSignalProcessEvent(x?:ProcessInstance){ return instanceActions.openSignalProcessEvent.apply(this, arguments as any); }
+  async signalProcessEvent(){ return instanceActions.signalProcessEvent.apply(this, arguments as any); }
+  processStatusLabel(status:string,type?:ProcessStepType){ return presentationActions.processStatusLabel.apply(this, arguments as any); }
+  processDefinitionName(instance?:ProcessInstance|null){ return presentationActions.processDefinitionName.apply(this, arguments as any); }
+  processStepName(instance:ProcessInstance|null|undefined,stepKey:string){ return presentationActions.processStepName.apply(this, arguments as any); }
+  humanTaskProcessName(task:ProcessHumanTask){ return presentationActions.humanTaskProcessName.apply(this, arguments as any); }
+  humanTaskStepName(task:ProcessHumanTask){ return presentationActions.humanTaskStepName.apply(this, arguments as any); }
+  agentDisplayName(ref?:string|null){ return presentationActions.agentDisplayName.apply(this, arguments as any); }
+  stepDisplayName(step:any){ return presentationActions.stepDisplayName.apply(this, arguments as any); }
+  humanizeIdentifier(value?:string|null){ return presentationActions.humanizeIdentifier.apply(this, arguments as any); }
+  processStepLabel(type:ProcessStepType){ return presentationActions.processStepLabel.apply(this, arguments as any); }
+  processStepIcon(type:ProcessStepType){ return presentationActions.processStepIcon.apply(this, arguments as any); }
+  defaultProcessStepConfiguration(type:ProcessStepType){ return presentationActions.defaultProcessStepConfiguration.apply(this, arguments as any); }
+  selectReviewProducer(step:any,key:string){ return presentationActions.selectReviewProducer.apply(this, arguments as any); }
+  reviewableProducerSteps(currentStepKey:string){ return presentationActions.reviewableProducerSteps.apply(this, arguments as any); }
+  taskArtifactRefs(task:ProcessHumanTask){ return presentationActions.taskArtifactRefs.apply(this, arguments as any); }
+  taskReviewArtifacts(task:ProcessHumanTask){ return presentationActions.taskReviewArtifacts.apply(this, arguments as any); }
+  humanTaskProducerStep(task:ProcessHumanTask){ return presentationActions.humanTaskProducerStep.apply(this, arguments as any); }
+  humanTaskProducerResult(task:ProcessHumanTask){ return presentationActions.humanTaskProducerResult.apply(this, arguments as any); }
+  humanTaskProducerName(task:ProcessHumanTask){ return presentationActions.humanTaskProducerName.apply(this, arguments as any); }
+  humanTaskLegacyReviewText(task:ProcessHumanTask){ return presentationActions.humanTaskLegacyReviewText.apply(this, arguments as any); }
+  textDisplayBlocks(rawValue:string){ return presentationActions.textDisplayBlocks.apply(this, arguments as any); }
+  unwrapStructuredText(rawValue:string){ return presentationActions.unwrapStructuredText.apply(this, arguments as any); }
+  extractJsonStringField(rawValue:string,field:string){ return presentationActions.extractJsonStringField.apply(this, arguments as any); }
+  markdownFrom(value:any,depth=0):string{ return presentationActions.markdownFrom.apply(this, arguments as any); }
+  summaryFrom(value:any,depth=0):string{ return presentationActions.summaryFrom.apply(this, arguments as any); }
+  artifactMarkdown(a:ExecutionArtifact){ return presentationActions.artifactMarkdown.apply(this, arguments as any); }
+  artifactSummary(a:any){ return presentationActions.artifactSummary.apply(this, arguments as any); }
+  artifactDisplayBlocks(a:ExecutionArtifact){ return presentationActions.artifactDisplayBlocks.apply(this, arguments as any); }
+  toggleHumanTaskTechnical(task:ProcessHumanTask){ return presentationActions.toggleHumanTaskTechnical.apply(this, arguments as any); }
+  isHumanTaskTechnicalOpen(task:ProcessHumanTask){ return presentationActions.isHumanTaskTechnicalOpen.apply(this, arguments as any); }
+  trackByHumanTaskId(_index:number,task:ProcessHumanTask){ return presentationActions.trackByHumanTaskId.apply(this, arguments as any); }
+  async openArtifact(ref:any){ return presentationActions.openArtifact.apply(this, arguments as any); }
+  humanTaskReviewPolicy(task:ProcessHumanTask){ return presentationActions.humanTaskReviewPolicy.apply(this, arguments as any); }
+  pendingProcessHumanTasks(){ return presentationActions.pendingProcessHumanTasks.apply(this, arguments as any); }
+  activeProcessServices(){ return presentationActions.activeProcessServices.apply(this, arguments as any); }
+  processProgress(x:ProcessInstance){ return presentationActions.processProgress.apply(this, arguments as any); }
+  processCompletedSteps(x:ProcessInstance){ return presentationActions.processCompletedSteps.apply(this, arguments as any); }
+  processWaitingSteps(x:ProcessInstance){ return presentationActions.processWaitingSteps.apply(this, arguments as any); }
+  processServiceSelection(step:any){ return presentationActions.processServiceSelection.apply(this, arguments as any); }
+  selectProcessService(step:any,value:string){ return presentationActions.selectProcessService.apply(this, arguments as any); }
+  activeProcessServiceVersions(){ return presentationActions.activeProcessServiceVersions.apply(this, arguments as any); }
+  processServiceName(step:any){ return presentationActions.processServiceName.apply(this, arguments as any); }
+  selectedProcessDefinitionForInstance(){ return presentationActions.selectedProcessDefinitionForInstance.apply(this, arguments as any); }
+
+
+
+
+  async run(fn:()=>Promise<any>){this.busy.set(true);this.error.set('');try{await fn();}catch(e:any){this.error.set(this.message(e));}finally{this.busy.set(false);}}
+  message(e:any){return e?.error?.detail||e?.message||'Error inesperado';}
 }

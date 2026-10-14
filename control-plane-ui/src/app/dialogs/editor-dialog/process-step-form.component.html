@@ -1,0 +1,62 @@
+<ng-container *ngIf="host.modal()==='process-step' && host.processStepDraft() as s">
+      <div class="form-grid two"><label>Step key<input [(ngModel)]="s.stepKey"></label><label>Name<input [(ngModel)]="s.name"></label></div>
+      <label>Description<input [(ngModel)]="s.description"></label>
+      <div class="step-editor-type"><span>{{host.processStepIcon(s.type)}}</span><strong>{{s.type}}</strong></div>
+
+      <ng-container *ngIf="s.type==='SERVICE'">
+        <label>Service version<select [ngModel]="host.processServiceSelection(s)" (ngModelChange)="host.selectProcessService(s,$event)"><option value="">Select an ACTIVE service</option><option *ngFor="let svc of host.activeProcessServiceVersions()" [value]="svc.serviceKey+'::'+svc.version">{{svc.name}} · {{svc.serviceKey}} · v{{svc.version}}</option></select></label>
+        <p class="muted">The selected ACTIVE service version is persisted in the ProcessDefinition when it is activated.</p>
+      </ng-container>
+      <ng-container *ngIf="s.type==='AGENTIC_EXECUTION'">
+        <label>Intent<textarea rows="5" [(ngModel)]="s.configuration.intent" placeholder="What objective should Agent Platform solve?"></textarea></label>
+        <label>Instructions · one per line<textarea rows="4" [(ngModel)]="s.instructions"></textarea></label>
+        <label>Metadata JSON<textarea rows="4" class="mono" [(ngModel)]="s.metadata"></textarea></label>
+        <label class="check"><input type="checkbox" [(ngModel)]="s.artifactEnabled"> Typed artifact output: human report + machine data + compact agent handoff</label>
+        <div class="review-config" *ngIf="s.artifactEnabled">
+          <div class="form-grid two">
+            <label>Machine schema<input [(ngModel)]="s.artifactSchema" placeholder="proposal-qualification/v1"></label>
+            <label>Human artifact title<input [(ngModel)]="s.artifactHumanTitle"></label>
+            <label>Human artifact type<select [(ngModel)]="s.artifactHumanType"><option>HUMAN_DOCUMENT</option><option>FINAL_DELIVERABLE</option></select></label>
+            <label>Capture only agents<input [(ngModel)]="s.artifactAgentNames" placeholder="business-analyst, solution-architect"></label>
+            <label>Max output tokens<input type="number" min="1000" step="1000" [(ngModel)]="s.artifactMaxOutputTokens"></label>
+          </div>
+          <p class="muted">The agent always produces managed internal artifacts. HUMAN_DOCUMENT is for people; MACHINE_DATA / AGENT_HANDOFF / evidence are optimized for downstream agents.</p>
+          <div class="review-config">
+            <label class="check"><input type="checkbox" [(ngModel)]="s.materializationEnabled"> Materialize/publish output externally</label>
+            <label *ngIf="s.materializationEnabled">Allowed WRITE tools<input [(ngModel)]="s.materializationAllowedTools" placeholder="google-docs-create-from-artifact"></label>
+            <p class="muted" *ngIf="s.materializationEnabled">External output is opt-in. Use this only when the process explicitly requires a Google Doc, presentation, sheet, file, email or another external side effect.</p>
+          </div>
+        </div>
+      </ng-container>
+      <ng-container *ngIf="s.type==='DECISION'">
+        <div class="form-grid two"><label>Path<input [(ngModel)]="s.configuration.path" placeholder="processInput.score"></label><label>Operator<select [(ngModel)]="s.configuration.operator"><option *ngFor="let op of ['EQ','NE','GT','GTE','LT','LTE','EXISTS','IN']">{{op}}</option></select></label><label>Value JSON<input class="mono" [(ngModel)]="s.decisionValue" placeholder='true, 80, "HIGH", ["A","B"]'></label><label>True outcome<input [(ngModel)]="s.configuration.onTrue"></label><label>False outcome<input [(ngModel)]="s.configuration.onFalse"></label></div>
+      </ng-container>
+      <ng-container *ngIf="s.type==='HUMAN'">
+        <label>Task title<input [(ngModel)]="s.configuration.title"></label>
+        <label>Task description<textarea rows="4" [(ngModel)]="s.configuration.description"></textarea></label>
+        <label class="check"><input type="checkbox" [(ngModel)]="s.reviewEnabled"> Review loop: allow this human task to request changes from a producer step</label>
+        <div class="review-config" *ngIf="s.reviewEnabled">
+          <div class="form-grid two">
+            <label>Repeat producer<select [ngModel]="s.reviewRepeatStep" (ngModelChange)="host.selectReviewProducer(s,$event)"><option value="">Select producer</option><option *ngFor="let producer of host.reviewableProducerSteps(s.stepKey)" [value]="producer.stepKey">{{producer.stepKey}} · {{producer.type}}</option></select></label>
+            <label>Maximum iterations<input type="number" min="1" [(ngModel)]="s.reviewMaxIterations"></label>
+            <label>Approve decision<input [(ngModel)]="s.reviewApproveDecision"></label>
+            <label>Repeat decision<input [(ngModel)]="s.reviewRepeatDecision"></label>
+          </div>
+          <p class="muted">The review step must directly depend on the selected producer. REQUEST_CHANGES re-runs that producer with the previous output and review feedback available in process context.</p>
+        </div>
+      </ng-container>
+      <ng-container *ngIf="s.type==='WAIT_EVENT'">
+        <div class="form-grid two"><label>Event type<input [(ngModel)]="s.configuration.eventType" placeholder="contract.signed"></label><label>Correlation override<input [(ngModel)]="s.configuration.correlationId" placeholder="empty = ProcessInstance correlation"></label></div>
+      </ng-container>
+
+      <h3>Dependencies</h3>
+      <div class="checkbox-grid"><label class="check" *ngFor="let other of host.processDesigner()?.steps||[]" [class.disabled]="other.stepKey===s.stepKey"><input type="checkbox" [disabled]="other.stepKey===s.stepKey" [checked]="s.dependsOn?.includes(other.stepKey)" (change)="host.toggleProcessDependency(other.stepKey,$any($event.target).checked)"> {{other.stepKey}}</label></div>
+
+      <h3>Conditional branch</h3>
+      <div class="form-grid two"><label>Decision step<select [(ngModel)]="s.whenDecisionStep"><option value="">Always execute</option><option *ngFor="let d of host.processDesigner()?.steps||[]" [value]="d.stepKey" [disabled]="d.type!=='DECISION'">{{d.stepKey}}</option></select></label><label>Expected outcome<input [(ngModel)]="s.whenEquals" [disabled]="!s.whenDecisionStep"></label></div>
+
+      <h3>Runtime policy</h3>
+      <div class="form-grid two"><ng-container *ngIf="s.type==='SERVICE'||s.type==='AGENTIC_EXECUTION'||s.type==='DECISION'"><label>Max attempts<input type="number" min="1" [(ngModel)]="s.retryMaxAttempts"></label><label>Backoff ms<input type="number" min="0" [(ngModel)]="s.retryBackoffMs"></label></ng-container><label>Timeout seconds<input type="number" min="1" [(ngModel)]="s.timeoutSeconds"></label></div>
+
+      <details class="json-details"><summary>Step I/O contracts</summary><div class="form-grid two"><label>Input schema<textarea rows="7" class="mono" [(ngModel)]="s.inputSchema"></textarea></label><label>Output schema<textarea rows="7" class="mono" [(ngModel)]="s.outputSchema"></textarea></label></div></details>
+    </ng-container>

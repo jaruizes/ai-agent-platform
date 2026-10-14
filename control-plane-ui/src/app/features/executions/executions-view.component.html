@@ -1,0 +1,6 @@
+<section class="panel">
+        <div class="panel-head"><div><h2>Execution explorer</h2><p>Plans, agents, tokens, retries, leases and durable controls.</p></div><div class="actions"><input class="search" [(ngModel)]="host.search" placeholder="Search..." /><select [(ngModel)]="host.executionStatus" (change)="host.filterExecutions()"><option value="">All statuses</option><option *ngFor="let s of ['ACCEPTED','RUNNING','RETRYING','PAUSED','WAITING_APPROVAL','COMPLETED','FAILED','CANCELLED']">{{s}}</option></select><button class="primary" (click)="host.openCreateExecution()">＋ New execution</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Status</th><th>Command</th><th>Objective</th><th>Approval</th><th>Retry</th><th>Created</th><th></th></tr></thead><tbody>
+          <tr *ngFor="let e of host.filteredExecutions()" (click)="host.openExecution(e.executionId)"><td><span class="status-pill" [ngClass]="host.statusClass(e.status)">{{e.status}}</span></td><td><strong>{{e.commandName||'—'}}</strong><small class="block mono">{{e.executionId}}</small></td><td>{{host.short(e.objective||e.intent,70)}}</td><td>{{e.waitingApprovals}}</td><td>{{e.retryingSteps}}</td><td>{{host.date(e.createdAt)}}</td><td>›</td></tr>
+        </tbody></table></div>
+      </section>
