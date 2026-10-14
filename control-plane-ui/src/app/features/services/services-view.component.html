@@ -1,0 +1,21 @@
+<section class="panel">
+        <div class="panel-head">
+          <div><h2>Service Registry</h2><p>Discoverable deterministic capabilities owned by Process Platform. Tools/MCP remain exclusive to Agent Platform.</p></div>
+          <button class="primary" (click)="openCreateProcessService()">＋ Service</button>
+        </div>
+        <div class="resource-grid">
+          <article class="resource-card process-service-card" *ngFor="let s of processServices()">
+            <div class="resource-head"><span class="resource-icon">↗</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span></div>
+            <h3>{{s.name}} <small>v{{s.version}}</small></h3>
+            <p>{{s.description||'Deterministic process capability'}}</p>
+            <code>{{s.serviceKey}}</code>
+            <div class="chips"><span>{{s.implementationKey}}</span><span *ngIf="s.configuration?.method">{{s.configuration.method}}</span></div>
+            <footer><small>{{date(s.updatedAt)}}</small><div>
+              <button class="ghost small" *ngIf="s.status==='DRAFT'" (click)="editProcessService(s)">Edit</button>
+              <button class="approve small" *ngIf="s.status==='DRAFT'" (click)="activateProcessService(s)">Activate</button>
+              <button class="ghost small" *ngIf="s.status!=='DRAFT'" (click)="nextProcessServiceVersion(s)">Next</button>
+              <button class="danger small" *ngIf="s.status==='ACTIVE'" (click)="retireProcessService(s)">Retire</button>
+            </div></footer>
+          </article>
+        </div>
+      </section>
