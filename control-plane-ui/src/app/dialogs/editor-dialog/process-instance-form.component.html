@@ -1,0 +1,40 @@
+<ng-container *ngIf="host.modal()==='process-instance-create'">
+      <label>Process version<select [ngModel]="host.draft.definitionSelection" (ngModelChange)="host.selectProcessDefinitionForNewInstance($event)"><option value="">Select an ACTIVE definition</option><option *ngFor="let d of host.activeProcessDefinitions()" [value]="d.definitionKey+'::'+d.version">{{d.name}} · {{d.definitionKey}} · v{{d.version}}</option></select></label>
+      <label>Correlation ID<input class="mono" [(ngModel)]="host.draft.correlationId"></label>
+      <div class="form-grid two"><label>Input JSON<textarea rows="8" class="mono" [(ngModel)]="host.draft.input"></textarea></label><label>Initial context JSON<textarea rows="8" class="mono" [(ngModel)]="host.draft.context"></textarea></label></div>
+      <label class="check"><input type="checkbox" [(ngModel)]="host.draft.start"> Start immediately</label>
+    </ng-container>
+
+<ng-container *ngIf="host.modal()==='process-event'">
+      <label>Event type<input [(ngModel)]="host.processSignalEventType" placeholder="contract.signed"></label>
+      <label>Correlation ID<input class="mono" [(ngModel)]="host.processSignalCorrelation"></label>
+      <label>Payload JSON<textarea rows="8" class="mono" [(ngModel)]="host.processSignalPayload"></textarea></label>
+    </ng-container>
+
+<ng-container *ngIf="host.modal()==='process-instance' && host.selectedProcessInstance() as x">
+      <div class="process-instance-summary">
+        <div><span class="status-pill" [ngClass]="host.statusClass(x.status)">{{host.processStatusLabel(x.status)}}</span><h2>{{host.processDefinitionName(x)}} · v{{x.definitionVersion}}</h2><p class="mono">{{x.id}}</p></div>
+        <div class="process-instance-actions">
+          <button class="primary" *ngIf="x.status==='CREATED'" (click)="host.processInstanceAction('start')">Start</button>
+          <button class="ghost" *ngIf="x.status==='RUNNING'||x.status==='WAITING'" (click)="host.processInstanceAction('pause')">Pause</button>
+          <button class="primary" *ngIf="x.status==='PAUSED'" (click)="host.processInstanceAction('resume')">Resume</button>
+          <button class="danger" *ngIf="!['COMPLETED','FAILED','CANCELLED'].includes(x.status)" (click)="host.processInstanceAction('cancel')">Cancel</button>
+          <button class="ghost" (click)="host.openSignalProcessEvent(x)">Signal event</button>
+        </div>
+      </div>
+      <div class="detail-grid"><article><span>Correlation</span><strong class="small-text">{{x.correlationId}}</strong></article><article><span>Completed</span><strong>{{host.processCompletedSteps(x)}} / {{x.steps.length}}</strong></article><article><span>Waiting</span><strong>{{host.processWaitingSteps(x)}}</strong></article><article><span>Updated</span><strong>{{host.date(x.updatedAt)}}</strong></article></div>
+      <div class="process-canvas instance-canvas">
+        <div class="process-canvas-level" *ngFor="let level of host.processInstanceLevels(x);let li=index">
+          <article class="process-node runtime-node" *ngFor="let s of level" [attr.data-type]="s.type" [ngClass]="host.statusClass(s.status)">
+            <div class="process-node-top"><span class="node-icon">{{host.processStepIcon(s.type)}}</span><span class="status-pill" [ngClass]="host.statusClass(s.status)">{{host.processStatusLabel(s.status,s.type)}}</span></div>
+            <strong>{{host.processStepName(x,s.stepKey)}}</strong><small class="technical-id">{{s.stepKey}} · {{s.type}} · attempt {{s.attemptCount}}</small>
+            <div class="node-runtime-meta"><span *ngIf="s.startedAt">started {{host.date(s.startedAt)}}</span><span *ngIf="s.deadlineAt">deadline {{host.date(s.deadlineAt)}}</span></div>
+            <button class="ghost small" *ngIf="s.delegatedExecutionId" (click)="host.closeModal();host.openExecution(s.delegatedExecutionId)">Inspect agent execution ↗</button>
+            <div class="step-error" *ngIf="s.error?.code||s.error?.message">{{s.error?.code}} {{s.error?.message}}</div>
+            <details class="json-details"><summary>I/O</summary><pre>{{host.json({input:s.input,output:s.output})}}</pre></details>
+          </article>
+          <div class="canvas-arrow" *ngIf="li<host.processInstanceLevels(x).length-1">→</div>
+        </div>
+      </div>
+      <details class="json-details"><summary>Process input / context</summary><pre>{{host.json({input:x.input,context:x.context})}}</pre></details>
+    </ng-container>
