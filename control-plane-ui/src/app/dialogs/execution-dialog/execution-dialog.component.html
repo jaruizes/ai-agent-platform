@@ -1,0 +1,38 @@
+<div class="modal-backdrop" *ngIf="modal()==='execution' && selectedExecution() as e">
+  <section class="modal wide execution-modal"><header><div><span class="eyebrow">EXECUTION</span><h2>{{e.command.name||'Execution'}}</h2><p class="mono">{{e.executionId}}</p></div><button class="icon-btn" (click)="cancelModal()">×</button></header>
+    <div class="modal-body">
+      <div class="execution-summary"><span class="status-pill" [ngClass]="statusClass(e.status)">{{e.status}}</span><span>{{e.intent}}</span><span class="token-total">{{tokens(orchestration()?.usage?.totalTokens)}} tokens</span></div>
+      <div class="exec-actions"><button class="ghost" *ngIf="canPause()" (click)="execAction('pause')">Pause</button><button class="ghost" *ngIf="canResume()" (click)="execAction('resume')">Resume</button><button class="ghost" *ngIf="canRetry()" (click)="execAction('retry')">Retry</button><button class="danger" *ngIf="!['COMPLETED','FAILED','CANCELLED'].includes(e.status)" (click)="execAction('cancel')">Cancel</button></div>
+      <section class="plan-head"><div><span class="eyebrow">LOGICAL PLAN</span><h3>{{orchestration()?.plan?.objective||'Planning…'}}</h3></div><div class="planner-meta">Planner {{orchestration()?.plan?.planner?.model||'—'}} · {{tokens(orchestration()?.plan?.planner?.usage?.total_tokens)}} tokens</div></section>
+      <div class="dag" *ngIf="orchestration()?.steps?.length;else noPlan"><div class="dag-level" *ngFor="let level of executionLevels();let li=index"><div class="dag-step" *ngFor="let s of level" [ngClass]="statusClass(s.status)">
+        <div class="step-top"><span class="step-type">{{s.type}}</span><span class="status-pill" [ngClass]="statusClass(s.status)">{{s.status}}</span></div><strong>{{stepDisplayName(s)}}</strong><small class="technical-id">{{s.id}}</small><p *ngIf="s.description && stepDisplayName(s)!==s.description">{{s.description}}</p>
+        <div class="step-owner" *ngIf="s.agent||s.tool">{{s.agent?'◎ '+agentDisplayName(s.agent):'⌁ '+humanizeIdentifier(s.tool)}}</div><div class="step-meta"><span>{{tokens(s.usage?.total_tokens)}} tok</span><span>attempt {{s.attemptCount}}/{{s.maxAttempts}}</span><span *ngIf="s.dependsOn?.length">after {{s.dependsOn.join(', ')}}</span></div>
+        <div class="approval-note" *ngIf="s.requiresApproval">Human approval · {{s.approvalSource}} · {{s.approval?.status}}</div>
+        <div class="step-error" *ngIf="s.error">{{s.error?.message||json(s.error)}}</div>
+        <div class="step-approval-actions" *ngIf="s.status==='WAITING_APPROVAL'"><button class="danger small" (click)="decide(e.executionId,s.id,false)">Reject</button><button class="approve small" (click)="decide(e.executionId,s.id,true)">Approve</button></div>
+      </div><span class="dag-arrow" *ngIf="li<executionLevels().length-1">↓</span></div></div>
+      <ng-template #noPlan><div class="empty">Planner has not produced a plan yet.</div></ng-template>
+      <div class="detail-grid"><article><span>Active agents</span><strong>{{orchestration()?.activeAgents?.length||0}}</strong></article><article><span>Prompt tokens</span><strong>{{tokens(orchestration()?.usage?.promptTokens)}}</strong></article><article><span>Completion tokens</span><strong>{{tokens(orchestration()?.usage?.completionTokens)}}</strong></article><article><span>Lease owner</span><strong class="small-text">{{e.lease?.owner||'—'}}</strong></article></div>
+      <section class="context-inspector" *ngIf="executionArtifacts().length">
+        <div class="panel-head"><div><span class="eyebrow">TYPED ARTIFACTS</span><h3>Human, machine and handoff outputs</h3><p>Only compact machine/handoff artifacts are eligible for downstream agent context.</p></div></div>
+        <div class="artifact-review-list">
+          <article class="artifact-review-item" *ngFor="let a of executionArtifacts()">
+            <div><span class="status-pill">{{a.type}}</span><b>{{a.title}}</b><small>v{{a.version}} · {{a.schema}} · {{a.sizeBytes}} bytes</small><p *ngIf="artifactSummary(a)">{{artifactSummary(a)}}</p></div>
+            <button class="ghost small" (click)="openArtifact(a)">Open</button>
+          </article>
+        </div>
+      </section>
+      <section class="context-inspector" *ngIf="contextSnapshots().length">
+        <div class="panel-head"><div><span class="eyebrow">M7 CONTEXT SNAPSHOTS</span><h3>Effective context by model step</h3><p>What was selected, compressed or dropped before each model call.</p></div></div>
+        <article class="context-snapshot" *ngFor="let s of contextSnapshots()">
+          <header><div><strong>{{s.stepId}} · attempt {{s.attempt}}</strong><small>{{s.modelProfile}} · {{date(s.createdAt)}}</small></div><div class="chips"><span>{{tokens(s.promptTokenEstimate)}} prompt est.</span><span>{{tokens(s.droppedTokenEstimate)}} dropped</span><span *ngIf="s.compressed">compressed</span></div></header>
+          <div class="context-budget"><span>Budget {{tokens(s.budget?.availableInputTokens)}}</span><span>Selected {{tokens(s.selectedTokenEstimate)}}</span><span>System {{tokens(s.budget?.effectiveSystemPromptTokens)}}</span><span>User {{tokens(s.budget?.effectiveUserPromptTokens)}}</span><span>Output reserve {{tokens(s.budget?.reservedOutputTokens)}}</span><span>Safety {{tokens(s.budget?.safetyMarginTokens)}}</span></div>
+          <div class="context-components"><div *ngFor="let part of s.components" [class.context-dropped]="!part.selected"><strong>{{part.type}}</strong><span>{{tokens(part.tokenEstimate)}} tok</span><span>{{part.action}}</span><span>{{part.metadata?.scopeType||part.metadata?.entryType||part.metadata?.channel||''}}</span></div></div>
+          <details class="json-details"><summary>Provenance</summary><pre>{{json(s.provenance)}}</pre></details>
+        </article>
+      </section>
+      <details class="json-details"><summary>Working Context · {{executionContext().length}} entries</summary><pre>{{json(executionContext())}}</pre></details>
+      <details class="json-details"><summary>Result / technical details</summary><pre>{{json(e.result||e.error)}}</pre></details>
+    </div>
+  </section>
+</div>
