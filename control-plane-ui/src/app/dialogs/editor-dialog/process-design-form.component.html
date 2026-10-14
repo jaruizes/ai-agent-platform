@@ -1,0 +1,44 @@
+<ng-container *ngIf="host.modal()==='process-service'">
+      <div class="form-grid two"><label>Service key<input [(ngModel)]="host.draft.serviceKey" [disabled]="!!host.draft.id"></label><label>Version<input type="number" min="1" [(ngModel)]="host.draft.version" [disabled]="!!host.draft.id"></label><label>Name<input [(ngModel)]="host.draft.name"></label><label>Implementation<select [(ngModel)]="host.draft.implementationKey"><option value="http">HTTP</option><option value="google-drive-folder">Google Drive folder</option><option value="echo">Echo / test</option></select></label></div>
+      <label>Description<input [(ngModel)]="host.draft.description"></label>
+      <label>Adapter configuration JSON<textarea rows="7" class="mono" [(ngModel)]="host.draft.configuration"></textarea></label>
+      <div class="form-grid two"><label>Input schema<textarea rows="7" class="mono" [(ngModel)]="host.draft.inputSchema"></textarea></label><label>Output schema<textarea rows="7" class="mono" [(ngModel)]="host.draft.outputSchema"></textarea></label></div>
+    </ng-container>
+
+<ng-container *ngIf="host.modal()==='process-designer' && host.processDesigner() as p">
+      <div class="process-designer-head">
+        <div class="form-grid two">
+          <label>Definition key<input [(ngModel)]="p.definitionKey" [disabled]="!!p.id"></label>
+          <label>Version<input type="number" min="1" [(ngModel)]="p.version" [disabled]="!!p.id"></label>
+          <label>Name<input [(ngModel)]="p.name" [disabled]="p.status!=='DRAFT'"></label>
+          <label>Status<input [value]="p.status" disabled></label>
+        </div>
+        <label>Description<input [(ngModel)]="p.description" [disabled]="p.status!=='DRAFT'"></label>
+      </div>
+      <div class="designer-toolbar" *ngIf="p.status==='DRAFT'">
+        <span>Add step</span>
+        <button class="ghost small" (click)="host.addProcessStep('SERVICE')">↗ Service</button>
+        <button class="ghost small" (click)="host.addProcessStep('AGENTIC_EXECUTION')">◎ Agentic</button>
+        <button class="ghost small" (click)="host.addProcessStep('DECISION')">◇ Decision</button>
+        <button class="ghost small" (click)="host.addProcessStep('HUMAN')">♙ Human</button>
+        <button class="ghost small" (click)="host.addProcessStep('WAIT_EVENT')">◷ Wait event</button>
+      </div>
+      <div class="process-canvas" *ngIf="p.steps.length;else emptyDesigner">
+        <div class="process-canvas-level" *ngFor="let level of host.processDefinitionLevels(p);let li=index">
+          <article class="process-node" *ngFor="let s of level" [attr.data-type]="s.type">
+            <div class="process-node-top"><span class="node-icon">{{host.processStepIcon(s.type)}}</span><span>{{s.type}}</span></div>
+            <strong>{{s.name||s.stepKey}}</strong><small>{{s.stepKey}}</small>
+            <p *ngIf="s.type==='SERVICE'">{{host.processServiceName(s)}}</p>
+            <p *ngIf="s.type==='AGENTIC_EXECUTION'">{{host.short(s.configuration?.intent,65)}}</p>
+            <p *ngIf="s.type==='DECISION'">{{s.configuration?.path}} {{s.configuration?.operator}} {{s.configuration?.value}}</p>
+            <p *ngIf="s.type==='HUMAN'">{{s.configuration?.title}}</p>
+            <p *ngIf="s.type==='WAIT_EVENT'">{{s.configuration?.eventType}}</p>
+            <div class="node-deps" *ngIf="s.dependsOn?.length">after {{s.dependsOn.join(', ')}}</div>
+            <div class="actions"><button class="ghost small" *ngIf="p.status==='DRAFT'" (click)="host.editProcessStep(s)">Configure</button><button class="icon-danger" *ngIf="p.status==='DRAFT'" (click)="host.removeProcessStep(s)">×</button></div>
+          </article>
+          <div class="canvas-arrow" *ngIf="li<host.processDefinitionLevels(p).length-1">→</div>
+        </div>
+      </div>
+      <ng-template #emptyDesigner><div class="empty big">Add the first step to start the process DAG.</div></ng-template>
+      <details class="json-details process-contracts"><summary>Process I/O contracts</summary><div class="form-grid two"><label>Input schema<textarea rows="7" class="mono" [(ngModel)]="p.inputSchema" [disabled]="p.status!=='DRAFT'"></textarea></label><label>Output schema<textarea rows="7" class="mono" [(ngModel)]="p.outputSchema" [disabled]="p.status!=='DRAFT'"></textarea></label></div></details>
+    </ng-container>
