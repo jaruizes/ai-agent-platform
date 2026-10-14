@@ -1,10 +1,10 @@
 <section class="panel">
-        <div class="panel-head"><div><h2>Approval inbox</h2><p>Human gates enforced by plan or deterministic tool policy.</p></div><label class="inline-field">Actor <input [(ngModel)]="actor" /></label></div>
-        <div class="approval-grid"><article class="approval-detail" *ngFor="let a of approvals()">
+        <div class="panel-head"><div><h2>Approval inbox</h2><p>Human gates enforced by plan or deterministic tool policy.</p></div><label class="inline-field">Actor <input [(ngModel)]="host.actor" /></label></div>
+        <div class="approval-grid"><article class="approval-detail" *ngFor="let a of host.approvals()">
           <div class="approval-top"><span class="status-pill waiting-approval">WAITING APPROVAL</span><span class="risk">{{a.sideEffect||'—'}} · {{a.approvalPolicy||a.approvalSource}}</span></div>
           <h3>{{a.description}}</h3><p>{{a.reason||'Human approval required.'}}</p>
           <dl><div><dt>Execution</dt><dd class="mono">{{a.executionId}}</dd></div><div><dt>Step</dt><dd>{{a.stepId}}</dd></div><div><dt>Tool / Agent</dt><dd>{{a.tool||a.agent||'—'}}</dd></div></dl>
-          <textarea [(ngModel)]="approvalComment" placeholder="Optional audit comment"></textarea>
-          <div class="actions"><button class="danger" (click)="decide(a.executionId,a.stepId,false)">Reject</button><button class="approve" (click)="decide(a.executionId,a.stepId,true)">Approve</button><button class="ghost" (click)="openExecution(a.executionId)">Inspect plan</button></div>
-        </article><div class="empty big" *ngIf="!approvals().length">✓ No approvals are waiting.</div></div>
+          <textarea [(ngModel)]="host.approvalComment" placeholder="Optional audit comment"></textarea>
+          <div class="actions"><button class="danger" (click)="host.decide(a.executionId,a.stepId,false)">Reject</button><button class="approve" (click)="host.decide(a.executionId,a.stepId,true)">Approve</button><button class="ghost" (click)="host.openExecution(a.executionId)">Inspect plan</button></div>
+        </article><div class="empty big" *ngIf="!host.approvals().length">✓ No approvals are waiting.</div></div>
       </section>
