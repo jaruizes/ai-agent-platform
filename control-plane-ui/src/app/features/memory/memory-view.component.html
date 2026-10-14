@@ -1,20 +1,20 @@
 <section class="stat-grid">
-        <article class="stat-card"><span>ACTIVE MEMORIES</span><strong>{{memories().length}}</strong><small>policy-gated persistent entries</small></article>
-        <article class="stat-card"><span>INFERRED THRESHOLD</span><strong>{{memoryPolicy()?.minInferredConfidence||0}}</strong><small>minimum confidence</small></article>
-        <article class="stat-card"><span>AUTO EXTRACTION</span><strong>{{runtime()?.memory?.autoExtractSession?'ON':'OFF'}}</strong><small>{{runtime()?.memory?.extractorModelProfile||'—'}}</small></article>
-        <article class="stat-card"><span>CONTEXT SNAPSHOTS</span><strong>{{overview()?.totals?.['context_snapshots']||0}}</strong><small>explainable model inputs</small></article>
+        <article class="stat-card"><span>ACTIVE MEMORIES</span><strong>{{host.memories().length}}</strong><small>policy-gated persistent entries</small></article>
+        <article class="stat-card"><span>INFERRED THRESHOLD</span><strong>{{host.memoryPolicy()?.minInferredConfidence||0}}</strong><small>minimum confidence</small></article>
+        <article class="stat-card"><span>AUTO EXTRACTION</span><strong>{{host.runtime()?.memory?.autoExtractSession?'ON':'OFF'}}</strong><small>{{host.runtime()?.memory?.extractorModelProfile||'—'}}</small></article>
+        <article class="stat-card"><span>CONTEXT SNAPSHOTS</span><strong>{{host.overview()?.totals?.['context_snapshots']||0}}</strong><small>explainable model inputs</small></article>
       </section>
       <section class="panel">
-        <div class="panel-head"><div><h2>Persistent Memory</h2><p>Facts, preferences, decisions and constraints retained after deterministic policy evaluation.</p></div><button class="primary" (click)="openCreateMemory()">＋ Memory</button></div>
+        <div class="panel-head"><div><h2>Persistent Memory</h2><p>Facts, preferences, decisions and constraints retained after deterministic policy evaluation.</p></div><button class="primary" (click)="host.openCreateMemory()">＋ Memory</button></div>
         <div class="table-wrap"><table><thead><tr><th>Status</th><th>Scope</th><th>Type</th><th>Key</th><th>Content</th><th>Confidence</th><th></th></tr></thead><tbody>
-          <tr *ngFor="let m of memories()"><td><span class="status-pill" [ngClass]="statusClass(m.status)">{{m.status}}</span></td><td>{{m.scopeType}} · {{m.scopeId}}</td><td>{{m.memoryType}}</td><td>{{m.key||'—'}}</td><td>{{short(m.content,90)}}</td><td>{{m.confidence|number:'1.2-2'}}</td><td><button class="danger small" *ngIf="m.status==='ACTIVE'" (click)="revokeMemoryItem(m)">Revoke</button></td></tr>
+          <tr *ngFor="let m of host.memories()"><td><span class="status-pill" [ngClass]="host.statusClass(m.status)">{{m.status}}</span></td><td>{{m.scopeType}} · {{m.scopeId}}</td><td>{{m.memoryType}}</td><td>{{m.key||'—'}}</td><td>{{host.short(m.content,90)}}</td><td>{{m.confidence|number:'1.2-2'}}</td><td><button class="danger small" *ngIf="m.status==='ACTIVE'" (click)="host.revokeMemoryItem(m)">Revoke</button></td></tr>
         </tbody></table></div>
       </section>
       <section class="two-col memory-tools">
         <article class="panel"><div class="panel-head"><div><h2>Memory retrieval playground</h2><p>Hybrid vector + lexical retrieval used by the Context Engine.</p></div></div>
-          <div class="form-grid two"><label>Scope type<select [(ngModel)]="memoryScopeType"><option>SESSION</option><option>USER</option><option>TEAM</option><option>TENANT</option><option>AGENT</option></select></label><label>Scope id<input [(ngModel)]="memoryScopeId" placeholder="session UUID / tenant key"></label></div>
-          <div class="retrieval"><input [(ngModel)]="memoryQuery" placeholder="What context is relevant?" (keyup.enter)="searchMemory()"><input type="number" min="1" max="50" [(ngModel)]="memoryTopK"><button class="primary" (click)="searchMemory()">Retrieve</button></div>
-          <article class="hit" *ngFor="let m of memoryHits()"><header><strong>{{m.memoryType}} · {{m.key||m.scopeType}}</strong><span>rank {{m.metadata?.retrievalScore|number:'1.3-3'}} · relevance {{m.metadata?.relevanceScore|number:'1.3-3'}}</span></header><p>{{m.content}}</p></article>
+          <div class="form-grid two"><label>Scope type<select [(ngModel)]="host.memoryScopeType"><option>SESSION</option><option>USER</option><option>TEAM</option><option>TENANT</option><option>AGENT</option></select></label><label>Scope id<input [(ngModel)]="host.memoryScopeId" placeholder="session UUID / tenant key"></label></div>
+          <div class="retrieval"><input [(ngModel)]="host.memoryQuery" placeholder="What context is relevant?" (keyup.enter)="host.searchMemory()"><input type="number" min="1" max="50" [(ngModel)]="host.memoryTopK"><button class="primary" (click)="host.searchMemory()">Retrieve</button></div>
+          <article class="hit" *ngFor="let m of host.memoryHits()"><header><strong>{{m.memoryType}} · {{m.key||m.scopeType}}</strong><span>rank {{m.metadata?.retrievalScore|number:'1.3-3'}} · relevance {{m.metadata?.relevanceScore|number:'1.3-3'}}</span></header><p>{{m.content}}</p></article>
         </article>
-        <article class="panel"><div class="panel-head"><div><h2>Memory policy</h2><p>Deterministic persistence boundary.</p></div></div><dl class="config-list"><div *ngFor="let x of memoryPolicy()|keyvalue"><dt>{{x.key}}</dt><dd>{{x.value}}</dd></div></dl><details class="json-details"><summary>Recent policy audit</summary><pre>{{json(memoryAudit().slice(0,20))}}</pre></details></article>
+        <article class="panel"><div class="panel-head"><div><h2>Memory policy</h2><p>Deterministic persistence boundary.</p></div></div><dl class="config-list"><div *ngFor="let x of host.memoryPolicy()|keyvalue"><dt>{{x.key}}</dt><dd>{{x.value}}</dd></div></dl><details class="json-details"><summary>Recent policy audit</summary><pre>{{host.json(host.memoryAudit().slice(0,20))}}</pre></details></article>
       </section>
