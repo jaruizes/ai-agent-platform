@@ -1,21 +1,21 @@
 <section class="stat-grid">
-        <article class="stat-card"><span>EXECUTIONS</span><strong>{{overview()?.totals?.['executions']||0}}</strong><small>{{overview()?.executionsByStatus?.['RUNNING']||0}} running</small></article>
-        <article class="stat-card"><span>PENDING APPROVALS</span><strong>{{overview()?.totals?.['pending_approvals']||0}}</strong><small class="warn">human action required</small></article>
-        <article class="stat-card"><span>AGENTS / TOOLS</span><strong>{{overview()?.totals?.['agents']||0}} / {{overview()?.totals?.['tools']||0}}</strong><small>{{overview()?.totals?.['knowledge_bases']||0}} knowledge bases</small></article>
-        <article class="stat-card"><span>RETRYING</span><strong>{{overview()?.totals?.['retrying_steps']||0}}</strong><small>active retry loops</small></article>
+        <article class="stat-card"><span>EXECUTIONS</span><strong>{{host.overview()?.totals?.['executions']||0}}</strong><small>{{host.overview()?.executionsByStatus?.['RUNNING']||0}} running</small></article>
+        <article class="stat-card"><span>PENDING APPROVALS</span><strong>{{host.overview()?.totals?.['pending_approvals']||0}}</strong><small class="warn">human action required</small></article>
+        <article class="stat-card"><span>AGENTS / TOOLS</span><strong>{{host.overview()?.totals?.['agents']||0}} / {{host.overview()?.totals?.['tools']||0}}</strong><small>{{host.overview()?.totals?.['knowledge_bases']||0}} knowledge bases</small></article>
+        <article class="stat-card"><span>RETRYING</span><strong>{{host.overview()?.totals?.['retrying_steps']||0}}</strong><small>active retry loops</small></article>
       </section>
       <section class="two-col">
         <article class="panel">
-          <div class="panel-head"><div><h2>Recent executions</h2><p>Latest durable runs and current state.</p></div><button class="ghost small" (click)="setView('executions')">View all</button></div>
+          <div class="panel-head"><div><h2>Recent executions</h2><p>Latest durable runs and current state.</p></div><button class="ghost small" (click)="host.setView('executions')">View all</button></div>
           <div class="table-wrap"><table><thead><tr><th>Status</th><th>Command</th><th>Intent</th><th>Created</th></tr></thead><tbody>
-            <tr *ngFor="let e of executions().slice(0,8)" (click)="openExecution(e.executionId)"><td><span class="status-pill" [ngClass]="statusClass(e.status)">{{e.status}}</span></td><td>{{e.commandName||'—'}}</td><td>{{short(e.intent,55)}}</td><td>{{date(e.createdAt)}}</td></tr>
+            <tr *ngFor="let e of host.executions().slice(0,8)" (click)="host.openExecution(e.executionId)"><td><span class="status-pill" [ngClass]="host.statusClass(e.status)">{{e.status}}</span></td><td>{{e.commandName||'—'}}</td><td>{{host.short(e.intent,55)}}</td><td>{{host.date(e.createdAt)}}</td></tr>
           </tbody></table></div>
         </article>
         <article class="panel">
           <div class="panel-head"><div><h2>Approval inbox</h2><p>Deterministic policy gates waiting for a decision.</p></div></div>
-          <div class="approval-list"><div class="approval-card" *ngFor="let a of approvals().slice(0,5)">
+          <div class="approval-list"><div class="approval-card" *ngFor="let a of host.approvals().slice(0,5)">
             <div><span class="risk">{{a.sideEffect||'HUMAN'}}</span><strong>{{a.description}}</strong><small>{{a.tool||a.agent||a.commandName}}</small></div>
-            <button class="primary small" (click)="setView('approvals')">Review</button>
-          </div><div class="empty" *ngIf="!approvals().length">No pending approvals.</div></div>
+            <button class="primary small" (click)="host.setView('approvals')">Review</button>
+          </div><div class="empty" *ngIf="!host.approvals().length">No pending approvals.</div></div>
         </article>
       </section>
