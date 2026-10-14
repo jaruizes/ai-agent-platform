@@ -34,39 +34,39 @@
     </div>
     <div class="error-banner" *ngIf="error()">{{error()}} <button (click)="error.set('')">×</button></div>
 
-    <app-dashboard-view [host]="this"></app-dashboard-view>
+    <app-dashboard-view *ngIf="view()==='dashboard'" [host]="this"></app-dashboard-view>
 
-    <app-executions-view [host]="this"></app-executions-view>
+    <app-executions-view *ngIf="view()==='executions'" [host]="this"></app-executions-view>
 
-    <app-approvals-view [host]="this"></app-approvals-view>
-
-
-    <app-processes-view [host]="this"></app-processes-view>
-
-    <app-services-view [host]="this"></app-services-view>
-
-    <app-sessions-view [host]="this"></app-sessions-view>
-
-    <app-memory-view [host]="this"></app-memory-view>
-
-    <app-agents-view [host]="this"></app-agents-view>
-
-    <app-skills-view [host]="this"></app-skills-view>
-
-    <app-prompts-view [host]="this"></app-prompts-view>
-
-    <app-tools-view [host]="this"></app-tools-view>
-
-    <app-mcp-view [host]="this"></app-mcp-view>
-
-    <app-knowledge-view [host]="this"></app-knowledge-view>
+    <app-approvals-view *ngIf="view()==='approvals'" [host]="this"></app-approvals-view>
 
 
-    <app-governance-view [host]="this"></app-governance-view>
+    <app-processes-view *ngIf="view()==='processes'" [host]="this"></app-processes-view>
 
-    <app-evals-view [host]="this"></app-evals-view>
+    <app-services-view *ngIf="view()==='services'" [host]="this"></app-services-view>
 
-    <app-runtime-view [host]="this"></app-runtime-view>
+    <app-sessions-view *ngIf="view()==='sessions'" [host]="this"></app-sessions-view>
+
+    <app-memory-view *ngIf="view()==='memory'" [host]="this"></app-memory-view>
+
+    <app-agents-view *ngIf="view()==='agents'" [host]="this"></app-agents-view>
+
+    <app-skills-view *ngIf="view()==='skills'" [host]="this"></app-skills-view>
+
+    <app-prompts-view *ngIf="view()==='prompts'" [host]="this"></app-prompts-view>
+
+    <app-tools-view *ngIf="view()==='tools'" [host]="this"></app-tools-view>
+
+    <app-mcp-view *ngIf="view()==='mcp'" [host]="this"></app-mcp-view>
+
+    <app-knowledge-view *ngIf="view()==='knowledge'" [host]="this"></app-knowledge-view>
+
+
+    <app-governance-view *ngIf="view()==='governance'" [host]="this"></app-governance-view>
+
+    <app-evals-view *ngIf="view()==='evals'" [host]="this"></app-evals-view>
+
+    <app-runtime-view *ngIf="view()==='runtime'" [host]="this"></app-runtime-view>
   </main>
 </div>
 
