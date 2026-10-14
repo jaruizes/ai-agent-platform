@@ -1,3 +1,21 @@
+import { DashboardViewComponent } from './features/dashboard/dashboard-view.component';
+import { ExecutionsViewComponent } from './features/executions/executions-view.component';
+import { ApprovalsViewComponent } from './features/approvals/approvals-view.component';
+import { ProcessesViewComponent } from './features/processes/processes-view.component';
+import { ServicesViewComponent } from './features/services/services-view.component';
+import { SessionsViewComponent } from './features/sessions/sessions-view.component';
+import { MemoryViewComponent } from './features/memory/memory-view.component';
+import { AgentsViewComponent } from './features/agents/agents-view.component';
+import { SkillsViewComponent } from './features/skills/skills-view.component';
+import { PromptsViewComponent } from './features/prompts/prompts-view.component';
+import { ToolsViewComponent } from './features/tools/tools-view.component';
+import { McpViewComponent } from './features/mcp/mcp-view.component';
+import { KnowledgeViewComponent } from './features/knowledge/knowledge-view.component';
+import { GovernanceViewComponent } from './features/governance/governance-view.component';
+import { EvalsViewComponent } from './features/evals/evals-view.component';
+import { RuntimeViewComponent } from './features/runtime/runtime-view.component';
+import { ExecutionDialogComponent } from './dialogs/execution-dialog/execution-dialog.component';
+import { EditorDialogComponent } from './dialogs/editor-dialog/editor-dialog.component';
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -7,7 +25,7 @@ import { Agent, BudgetDecision, ContextSnapshot, EvalDataset, EvalDefinition, Ev
 type View='dashboard'|'executions'|'approvals'|'processes'|'services'|'sessions'|'memory'|'agents'|'skills'|'prompts'|'tools'|'mcp'|'knowledge'|'governance'|'evals'|'runtime';
 type ProcessTab='definitions'|'instances'|'human';
 
-@Component({selector:'app-root',standalone:true,imports:[CommonModule,FormsModule],templateUrl:'./app.component.html'})
+@Component({selector:'app-root',standalone:true,imports:[CommonModule,FormsModule,DashboardViewComponent,ExecutionsViewComponent,ApprovalsViewComponent,ProcessesViewComponent,ServicesViewComponent,SessionsViewComponent,MemoryViewComponent,AgentsViewComponent,SkillsViewComponent,PromptsViewComponent,ToolsViewComponent,McpViewComponent,KnowledgeViewComponent,GovernanceViewComponent,EvalsViewComponent,RuntimeViewComponent,ExecutionDialogComponent,EditorDialogComponent],templateUrl:'./app.component.html'})
 export class AppComponent implements OnInit,OnDestroy {
   view=signal<View>('dashboard'); busy=signal(false); error=signal('');
   overview=signal<Overview|null>(null); runtime=signal<RuntimeInfo|null>(null);
