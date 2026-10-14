@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component } from '@angular/core';
+import { Component, Input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ControlPlaneViewBase } from '../../shared/control-plane-view.base';
+import type { AppComponent } from '../../app.component';
 
 @Component({
   selector: 'app-prompts-view',
@@ -10,4 +10,4 @@ import { ControlPlaneViewBase } from '../../shared/control-plane-view.base';
   templateUrl: './prompts-view.component.html',
   styles: [':host { display: contents; }'],
 })
-export class PromptsViewComponent extends ControlPlaneViewBase {}
+export class PromptsViewComponent { @Input({ required: true }) host!: AppComponent; }
